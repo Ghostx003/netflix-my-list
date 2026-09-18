@@ -23,8 +23,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   onRescan,
   isRescanning,
 }) => {
-  const movieCount = items.filter((i) => i.mediaType === 'movie').length;
-  const tvCount = items.filter((i) => i.mediaType === 'tv').length;
+  const activeCatalogItems = items.filter(
+    (i) => !i.isCompleted && i.viewingStatus !== 'completed' && i.viewingStatus !== 'dropped' && !i.droppedReason
+  );
+  const movieCount = activeCatalogItems.filter((i) => i.mediaType === 'movie').length;
+  const tvCount = activeCatalogItems.filter((i) => i.mediaType === 'tv').length;
   const stillWatchingCount = items.filter(
     (i) => i.viewingStatus === 'still_watching' && !i.isCompleted
   ).length;

@@ -24,10 +24,26 @@ export function deduplicateAndPrepareItems(
   const now = new Date().toISOString();
 
   for (const raw of incomingItems) {
-    const originalTitle = typeof raw === 'string' ? raw : raw.title;
-    const videoId = typeof raw === 'string' ? undefined : raw.videoId;
+    let originalTitle = typeof raw === 'string' ? raw : raw.title;
+    let videoId = typeof raw === 'string' ? undefined : raw.videoId;
 
     if (!originalTitle || !originalTitle.trim()) continue;
+
+    // Detect if user pasted a Netflix URL into the title input (e.g., https://www.netflix.com/title/81234567 or netflix.com/watch/81234567)
+    const netflixUrlMatch = originalTitle.match(/netflix\.com\/(?:title|watch)\/([a-zA-Z0-9_-]+)/i);
+    if (netflixUrlMatch) {
+      videoId = videoId || netflixUrlMatch[1];
+      // Clean up title if it's just the URL
+      if (/^https?:\/\//i.test(originalTitle.trim())) {
+        const urlObj = new URL(originalTitle.trim().startsWith('http') ? originalTitle.trim() : `https://${originalTitle.trim()}`);
+        const parts = urlObj.pathname.split('/').filter(Boolean);
+        // If path is like /title/81234567, attempt to use remaining or slug
+        const possibleName = parts[parts.length - 1];
+        if (possibleName && !/^\d+$/.test(possibleName)) {
+          originalTitle = decodeURIComponent(possibleName).replace(/[-_]/g, ' ');
+        }
+      }
+    }
 
     const normalized = normalizeTitle(originalTitle);
     const key = createDuplicateKey(normalized);

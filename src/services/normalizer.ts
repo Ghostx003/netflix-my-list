@@ -31,13 +31,21 @@ export function getNetflixUrl(item: { videoId?: string; originalTitle: string; e
     if (/^\d+$/.test(cleanId)) {
       return `https://www.netflix.com/title/${cleanId}`;
     }
-    // If it has letters/numbers or hyphens
+    // If it has letters/numbers or hyphens (slug or ID)
     if (/^[a-zA-Z0-9_-]+$/.test(cleanId) && cleanId.length >= 4) {
       return `https://www.netflix.com/title/${cleanId}`;
     }
   }
-  const query = item.externalTitle || item.originalTitle;
-  return `https://www.netflix.com/search?q=${encodeURIComponent(query)}`;
+
+  // Use the best available title, cleaned of extraneous parentheticals for accurate Netflix landing
+  const rawQuery = item.externalTitle || item.originalTitle || '';
+  const cleanQuery = rawQuery
+    .replace(/\s*\([^)]*\)/g, '') // remove (2023), (US), etc.
+    .replace(/\s*:\s*season\s*\d+/i, '') // remove : Season 1
+    .replace(/\s*season\s*\d+/i, '')
+    .trim() || rawQuery.trim();
+
+  return `https://www.netflix.com/search?q=${encodeURIComponent(cleanQuery)}`;
 }
 
 export interface LanguageBadgeInfo {

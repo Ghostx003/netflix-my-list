@@ -163,6 +163,13 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
         const status = x.viewingStatus || (x.isCompleted ? 'completed' : 'unwatched');
         return status === statusFilter;
       });
+    } else {
+      // By default on Movies & Series catalog, do NOT show watched (completed) and dropped items
+      result = result.filter((x) => {
+        const isDone = x.isCompleted || x.viewingStatus === 'completed';
+        const isDropped = x.viewingStatus === 'dropped' || !!x.droppedReason;
+        return !isDone && !isDropped;
+      });
     }
 
     // 3. Language filter (Available in Hindi, English, Japanese, etc.)
@@ -359,10 +366,10 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
               onChange={(e) => setStatusFilter(e.target.value as StatusFilterType)}
               className="bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-[#E50914] cursor-pointer"
             >
-              <option value="all" className="bg-zinc-900 text-white">All Statuses</option>
-              <option value="unwatched" className="bg-zinc-900 text-white">Unwatched</option>
-              <option value="still_watching" className="bg-zinc-900 text-white">Still Watching</option>
-              <option value="completed" className="bg-zinc-900 text-white">Completed</option>
+              <option value="all" className="bg-zinc-900 text-white">Active Catalog (Excludes Watched & Dropped)</option>
+              <option value="unwatched" className="bg-zinc-900 text-white">Unwatched Only</option>
+              <option value="still_watching" className="bg-zinc-900 text-white">Still Watching Only</option>
+              <option value="completed" className="bg-zinc-900 text-white">Completed (Watched)</option>
               <option value="dropped" className="bg-zinc-900 text-white">Dropped</option>
             </select>
 

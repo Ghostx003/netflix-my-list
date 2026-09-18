@@ -199,7 +199,7 @@ export const ImportLibraryView: React.FC<ImportLibraryViewProps> = ({
                 type="text"
                 value={manualTitle}
                 onChange={(e) => setManualTitle(e.target.value)}
-                placeholder="e.g. Inception, Breaking Bad..."
+                placeholder="e.g. Plastic Beauty, Inception, or paste a netflix.com/title/... link"
                 className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#E50914]"
               />
               <button
