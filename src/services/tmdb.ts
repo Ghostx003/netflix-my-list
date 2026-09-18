@@ -101,7 +101,7 @@ export async function fetchOMDBMetadata(title: string, customKey?: string): Prom
 
   const key = customKey || OMDB_KEY;
   try {
-    const url = 'https://www.omdbapi.com/?t=' + encodeURIComponent(title) + '&apikey=' + key;
+    const url = 'https://www.omdbapi.com/?t=' + encodeURIComponent(title) + '&plot=full&apikey=' + key;
     const res = await fetch(url);
     if (!res.ok) return null;
     const d = await res.json();

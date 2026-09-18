@@ -1,6 +1,6 @@
-import React from 'react';
-import { X, Star, Clock, Calendar, Film, Tv, Play, ExternalLink, Sparkles, Layers, Video } from 'lucide-react';
-import { AppSettings, LibraryItem } from '../types';
+import React, { useState, useMemo } from 'react';
+import { X, Star, Clock, Calendar, Film, Tv, Play, ExternalLink, Sparkles, Layers, Video, ChevronDown, ChevronUp } from 'lucide-react';
+import { AppSettings, LibraryItem, EpisodeInfo } from '../types';
 import { formatRuntime, calculateSeriesRuntime } from '../services/analytics';
 import { getNetflixUrl } from '../services/normalizer';
 
@@ -24,6 +24,31 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const displayTitle = item.externalTitle || item.originalTitle;
   const youtubeSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(displayTitle + ' official trailer')}`;
   const netflixUrl = getNetflixUrl(item);
+
+  // Group TV episodes by season
+  const seasonsMap = useMemo(() => {
+    if (isMovie || !item.episodes || item.episodes.length === 0) return null;
+    const map = new Map<number, EpisodeInfo[]>();
+    for (const ep of item.episodes) {
+      const sNum = ep.seasonNumber || 1;
+      if (!map.has(sNum)) map.set(sNum, []);
+      map.get(sNum)!.push(ep);
+    }
+    // Sort each season's episodes by episodeNumber
+    for (const [sNum, eps] of map.entries()) {
+      eps.sort((a, b) => a.episodeNumber - b.episodeNumber);
+    }
+    return map;
+  }, [isMovie, item.episodes]);
+
+  const sortedSeasonNumbers = useMemo(() => {
+    if (!seasonsMap) return [];
+    return Array.from(seasonsMap.keys()).sort((a, b) => a - b);
+  }, [seasonsMap]);
+
+  const [expandedSeason, setExpandedSeason] = useState<number>(() => {
+    return sortedSeasonNumbers.length > 0 ? sortedSeasonNumbers[0] : 1;
+  });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
@@ -92,11 +117,11 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
           <div className="flex flex-col sm:flex-row gap-6">
             {/* Poster thumbnail */}
             {item.posterPath && (
-              <div className="hidden sm:block flex-shrink-0 w-36 aspect-[2/3] rounded-xl overflow-hidden shadow-2xl border border-zinc-700 -mt-16 relative z-10 bg-zinc-800">
+              <div className="hidden sm:block flex-shrink-0 w-36 h-54 aspect-[2/3] rounded-xl overflow-hidden shadow-2xl border border-zinc-700/80 -mt-16 relative z-10 bg-zinc-800">
                 <img
                   src={item.posterPath}
                   alt={displayTitle}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover object-center"
                 />
               </div>
             )}
@@ -233,15 +258,133 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                 </div>
               )}
 
-              {/* Synopsis */}
-              <div className="mt-4">
-                <h4 className="text-xs uppercase font-semibold tracking-wider text-zinc-400 mb-1">
-                  Synopsis
+              {/* Synopsis with 2-paragraph format */}
+              <div className="mt-5 bg-black/30 p-4 rounded-xl border border-zinc-800 space-y-2">
+                <h4 className="text-xs uppercase font-bold tracking-wider text-zinc-400 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-yellow-400" />
+                  <span>Story & Premise</span>
                 </h4>
-                <p className="text-sm text-zinc-300 leading-relaxed">
-                  {item.synopsis || 'No detailed overview available for this title.'}
-                </p>
+                {(() => {
+                  const raw = (item.synopsis || '').trim();
+                  if (!raw) {
+                    return (
+                      <p className="text-sm text-zinc-300 leading-relaxed italic">
+                        No detailed overview available for this title.
+                      </p>
+                    );
+                  }
+                  // Split existing paragraphs if available, or split sentences into 2 readable paragraphs
+                  const existingParas = raw.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+                  if (existingParas.length >= 2) {
+                    return (
+                      <div className="space-y-2.5 text-sm text-zinc-300 leading-relaxed">
+                        {existingParas.slice(0, 3).map((para, i) => (
+                          <p key={i}>{para}</p>
+                        ))}
+                      </div>
+                    );
+                  }
+                  // If single paragraph, split cleanly around middle sentence
+                  const sentences = raw.match(/[^.!?]+[.!?]+(\s+|$)/g) || [raw];
+                  if (sentences.length >= 3) {
+                    const mid = Math.ceil(sentences.length / 2);
+                    const p1 = sentences.slice(0, mid).join('').trim();
+                    const p2 = sentences.slice(mid).join('').trim();
+                    return (
+                      <div className="space-y-2.5 text-sm text-zinc-300 leading-relaxed">
+                        <p>{p1}</p>
+                        <p>{p2}</p>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="space-y-2.5 text-sm text-zinc-300 leading-relaxed">
+                      <p>{raw}</p>
+                      <p className="text-xs text-zinc-400 italic">
+                        Available to stream on Netflix. Matches genre categories: {(item.genres || []).join(', ') || 'Featured title'}.
+                      </p>
+                    </div>
+                  );
+                })()}
               </div>
+
+              {/* Complete Season-by-Season Episode Guide */}
+              {!isMovie && seasonsMap && sortedSeasonNumbers.length > 0 && (
+                <div className="mt-5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs uppercase font-bold tracking-wider text-zinc-300 flex items-center gap-1.5">
+                      <Tv className="w-3.5 h-3.5 text-[#E50914]" />
+                      <span>All Seasons & Episodes ({item.episodes?.length || 0} total)</span>
+                    </h4>
+                    <span className="text-[11px] text-zinc-400 font-mono">
+                      {sortedSeasonNumbers.length} {sortedSeasonNumbers.length === 1 ? 'Season' : 'Seasons'}
+                    </span>
+                  </div>
+
+                  {/* Season selector tabs / accordions */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
+                    {sortedSeasonNumbers.map((sNum) => {
+                      const count = seasonsMap.get(sNum)?.length || 0;
+                      const isActive = expandedSeason === sNum;
+                      return (
+                        <button
+                          key={sNum}
+                          type="button"
+                          onClick={() => setExpandedSeason(sNum)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
+                            isActive
+                              ? 'bg-[#E50914] text-white shadow-md'
+                              : 'bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700'
+                          }`}
+                        >
+                          <span>Season {sNum}</span>
+                          <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${isActive ? 'bg-black/30 text-white' : 'bg-zinc-900 text-zinc-400'}`}>
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Episode cards for selected season */}
+                  {seasonsMap.has(expandedSeason) && (
+                    <div className="space-y-2 max-h-72 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-zinc-700">
+                      {seasonsMap.get(expandedSeason)!.map((ep) => (
+                        <div
+                          key={ep.id || `${ep.seasonNumber}_${ep.episodeNumber}`}
+                          className="bg-black/40 border border-zinc-800 hover:border-zinc-700 rounded-xl p-3 flex gap-3 transition-colors"
+                        >
+                          {ep.stillPath && (
+                            <img
+                              src={ep.stillPath}
+                              alt=""
+                              className="w-24 h-14 rounded-lg object-cover bg-zinc-800 shrink-0 border border-zinc-800"
+                              loading="lazy"
+                            />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <h5 className="text-xs font-bold text-white truncate">
+                                <span className="text-[#E50914] mr-1.5 font-mono">E{ep.episodeNumber}</span>
+                                {ep.name || `Episode ${ep.episodeNumber}`}
+                              </h5>
+                              <span className="text-[10px] font-mono text-zinc-400 shrink-0 flex items-center gap-0.5">
+                                <Clock className="w-2.5 h-2.5" />
+                                {ep.runtimeMinutes}m
+                              </span>
+                            </div>
+                            {ep.overview && (
+                              <p className="text-[11px] text-zinc-400 line-clamp-2 mt-1 leading-normal">
+                                {ep.overview}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Footer Links & Search Alternatives */}
               <div className="mt-5 pt-3 border-t border-zinc-800 flex flex-wrap items-center justify-between gap-3">
