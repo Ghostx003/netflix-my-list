@@ -4,6 +4,7 @@ import { AppSettings, LibraryItem } from '../types';
 import { MovieCard } from './MovieCard';
 import { TvSeriesCard } from './TvSeriesCard';
 import { itemHasLanguage } from '../services/normalizer';
+import { calculateSeriesRuntime } from '../services/analytics';
 
 interface MoviesSeriesViewProps {
   items: LibraryItem[];
@@ -213,6 +214,20 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
       });
     }
 
+    // Helper to get total effective runtime for any item (movie or series)
+    const getItemRuntime = (item: LibraryItem): number => {
+      if (item.mediaType === 'movie') {
+        return item.runtimeMinutes || 0;
+      }
+      // For TV series, accurately calculate included/total series runtime
+      const b = calculateSeriesRuntime(
+        item,
+        settings.maxEpisodesPerSeries,
+        settings.capSeriesEpisodes
+      );
+      return b.includedRuntimeMinutes || item.includedRuntimeMinutes || (b.totalEpisodes * 45) || 0;
+    };
+
     // 10. Sorting
     return [...result].sort((a, b) => {
       let comparison = 0;
@@ -225,8 +240,8 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
         const imdbB = b.imdbRating !== undefined ? b.imdbRating : (b.rating || -1);
         comparison = imdbA - imdbB;
       } else if (sortBy === 'runtime') {
-        const rA = a.mediaType === 'movie' ? (a.runtimeMinutes || 0) : (a.includedRuntimeMinutes || 0);
-        const rB = b.mediaType === 'movie' ? (b.runtimeMinutes || 0) : (b.includedRuntimeMinutes || 0);
+        const rA = getItemRuntime(a);
+        const rB = getItemRuntime(b);
         comparison = rA - rB;
       } else if (sortBy === 'rating') {
         comparison = (a.rating || 0) - (b.rating || 0);
@@ -243,6 +258,8 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
     });
   }, [
     items,
+    settings.maxEpisodesPerSeries,
+    settings.capSeriesEpisodes,
     mediaTypeFilter,
     statusFilter,
     languageFilter,
@@ -344,9 +361,9 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
               className="bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#E50914] font-medium cursor-pointer"
             >
               <option value="recently_added" className="bg-zinc-900 text-white">Recently Added</option>
-              <option value="rottenTomatoes" className="bg-zinc-900 text-white">🍅 Rotten Tomatoes (High to Low)</option>
-              <option value="imdb" className="bg-zinc-900 text-white">⭐ IMDb Rating (High to Low)</option>
-              <option value="runtime" className="bg-zinc-900 text-white">⏱️ Duration (Longest to Shortest)</option>
+              <option value="runtime" className="bg-zinc-900 text-white">⏱️ Duration / Runtime</option>
+              <option value="rottenTomatoes" className="bg-zinc-900 text-white">🍅 Rotten Tomatoes</option>
+              <option value="imdb" className="bg-zinc-900 text-white">⭐ IMDb Rating</option>
               <option value="title" className="bg-zinc-900 text-white">Alphabetical (A - Z)</option>
               <option value="year" className="bg-zinc-900 text-white">Release Year</option>
               <option value="rating" className="bg-zinc-900 text-white">TMDB Score</option>
@@ -354,10 +371,15 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
 
             <button
               onClick={() => setSortOrder((o) => (o === 'asc' ? 'desc' : 'asc'))}
-              className="p-2 rounded-xl bg-black/40 border border-white/10 hover:bg-white/10 text-gray-300 transition-colors"
-              title={'Order: ' + sortOrder.toUpperCase()}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition-colors ${
+                sortOrder === 'desc'
+                  ? 'bg-red-600/20 border-red-500/50 text-red-400 hover:bg-red-600/30'
+                  : 'bg-blue-600/20 border-blue-500/50 text-blue-400 hover:bg-blue-600/30'
+              }`}
+              title={`Click to change order. Current: ${sortOrder === 'desc' ? 'Descending (Highest / Longest first)' : 'Ascending (Lowest / Shortest first)'}`}
             >
-              <ArrowUpDown className="w-4 h-4" />
+              <ArrowUpDown className="w-3.5 h-3.5" />
+              <span>{sortOrder === 'desc' ? 'DESC (High → Low)' : 'ASC (Low → High)'}</span>
             </button>
           </div>
         </div>

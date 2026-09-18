@@ -150,10 +150,10 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
 
         {/* Action Row */}
         <div className="mt-3 pt-2.5 border-t border-zinc-800/80 flex flex-col gap-2">
-          <div className="flex items-center justify-between text-xs text-zinc-300">
-            <div className="flex items-center gap-1 font-mono text-zinc-400">
-              <Clock className="w-3.5 h-3.5 text-zinc-500" />
-              <span>{formatRuntime(breakdown.includedRuntimeMinutes)}</span>
+          <div className="flex items-center justify-between gap-2 text-xs text-zinc-300">
+            <div className="flex items-center gap-1.5 font-mono text-zinc-400 whitespace-nowrap text-[11px] min-w-0">
+              <Clock className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+              <span className="truncate">{formatRuntime(breakdown.includedRuntimeMinutes)}</span>
             </div>
 
             <a
@@ -161,7 +161,7 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
               target="_blank"
               rel="noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="px-2.5 py-1 rounded-lg bg-[#E50914] hover:bg-red-700 text-white font-black text-[11px] flex items-center gap-1 shadow-md shadow-red-600/30 transition-transform hover:scale-105"
+              className="px-2.5 py-1 rounded-lg bg-[#E50914] hover:bg-red-700 text-white font-black text-[11px] flex items-center gap-1 shadow-md shadow-red-600/30 transition-transform hover:scale-105 shrink-0 whitespace-nowrap"
               title="Watch Series on Netflix"
             >
               <Play className="w-3 h-3 fill-white" />

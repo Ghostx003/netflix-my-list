@@ -390,19 +390,6 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
               <div className="mt-5 pt-3 border-t border-zinc-800 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3 flex-wrap">
                   <a
-                    href={netflixUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs text-[#E50914] hover:underline font-bold"
-                  >
-                    <Play className="w-3.5 h-3.5 fill-[#E50914]" />
-                    <span>Open on Netflix ({displayTitle})</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-
-                  <span className="text-zinc-600">•</span>
-
-                  <a
                     href={youtubeSearchUrl}
                     target="_blank"
                     rel="noreferrer"
