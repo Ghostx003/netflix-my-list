@@ -2,6 +2,7 @@ import React from 'react';
 import { Star, Clock, Film, Play } from 'lucide-react';
 import { LibraryItem } from '../types';
 import { formatRuntime } from '../services/analytics';
+import { getNetflixUrl } from '../services/normalizer';
 
 interface MovieCardProps {
   item: LibraryItem;
@@ -10,6 +11,7 @@ interface MovieCardProps {
 }
 
 export const MovieCard: React.FC<MovieCardProps> = ({ item, onClick, onChangeMatch }) => {
+  const netflixUrl = getNetflixUrl(item);
   return (
     <div
       onClick={onClick}
@@ -129,14 +131,28 @@ export const MovieCard: React.FC<MovieCardProps> = ({ item, onClick, onChangeMat
             <span>{formatRuntime(item.runtimeMinutes || 0)}</span>
           </div>
 
-          {onChangeMatch && (
-            <button
-              onClick={onChangeMatch}
-              className="text-[11px] text-zinc-400 hover:text-white underline hover:no-underline transition-colors"
+          <div className="flex items-center gap-2">
+            <a
+              href={netflixUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="px-2 py-0.5 rounded bg-[#E50914] hover:bg-red-700 text-white font-black text-[10px] flex items-center gap-1 shadow-sm transition-transform hover:scale-105"
+              title="Watch on Netflix"
             >
-              Match
-            </button>
-          )}
+              <Play className="w-2.5 h-2.5 fill-white" />
+              <span>Netflix</span>
+            </a>
+
+            {onChangeMatch && (
+              <button
+                onClick={onChangeMatch}
+                className="text-[11px] text-zinc-400 hover:text-white underline hover:no-underline transition-colors"
+              >
+                Match
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

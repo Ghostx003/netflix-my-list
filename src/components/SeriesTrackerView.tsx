@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { Search, CheckCircle2, Star, Clock, Calendar, Film, Tv, Plus, Trash2, Award } from 'lucide-react';
+import { Search, CheckCircle2, Star, Clock, Calendar, Film, Tv, Plus, Trash2, Award, Play } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { AppSettings, LibraryItem } from '../types';
 import { formatRuntime, calculateSeriesRuntime } from '../services/analytics';
 import { searchTMDB, enrichLibraryItem } from '../services/tmdb';
+import { getNetflixUrl } from '../services/normalizer';
 
 interface SeriesTrackerViewProps {
   items: LibraryItem[];
@@ -398,6 +399,18 @@ export const SeriesTrackerView: React.FC<SeriesTrackerViewProps> = ({
                         ))}
                       </div>
                     </div>
+
+                    {/* Official Netflix Watch Link */}
+                    <a
+                      href={getNetflixUrl(item)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-2.5 py-1.5 rounded-xl bg-[#E50914] hover:bg-red-700 text-white font-bold text-xs flex items-center gap-1 shadow-sm transition-all hover:scale-105"
+                      title="Watch on Netflix"
+                    >
+                      <Play className="w-3 h-3 fill-white" />
+                      <span>Netflix</span>
+                    </a>
 
                     {/* Unmark */}
                     <button

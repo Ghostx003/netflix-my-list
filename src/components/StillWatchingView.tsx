@@ -3,6 +3,7 @@ import { Play, Check, Trash2, Clock, Film, Tv, Search, Star } from 'lucide-react
 import confetti from 'canvas-confetti';
 import { LibraryItem, WatchProgress } from '../types';
 import { formatRuntime } from '../services/analytics';
+import { getNetflixUrl } from '../services/normalizer';
 
 interface StillWatchingViewProps {
   items: LibraryItem[];
@@ -355,7 +356,17 @@ export const StillWatchingView: React.FC<StillWatchingViewProps> = ({
 
                 {/* Actions */}
                 <div className="flex items-center justify-between gap-2 pt-1 border-t border-zinc-800/80">
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <a
+                      href={getNetflixUrl(item)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-[#E50914] text-white hover:bg-red-700 transition-colors shadow-sm"
+                      title="Continue Watching on Netflix"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-white" />
+                      <span>Netflix</span>
+                    </a>
                     <button
                       onClick={() => handleMarkCompleted(item)}
                       className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-600/30 transition-colors"

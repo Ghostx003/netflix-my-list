@@ -2,6 +2,7 @@ import React from 'react';
 import { X, Star, Clock, Calendar, Film, Tv, Play, ExternalLink, Sparkles, Layers, Video } from 'lucide-react';
 import { AppSettings, LibraryItem } from '../types';
 import { formatRuntime, calculateSeriesRuntime } from '../services/analytics';
+import { getNetflixUrl } from '../services/normalizer';
 
 interface MediaDetailModalProps {
   item: LibraryItem | null;
@@ -22,6 +23,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const tvBreakdown = !isMovie ? calculateSeriesRuntime(item, settings.maxEpisodesPerSeries, settings.capSeriesEpisodes) : null;
   const displayTitle = item.externalTitle || item.originalTitle;
   const youtubeSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(displayTitle + ' official trailer')}`;
+  const netflixUrl = getNetflixUrl(item);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
@@ -121,6 +123,16 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                     <span>Search Web Trailer</span>
                   </a>
                 )}
+                <a
+                  href={netflixUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#E50914] hover:bg-red-700 text-white text-xs font-black shadow-md transition-all transform hover:scale-105 ml-auto"
+                >
+                  <Play className="w-3.5 h-3.5 fill-white" />
+                  <span>Watch on Netflix</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
               </div>
 
               <h2 className="text-2xl sm:text-3xl font-black mt-2 text-white tracking-tight">
@@ -233,16 +245,31 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
 
               {/* Footer Links & Search Alternatives */}
               <div className="mt-5 pt-3 border-t border-zinc-800 flex flex-wrap items-center justify-between gap-3">
-                <a
-                  href={youtubeSearchUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 text-xs text-[#E50914] hover:underline font-semibold"
-                >
-                  <Video className="w-3.5 h-3.5" />
-                  <span>Search "{displayTitle}" Trailers on YouTube</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <a
+                    href={netflixUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs text-[#E50914] hover:underline font-bold"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-[#E50914]" />
+                    <span>Open on Netflix ({displayTitle})</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+
+                  <span className="text-zinc-600">•</span>
+
+                  <a
+                    href={youtubeSearchUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs text-zinc-300 hover:text-white hover:underline font-semibold"
+                  >
+                    <Video className="w-3.5 h-3.5 text-red-400" />
+                    <span>Search Trailers on YouTube</span>
+                    <ExternalLink className="w-3 h-3 text-zinc-500" />
+                  </a>
+                </div>
 
                 {onChangeMatch && (
                   <button
