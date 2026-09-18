@@ -5,10 +5,15 @@
   "description": "Scrape, extract, and sync your Netflix My List titles with metadata and direct sync to Netflix Watchlist Analytics.",
   "permissions": [
     "activeTab",
-    "scripting"
+    "scripting",
+    "storage",
+    "tabs"
   ],
   "host_permissions": [
-    "https://*.netflix.com/*"
+    "https://*.netflix.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://*.vercel.app/*"
   ],
   "action": {
     "default_popup": "popup.html",

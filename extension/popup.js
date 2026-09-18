@@ -99,6 +99,8 @@ const tabAllCountEl = document.getElementById('tabAllCount');
 const titlesListEl = document.getElementById('titlesList');
 const listHintTextEl = document.getElementById('listHintText');
 
+const chkAutoExportEl = document.getElementById('chkAutoExport');
+
 function renderTitlesList() {
   if (!titlesListEl) return;
   titlesListEl.innerHTML = '';
@@ -118,23 +120,42 @@ function renderTitlesList() {
     return;
   }
 
-  // Create list rows
+  // Create list rows with full extracted metadata details
   listToRender.forEach((item, index) => {
     const row = document.createElement('div');
     row.className = 'title-row';
 
     const isMissing = missingItems.some(m => normalizeKey(m.title) === normalizeKey(item.title));
 
+    const infoDiv = document.createElement('div');
+    infoDiv.className = 'title-info';
+
     const nameSpan = document.createElement('span');
     nameSpan.className = 'title-name';
     nameSpan.title = item.title;
     nameSpan.textContent = `${index + 1}. ${item.title}`;
 
+    const detailsSpan = document.createElement('span');
+    detailsSpan.className = 'title-details';
+    
+    // Assemble extracted details (duration, maturity rating, video ID, synopsis)
+    const detailParts = [];
+    if (item.duration) detailParts.push(item.duration);
+    if (item.maturityRating) detailParts.push(item.maturityRating);
+    if (item.videoId) detailParts.push(`ID: ${item.videoId}`);
+    if (item.synopsis) {
+      detailParts.push(item.synopsis.length > 50 ? item.synopsis.substring(0, 50) + '...' : item.synopsis);
+    }
+    detailsSpan.textContent = detailParts.length > 0 ? detailParts.join(' • ') : 'Ready to export';
+
+    infoDiv.appendChild(nameSpan);
+    infoDiv.appendChild(detailsSpan);
+
     const badge = document.createElement('span');
     badge.className = `meta-tag ${isMissing ? 'new' : 'existing'}`;
     badge.textContent = isMissing ? 'NEW' : 'IN LIBRARY';
 
-    row.appendChild(nameSpan);
+    row.appendChild(infoDiv);
     row.appendChild(badge);
     titlesListEl.appendChild(row);
   });
@@ -172,10 +193,16 @@ async function processComparison(scrapedItems) {
 
   const existingKeys = await getExistingLibraryKeys();
 
-  // Also check stored items in chrome storage if available
-  const stored = await chrome.storage.local.get(['knownLibraryTitles']);
-  if (stored && Array.isArray(stored.knownLibraryTitles)) {
-    stored.knownLibraryTitles.forEach(t => existingKeys.add(normalizeKey(t)));
+  // Safely check storage if available
+  try {
+    if (chrome && chrome.storage && chrome.storage.local) {
+      const stored = await chrome.storage.local.get(['knownLibraryTitles']);
+      if (stored && Array.isArray(stored.knownLibraryTitles)) {
+        stored.knownLibraryTitles.forEach(t => existingKeys.add(normalizeKey(t)));
+      }
+    }
+  } catch (err) {
+    console.warn('Storage read fallback:', err);
   }
 
   missingItems = [];
@@ -207,6 +234,67 @@ async function processComparison(scrapedItems) {
   renderTitlesList();
 
   if (diffSectionEl) diffSectionEl.style.display = 'flex';
+
+  // Automatically export to web app if option is enabled
+  if (chkAutoExportEl && chkAutoExportEl.checked) {
+    const itemsToAutoExport = missingItems.length > 0 ? missingItems : scrapedItems;
+    if (itemsToAutoExport.length > 0) {
+      exportDirectlyToApp(itemsToAutoExport, true);
+    }
+  }
+}
+
+// Core export helper
+async function exportDirectlyToApp(itemsToSend, isAuto = false) {
+  if (!itemsToSend || itemsToSend.length === 0) return;
+
+  const btnTextEl = document.getElementById('btnSendToAppText') || btnSendToAppEl.querySelector('span');
+  const originalText = btnTextEl ? btnTextEl.textContent : 'Export Directly to Web App';
+
+  const tabs = await chrome.tabs.query({});
+  // Match localhost, 5173, vercel app, or custom domain
+  let appTab = tabs.find(t => t.url && (
+    t.url.includes('localhost') || 
+    t.url.includes('5173') || 
+    t.url.includes('127.0.0.1') ||
+    t.url.includes('vercel.app') || 
+    t.url.includes('netflix-my-list')
+  ));
+
+  if (appTab) {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: appTab.id },
+        args: [itemsToSend],
+        func: (items) => {
+          window.postMessage({
+            type: 'NETFLIX_EXTENSION_SYNC',
+            items: items
+          }, '*');
+        }
+      });
+
+      const message = isAuto 
+        ? `Auto-Exported ${itemsToSend.length} titles to Web App!` 
+        : `Exported ${itemsToSend.length} titles to Web App!`;
+
+      if (btnTextEl) btnTextEl.textContent = message;
+      updateStatus(true, `Synced ${itemsToSend.length} titles directly to Web App tab!`);
+    } catch (e) {
+      // Fallback: Copy to clipboard
+      navigator.clipboard.writeText(JSON.stringify(itemsToSend, null, 2));
+      if (btnTextEl) btnTextEl.textContent = `Copied ${itemsToSend.length} titles to Clipboard!`;
+    }
+  } else {
+    // If app tab not found, copy JSON and open app
+    navigator.clipboard.writeText(JSON.stringify(itemsToSend, null, 2));
+    if (btnTextEl) btnTextEl.textContent = `Copied! Opening Web App...`;
+    chrome.tabs.create({ url: 'http://localhost:5173/?tab=import' });
+  }
+
+  setTimeout(() => {
+    if (btnTextEl) btnTextEl.textContent = originalText;
+  }, 3000);
 }
 
 // 4. Trigger scrape on active tab
@@ -225,7 +313,7 @@ btnScrapeEl.addEventListener('click', async () => {
         return;
       }
 
-      updateStatus(true, `Successfully extracted ${response.count} titles!`);
+      updateStatus(true, `Extracted ${response.count} titles with details!`);
       await processComparison(response.items);
     });
   } catch (err) {
@@ -251,7 +339,7 @@ btnAutoScrollEl.addEventListener('click', async () => {
         return;
       }
 
-      updateStatus(true, `Deep extraction completed: ${response.count} titles found!`);
+      updateStatus(true, `Deep extraction completed: ${response.count} titles extracted!`);
       await processComparison(response.items);
     });
   } catch (err) {
@@ -284,47 +372,10 @@ btnCopyJsonEl.addEventListener('click', () => {
   }, 1800);
 });
 
-// 8. Direct sync to open web app tab
+// 8. Direct sync to open web app tab button
 btnSendToAppEl.addEventListener('click', async () => {
   const itemsToSend = missingItems.length > 0 ? missingItems : lastScrapedItems;
-  if (itemsToSend.length === 0) return;
-
-  const btnTextEl = document.getElementById('btnSendToAppText') || btnSendToAppEl.querySelector('span');
-  const originalText = btnTextEl ? btnTextEl.textContent : 'Export Directly to Web App';
-
-  const tabs = await chrome.tabs.query({});
-  let appTab = tabs.find(t => t.url && (t.url.includes('localhost') || t.url.includes('5173') || t.url.includes('netflix-my-list')));
-
-  if (appTab) {
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId: appTab.id },
-        args: [itemsToSend],
-        func: (items) => {
-          window.postMessage({
-            type: 'NETFLIX_EXTENSION_SYNC',
-            items: items
-          }, '*');
-        }
-      });
-      if (btnTextEl) btnTextEl.textContent = `Exported ${itemsToSend.length} titles to Web App!`;
-      await chrome.tabs.update(appTab.id, { active: true });
-    } catch (e) {
-      // Fallback: Copy to clipboard and focus
-      navigator.clipboard.writeText(JSON.stringify(itemsToSend, null, 2));
-      if (btnTextEl) btnTextEl.textContent = `Copied ${itemsToSend.length} titles to Clipboard!`;
-      await chrome.tabs.update(appTab.id, { active: true });
-    }
-  } else {
-    // If app tab not found, copy JSON and open localhost:5173
-    navigator.clipboard.writeText(JSON.stringify(itemsToSend, null, 2));
-    if (btnTextEl) btnTextEl.textContent = `Copied! Opening Web App...`;
-    chrome.tabs.create({ url: 'http://localhost:5173/?tab=import' });
-  }
-
-  setTimeout(() => {
-    if (btnTextEl) btnTextEl.textContent = originalText;
-  }, 2500);
+  await exportDirectlyToApp(itemsToSend, false);
 });
 
 // Initialize
