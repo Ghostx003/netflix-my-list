@@ -95,8 +95,6 @@ export const NETFLIX_HINDI_DUBBED_TITLES: Set<string> = new Set([
   'dahmer monster the jeffrey dahmer story',
   'monster the jeffrey dahmer story',
   'monsters the lyle and erik menendez story',
-  'monsters',
-  'you',
   'manifest',
   'outer banks',
   'shadow and bone',
@@ -256,14 +254,9 @@ export const NETFLIX_HINDI_DUBBED_TITLES: Set<string> = new Set([
   'carnival row',
   'the silent sea',
   'hellbound',
-  'df',
-  'dp',
   'extracurricular',
   'happiness',
   'flower of evil',
-  'reply 1988',
-  'signal',
-  'prison playbook',
   'kingdom',
   'kingdom ashin of the north',
   'strong girl nam soon',
@@ -280,14 +273,6 @@ export const NETFLIX_HINDI_DUBBED_TITLES: Set<string> = new Set([
   'bogota city of the lost',
   'the chase',
   'sweet tooth',
-  'the asunta case',
-  'the innocent',
-  'the innocent man',
-  'below zero',
-  'under her control',
-  'mirage',
-  'ganglands',
-  'kleo',
 
   // Indian Originals & Blockbusters (native Hindi or Hindi dub available on Netflix)
   'animal',
@@ -381,7 +366,6 @@ export const NETFLIX_HINDI_DUBBED_TITLES: Set<string> = new Set([
   'beverly hills cop',
   'the union',
   'incoming',
-  'ugly',
   'uglies',
   'rebel ridge',
   'lonely planet',
@@ -506,7 +490,6 @@ export const NETFLIX_ENGLISH_DUBBED_TITLES: Set<string> = new Set([
   'seoul vibe',
   'yaksha ruthless operations',
   'jung e',
-  'dp',
   'along with the gods',
   'psychokinesis',
   'revelations',
@@ -613,21 +596,11 @@ export function itemHasLanguage(
     if (orig === 'hi' || orig === 'hin') return true;
     if (countries.some((c) => c === 'in' || c === 'india')) return true;
 
-    // Check titles against known Netflix India Hindi-dubbed catalog
+    // Check titles against known Netflix India Hindi-dubbed catalog (strict exact matching)
     const t1 = normalizeTitle(item.originalTitle || '');
     const t2 = normalizeTitle(item.externalTitle || '');
     if (t1 && NETFLIX_HINDI_DUBBED_TITLES.has(t1)) return true;
     if (t2 && NETFLIX_HINDI_DUBBED_TITLES.has(t2)) return true;
-
-    // Substring checks for prominent Hindi-dubbed franchises
-    for (const dubbed of NETFLIX_HINDI_DUBBED_TITLES) {
-      if (t1 && (t1 === dubbed || t1.includes(dubbed) || dubbed.includes(t1))) {
-        if (t1.length >= 4 && Math.abs(t1.length - dubbed.length) <= 12) return true;
-      }
-      if (t2 && (t2 === dubbed || t2.includes(dubbed) || dubbed.includes(t2))) {
-        if (t2.length >= 4 && Math.abs(t2.length - dubbed.length) <= 12) return true;
-      }
-    }
 
     return false;
   }
@@ -637,20 +610,11 @@ export function itemHasLanguage(
     if (orig === 'en' || orig === 'eng') return true;
     if (countries.some((c) => c === 'us' || c === 'uk' || c === 'gb' || c.includes('united states') || c.includes('united kingdom') || c.includes('australia') || c.includes('canada') || c.includes('ireland') || c.includes('new zealand'))) return true;
 
-    // Check titles against known Netflix English-dubbed catalog
+    // Check titles against known Netflix English-dubbed catalog (strict exact matching)
     const t1 = normalizeTitle(item.originalTitle || '');
     const t2 = normalizeTitle(item.externalTitle || '');
     if (t1 && NETFLIX_ENGLISH_DUBBED_TITLES.has(t1)) return true;
     if (t2 && NETFLIX_ENGLISH_DUBBED_TITLES.has(t2)) return true;
-
-    for (const dubbed of NETFLIX_ENGLISH_DUBBED_TITLES) {
-      if (t1 && (t1 === dubbed || t1.includes(dubbed) || dubbed.includes(t1))) {
-        if (t1.length >= 4 && Math.abs(t1.length - dubbed.length) <= 12) return true;
-      }
-      if (t2 && (t2 === dubbed || t2.includes(dubbed) || dubbed.includes(t2))) {
-        if (t2.length >= 4 && Math.abs(t2.length - dubbed.length) <= 12) return true;
-      }
-    }
 
     return false;
   }
