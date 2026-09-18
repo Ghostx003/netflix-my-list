@@ -13,7 +13,18 @@
 
 function cleanTitle(raw) {
   if (!raw) return '';
-  return raw.replace(/\s+/g, ' ').trim();
+  let cleaned = raw.replace(/\s+/g, ' ').trim();
+
+  // Strip Netflix notification icons and strings (e.g. 🔔, "New arrival", "Watch now", "3 weeks ago")
+  cleaned = cleaned.replace(/[\u{1F300}-\u{1F9FF}]/gu, ''); // Remove emojis like 🔔
+  cleaned = cleaned.replace(/\b(new arrival|recently added|top 10|trending now|watch now|\d+\s+(?:days?|weeks?|months?|hours?)\s+ago)\b/gi, '');
+  cleaned = cleaned.replace(/^(play|watch|more info)\b/gi, '');
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+
+  // Clean trailing or leading punctuation
+  cleaned = cleaned.replace(/^[-:•|,\s]+|[-:•|,\s]+$/g, '').trim();
+
+  return cleaned;
 }
 
 function extractVideoId(urlOrStr) {
@@ -44,27 +55,49 @@ function scrapeVisibleTitles() {
     const href = linkEl ? linkEl.getAttribute('href') : '';
     const videoId = extractVideoId(href);
 
-    // Title from aria-label, img alt, or inner text
+    // Prioritize clean title sources:
+    // 1. Image alt attribute (Netflix boxart alt is usually the purest movie/show title e.g. "Plastic Beauty")
     let title = '';
-    const labelEl = card.querySelector('[aria-label]');
-    if (labelEl) title = labelEl.getAttribute('aria-label') || '';
-    
-    if (!title && linkEl) {
-      title = linkEl.getAttribute('aria-label') || '';
+    const imgEl = card.querySelector('img.boxart-image, img');
+    if (imgEl && imgEl.getAttribute('alt')) {
+      title = cleanTitle(imgEl.getAttribute('alt'));
     }
 
-    const imgEl = card.querySelector('img.boxart-image, img');
-    if (!title && imgEl) {
-      title = imgEl.getAttribute('alt') || '';
+    // 2. Specific title-card-title or fallback-text
+    if (!title) {
+      const textTitleEl = card.querySelector('.fallback-text, .title-card-title, .video-title');
+      if (textTitleEl) {
+        title = cleanTitle(textTitleEl.textContent || '');
+      }
+    }
+
+    // 3. Link aria-label or card aria-label
+    if (!title && linkEl) {
+      title = cleanTitle(linkEl.getAttribute('aria-label') || '');
     }
 
     if (!title) {
-      const textTitleEl = card.querySelector('.fallback-text, .title-card-title, h4, p');
-      if (textTitleEl) title = textTitleEl.textContent || '';
+      const labelEl = card.querySelector('[aria-label]');
+      if (labelEl) {
+        title = cleanTitle(labelEl.getAttribute('aria-label') || '');
+      }
+    }
+
+    // 4. Fallback text content inside card, but filter out notification wrappers
+    if (!title) {
+      const h4OrP = card.querySelector('h4, p');
+      if (h4OrP && !h4OrP.closest('.notification-item, .notification-message')) {
+        title = cleanTitle(h4OrP.textContent || '');
+      }
     }
 
     title = cleanTitle(title);
     if (!title || title.length < 1) return;
+
+    // Filter out UI control strings that aren't movie/show titles
+    if (/^(play|more info|watch|episodes|next|previous|my list|audio & subtitles)$/i.test(title)) {
+      return;
+    }
 
     // Try extracting synopsis if mini-modal/jawbone is open or embedded
     let synopsis = '';
@@ -99,15 +132,28 @@ function scrapeVisibleTitles() {
     }
   });
 
-  // 2. Also check if Netflix has preloaded JSON in window state (react data or jawBone)
+  // 2. Also check if Netflix has title links on page (filtering out notifications bell dropdown)
   try {
     const allLinks = document.querySelectorAll('a[href*="/watch/"], a[href*="/title/"]');
     allLinks.forEach(link => {
+      // Ignore links inside the Netflix notification bell menu / header popups
+      if (link.closest('.notifications-menu, .nav-element, .account-menu-item')) {
+        return;
+      }
+
       const href = link.getAttribute('href') || '';
       const videoId = extractVideoId(href);
-      let title = link.getAttribute('aria-label') || link.textContent || '';
+
+      // Try image alt inside link first
+      const innerImg = link.querySelector('img');
+      let title = innerImg ? innerImg.getAttribute('alt') : '';
+
+      if (!title) {
+        title = link.getAttribute('aria-label') || link.textContent || '';
+      }
+
       title = cleanTitle(title);
-      if (title && title.length > 1 && !/^(play|more info|watch|episodes|next|previous)$/i.test(title)) {
+      if (title && title.length > 1 && !/^(play|more info|watch|episodes|next|previous|my list)$/i.test(title)) {
         const key = (title + (videoId ? '_' + videoId : '')).toLowerCase();
         if (!titlesMap.has(key)) {
           titlesMap.set(key, {
