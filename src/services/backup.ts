@@ -85,44 +85,72 @@ export async function importBackupMerge(backup: BackupData): Promise<{
 }> {
   const existing = await getAllLibraryItems();
   const existingMap = new Map<string, LibraryItem>();
+  const existingById = new Map<string, LibraryItem>();
+  for (const item of existing) {
+    existingById.set(item.id, item);
+  }
 
   for (const item of existing) {
-    const key = createDuplicateKey(item.originalTitle);
-    existingMap.set(key, item);
+    existingMap.set(createDuplicateKey(item.originalTitle), item);
+    if (item.externalTitle) {
+      existingMap.set(createDuplicateKey(item.externalTitle), item);
+    }
+    if (item.previousTitle) {
+      existingMap.set(createDuplicateKey(item.previousTitle), item);
+    }
+    if (item.videoId) {
+      existingMap.set(`vid_${item.videoId}`, item);
+    }
+    existingMap.set(`id_${item.id}`, item);
   }
 
   let addedCount = 0;
   let updatedCount = 0;
+  const processedIds = new Set<string>();
 
   for (const incoming of backup.items) {
     const key = createDuplicateKey(incoming.originalTitle);
-    if (existingMap.has(key)) {
-      const current = existingMap.get(key)!;
+    const prevKey = incoming.previousTitle ? createDuplicateKey(incoming.previousTitle) : null;
+    const vidKey = incoming.videoId ? `vid_${incoming.videoId}` : null;
+    const idKey = `id_${incoming.id}`;
+
+    const existingMatch =
+      existingMap.get(idKey) ||
+      (vidKey ? existingMap.get(vidKey) : null) ||
+      existingMap.get(key) ||
+      (prevKey ? existingMap.get(prevKey) : null);
+
+    if (existingMatch && !processedIds.has(existingMatch.id)) {
+      processedIds.add(existingMatch.id);
       const merged: LibraryItem = {
-        ...current,
+        ...existingMatch,
         ...incoming,
-        id: current.id,
-        viewingStatus: incoming.viewingStatus || current.viewingStatus,
-        progress: incoming.progress || current.progress,
-        droppedReason: incoming.droppedReason || current.droppedReason,
-        droppedNotes: incoming.droppedNotes || current.droppedNotes,
-        droppedAt: incoming.droppedAt || current.droppedAt,
-        isCompleted: incoming.isCompleted ?? current.isCompleted,
-        completedAt: incoming.completedAt || current.completedAt,
-        userStarRating: incoming.userStarRating || current.userStarRating,
-        genres: Array.from(new Set([...(current.genres || []), ...(incoming.genres || [])])),
-        countries: Array.from(new Set([...(current.countries || []), ...(incoming.countries || [])])),
+        id: existingMatch.id,
+        originalTitle: incoming.originalTitle || existingMatch.originalTitle,
+        externalTitle: incoming.externalTitle || existingMatch.externalTitle,
+        normalizedTitle: incoming.normalizedTitle || existingMatch.normalizedTitle,
+        viewingStatus: incoming.viewingStatus || existingMatch.viewingStatus,
+        progress: incoming.progress || existingMatch.progress,
+        droppedReason: incoming.droppedReason || existingMatch.droppedReason,
+        droppedNotes: incoming.droppedNotes || existingMatch.droppedNotes,
+        droppedAt: incoming.droppedAt || existingMatch.droppedAt,
+        isCompleted: incoming.isCompleted ?? existingMatch.isCompleted,
+        completedAt: incoming.completedAt || existingMatch.completedAt,
+        userStarRating: incoming.userStarRating || existingMatch.userStarRating,
+        genres: Array.from(new Set([...(existingMatch.genres || []), ...(incoming.genres || [])])),
+        countries: Array.from(new Set([...(existingMatch.countries || []), ...(incoming.countries || [])])),
         updatedAt: new Date().toISOString(),
       };
-      existingMap.set(key, merged);
+      existingById.set(existingMatch.id, merged);
       updatedCount++;
-    } else {
-      existingMap.set(key, incoming);
+    } else if (!existingMatch) {
+      existingById.set(incoming.id, incoming);
+      processedIds.add(incoming.id);
       addedCount++;
     }
   }
 
-  const mergedList = Array.from(existingMap.values());
+  const mergedList = Array.from(existingById.values());
   await saveLibraryItems(mergedList);
 
   return {

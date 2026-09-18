@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Search, Check, AlertCircle, Film, Tv, Loader2 } from 'lucide-react';
 import { LibraryItem } from '../types';
 import { searchTMDB, TMDBMatchCandidate, fetchFullDetails } from '../services/tmdb';
+import { normalizeTitle } from '../services/normalizer';
 
 interface ManualMatchModalProps {
   item: LibraryItem | null;
@@ -44,6 +45,7 @@ export const ManualMatchModal: React.FC<ManualMatchModalProps> = ({
     setSelecting(true);
     try {
       const fullDetails = await fetchFullDetails(candidate.id, candidate.mediaType, apiKey);
+      const chosenTitle = candidate.title || (fullDetails?.externalTitle as string) || item.originalTitle;
       const updated: LibraryItem = {
         ...item,
         ...(fullDetails || {
@@ -57,6 +59,10 @@ export const ManualMatchModal: React.FC<ManualMatchModalProps> = ({
           voteCount: candidate.voteCount,
           synopsis: candidate.overview,
         }),
+        originalTitle: chosenTitle,
+        externalTitle: chosenTitle,
+        normalizedTitle: normalizeTitle(chosenTitle),
+        previousTitle: item.originalTitle !== chosenTitle ? item.originalTitle : item.previousTitle,
         isManualMatch: true,
         status: 'matched',
         updatedAt: new Date().toISOString(),

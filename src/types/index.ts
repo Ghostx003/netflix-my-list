@@ -87,6 +87,7 @@ export interface LibraryItem {
   // Manual override flag
   isManualMatch?: boolean;
   manualSearchQuery?: string;
+  previousTitle?: string;
 
   // Watch Progress (Still Watching)
   progress?: WatchProgress;
