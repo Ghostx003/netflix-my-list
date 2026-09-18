@@ -1,14 +1,15 @@
 import React, { useState, useMemo } from 'react';
-import { X, Star, Clock, Calendar, Film, Tv, Play, ExternalLink, Sparkles, Layers, Video, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Star, Clock, Calendar, Film, Tv, Play, ExternalLink, Sparkles, Layers, Video, ChevronDown, ChevronUp, Volume2 } from 'lucide-react';
 import { AppSettings, LibraryItem, EpisodeInfo } from '../types';
 import { formatRuntime, calculateSeriesRuntime } from '../services/analytics';
-import { getNetflixUrl, normalizeCountryName, getPriorityLanguageBadge } from '../services/normalizer';
+import { getNetflixUrl, normalizeCountryName, getPriorityLanguageBadge, itemHasLanguage } from '../services/normalizer';
 
 interface MediaDetailModalProps {
   item: LibraryItem | null;
   onClose: () => void;
   settings: AppSettings;
   onChangeMatch?: (item: LibraryItem) => void;
+  onUpdateItem?: (updatedItem: LibraryItem) => void;
 }
 
 export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
@@ -16,6 +17,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   onClose,
   settings,
   onChangeMatch,
+  onUpdateItem,
 }) => {
   if (!item) return null;
 
@@ -267,6 +269,53 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                   ))}
                 </div>
               )}
+
+              {/* Audio & Dubbing Options */}
+              <div className="mt-4 p-3.5 rounded-xl bg-zinc-950/90 border border-zinc-800 shadow-inner">
+                <div className="flex items-center justify-between mb-2.5">
+                  <span className="text-[11px] font-bold text-zinc-200 uppercase tracking-wider flex items-center gap-1.5">
+                    <Volume2 className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Audio &amp; Dubbing Tracks:</span>
+                  </span>
+                  <span className="text-[10px] text-zinc-500">Tap to toggle Hindi / English dub</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { code: 'hi', name: 'Hindi', label: 'हिं Hindi', activeClass: 'bg-amber-500 text-black border-amber-400 font-black shadow-md shadow-amber-500/20' },
+                    { code: 'en', name: 'English', label: 'EN English', activeClass: 'bg-blue-600 text-white border-blue-400 font-extrabold shadow-md shadow-blue-500/20' },
+                    { code: 'ko', name: 'Korean', label: 'KO Korean', activeClass: 'bg-purple-600 text-white border-purple-400 font-bold' },
+                    { code: 'ja', name: 'Japanese', label: 'JA Japanese', activeClass: 'bg-rose-600 text-white border-rose-400 font-bold' },
+                  ].map((lang) => {
+                    const isSelected = itemHasLanguage(item, lang.name.toLowerCase());
+                    return (
+                      <button
+                        key={lang.code}
+                        type="button"
+                        onClick={() => {
+                          if (!onUpdateItem) return;
+                          const currentLangs = item.languages || [];
+                          const isAlready = itemHasLanguage(item, lang.name.toLowerCase());
+                          let updatedLangs: string[];
+                          if (isAlready) {
+                            updatedLangs = currentLangs.filter(l => l.toLowerCase() !== lang.name.toLowerCase() && !l.toLowerCase().includes(lang.code));
+                          } else {
+                            updatedLangs = [...currentLangs, lang.name];
+                          }
+                          onUpdateItem({ ...item, languages: updatedLangs });
+                        }}
+                        className={`text-xs px-3 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer ${
+                          isSelected
+                            ? lang.activeClass
+                            : 'bg-zinc-900 text-zinc-400 border-zinc-700/80 hover:bg-zinc-800 hover:text-white'
+                        }`}
+                      >
+                        <span className="font-mono text-[11px]">{isSelected ? '✓' : '+'}</span>
+                        <span>{lang.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
               {/* Synopsis with 2-paragraph format */}
               <div className="mt-5 bg-black/30 p-4 rounded-xl border border-zinc-800 space-y-2">

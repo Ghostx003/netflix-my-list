@@ -273,6 +273,9 @@ export const NETFLIX_HINDI_DUBBED_TITLES: Set<string> = new Set([
   'bogota city of the lost',
   'the chase',
   'sweet tooth',
+  'plastic beauty',
+  'as you stood by',
+  'trigger',
 
   // Indian Originals & Blockbusters (native Hindi or Hindi dub available on Netflix)
   'animal',

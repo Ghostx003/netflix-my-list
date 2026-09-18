@@ -216,6 +216,9 @@ export const App: React.FC = () => {
   const handleUpdateItem = async (updatedItem: LibraryItem) => {
     const updated = items.map((i) => (i.id === updatedItem.id ? updatedItem : i));
     setItems(updated);
+    if (selectedDetailItem && selectedDetailItem.id === updatedItem.id) {
+      setSelectedDetailItem(updatedItem);
+    }
     await saveLibraryItems(updated);
   };
 
@@ -402,6 +405,7 @@ export const App: React.FC = () => {
         item={selectedDetailItem}
         onClose={() => setSelectedDetailItem(null)}
         settings={settings}
+        onUpdateItem={handleUpdateItem}
         onChangeMatch={(item) => {
           setSelectedDetailItem(null);
           setMatchingItem(item);
