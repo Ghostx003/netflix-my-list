@@ -576,8 +576,16 @@ export const NETFLIX_ENGLISH_DUBBED_TITLES: Set<string> = new Set([
 ]);
 
 /**
- * Checks if an item has a specific language either in languages, originalLanguage,
- * country context (e.g. India implies Hindi availability), or known Netflix India dubbing catalogs.
+ * Checks if an item has a specific language.
+ *
+ * STRICT MODE: Only trusts actual API-returned language data (languages[] and originalLanguage).
+ * The curated title-set lookups (NETFLIX_HINDI_DUBBED_TITLES etc.) are used ONLY as a fallback
+ * when an item has zero language data at all (un-enriched / manually added titles).
+ * Country-of-origin is NOT used to infer audio language — a Korean film made in Korea
+ * is not necessarily available in Hindi just because it's popular.
+ *
+ * To correct a wrong badge, open the title's detail panel and use the Audio & Dubbing
+ * toggle buttons to manually add/remove language tracks.
  */
 export function itemHasLanguage(
   item: {
@@ -592,32 +600,37 @@ export function itemHasLanguage(
   const normTarget = targetLang.toLowerCase().trim();
   const langs = (item.languages || []).map((l) => l.toLowerCase());
   const orig = (item.originalLanguage || '').toLowerCase();
-  const countries = (item.countries || []).map((c) => c.toLowerCase());
+  // Has the item been enriched with real language data?
+  const hasApiData = langs.length > 0 || orig.length > 0;
 
   if (normTarget === 'hi' || normTarget === 'hindi') {
+    // Strict: check actual language data first
     if (langs.some((l) => l === 'hi' || l === 'hin' || l.includes('hindi') || l.includes('हिन्दी'))) return true;
     if (orig === 'hi' || orig === 'hin') return true;
-    if (countries.some((c) => c === 'in' || c === 'india')) return true;
 
-    // Check titles against known Netflix India Hindi-dubbed catalog (strict exact matching)
-    const t1 = normalizeTitle(item.originalTitle || '');
-    const t2 = normalizeTitle(item.externalTitle || '');
-    if (t1 && NETFLIX_HINDI_DUBBED_TITLES.has(t1)) return true;
-    if (t2 && NETFLIX_HINDI_DUBBED_TITLES.has(t2)) return true;
+    // Fallback to curated list ONLY if item has no language data yet (not enriched)
+    if (!hasApiData) {
+      const t1 = normalizeTitle(item.originalTitle || '');
+      const t2 = normalizeTitle(item.externalTitle || '');
+      if (t1 && NETFLIX_HINDI_DUBBED_TITLES.has(t1)) return true;
+      if (t2 && NETFLIX_HINDI_DUBBED_TITLES.has(t2)) return true;
+    }
 
     return false;
   }
 
   if (normTarget === 'en' || normTarget === 'english') {
+    // Strict: check actual language data first
     if (langs.some((l) => l === 'en' || l === 'eng' || l.includes('english'))) return true;
     if (orig === 'en' || orig === 'eng') return true;
-    if (countries.some((c) => c === 'us' || c === 'uk' || c === 'gb' || c.includes('united states') || c.includes('united kingdom') || c.includes('australia') || c.includes('canada') || c.includes('ireland') || c.includes('new zealand'))) return true;
 
-    // Check titles against known Netflix English-dubbed catalog (strict exact matching)
-    const t1 = normalizeTitle(item.originalTitle || '');
-    const t2 = normalizeTitle(item.externalTitle || '');
-    if (t1 && NETFLIX_ENGLISH_DUBBED_TITLES.has(t1)) return true;
-    if (t2 && NETFLIX_ENGLISH_DUBBED_TITLES.has(t2)) return true;
+    // Fallback to curated list ONLY if item has no language data yet
+    if (!hasApiData) {
+      const t1 = normalizeTitle(item.originalTitle || '');
+      const t2 = normalizeTitle(item.externalTitle || '');
+      if (t1 && NETFLIX_ENGLISH_DUBBED_TITLES.has(t1)) return true;
+      if (t2 && NETFLIX_ENGLISH_DUBBED_TITLES.has(t2)) return true;
+    }
 
     return false;
   }
@@ -625,14 +638,12 @@ export function itemHasLanguage(
   if (normTarget === 'ja' || normTarget === 'japanese' || normTarget === 'jap') {
     if (langs.some((l) => l === 'ja' || l === 'jpn' || l.includes('japan'))) return true;
     if (orig === 'ja' || orig === 'jpn') return true;
-    if (countries.some((c) => c === 'jp' || c === 'japan')) return true;
     return false;
   }
 
   if (normTarget === 'ko' || normTarget === 'korean') {
     if (langs.some((l) => l === 'ko' || l === 'kor' || l.includes('korea'))) return true;
     if (orig === 'ko' || orig === 'kor') return true;
-    if (countries.some((c) => c === 'kr' || c.includes('korea'))) return true;
     return false;
   }
 

@@ -39,172 +39,272 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <>
       {/* Top Header */}
-      <header className="sticky top-0 z-40 bg-[#141414]/95 backdrop-blur-xl border-b border-white/10 px-3 sm:px-6 lg:px-10 xl:px-14 py-2.5 transition-all">
-        <div className="w-full flex items-center justify-between gap-3 sm:gap-6 xl:gap-10">
+      <header className="sticky top-0 z-40 bg-[#141414]/95 backdrop-blur-xl border-b border-white/10 transition-all">
+        {/* Row 1: Brand + Action Buttons */}
+        <div className="px-3 sm:px-6 lg:px-10 xl:px-14 py-2 flex items-center justify-between gap-3">
           {/* Brand */}
-          <div className="flex items-center gap-3 sm:gap-6 xl:gap-8 flex-1 min-w-0">
-            <div
-              onClick={() => setActiveTab('analytics')}
-              className="cursor-pointer flex items-center gap-2 group flex-shrink-0"
-            >
-              <span className="text-[#E50914] font-black text-xl sm:text-2xl xl:text-3xl tracking-tighter uppercase font-sans drop-shadow-sm group-hover:scale-105 transition-transform">
-                Netflix
-              </span>
-              <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider bg-white/10 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-md text-gray-300 border border-white/5 whitespace-nowrap">
-                Watchlist
-              </span>
-            </div>
-
-            {/* Desktop Navigation Links */}
-            <nav className="hidden xl:flex items-center gap-2 bg-black/40 p-1.5 rounded-2xl border border-white/5">
-              <button
-                onClick={() => setActiveTab('import')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap ${
-                  activeTab === 'import'
-                    ? 'bg-red-600 text-white shadow-lg shadow-red-600/30 font-semibold'
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <UploadCloud className="w-4 h-4" />
-                <span>Library</span>
-                {items.length > 0 && (
-                  <span className="ml-1 text-[11px] px-2 py-0.5 bg-black/40 rounded-full font-bold">
-                    {items.length}
-                  </span>
-                )}
-              </button>
-
-              <button
-                onClick={() => setActiveTab('movies-series')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap ${
-                  activeTab === 'movies-series'
-                    ? 'bg-red-600 text-white shadow-lg shadow-red-600/30 font-semibold'
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <Film className="w-4 h-4" />
-                <span>Movies / Series</span>
-                {items.length > 0 && (
-                  <span className="ml-1 text-[11px] px-2 py-0.5 bg-black/40 rounded-full font-semibold">
-                    {movieCount}M · {tvCount}S
-                  </span>
-                )}
-              </button>
-
-              <button
-                onClick={() => setActiveTab('still-watching')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap ${
-                  activeTab === 'still-watching'
-                    ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30 font-semibold'
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <Tv className="w-4 h-4 text-amber-400" />
-                <span>Still Watching</span>
-                {stillWatchingCount > 0 && (
-                  <span className="ml-1 text-[11px] px-2 py-0.5 bg-amber-500/30 text-amber-300 rounded-full font-bold">
-                    {stillWatchingCount}
-                  </span>
-                )}
-              </button>
-
-              <button
-                onClick={() => setActiveTab('dropped')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap ${
-                  activeTab === 'dropped'
-                    ? 'bg-red-800 text-white shadow-lg shadow-red-800/30 font-semibold'
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <span>Dropped</span>
-                {droppedCount > 0 && (
-                  <span className="ml-1 text-[11px] px-2 py-0.5 bg-red-500/30 text-red-300 rounded-full font-bold">
-                    {droppedCount}
-                  </span>
-                )}
-              </button>
-
-              <button
-                onClick={() => setActiveTab('tracker')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap ${
-                  activeTab === 'tracker'
-                    ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 font-semibold'
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <CheckSquare className="w-4 h-4 text-emerald-400" />
-                <span>Completed</span>
-                {completedCount > 0 && (
-                  <span className="ml-1 text-[11px] px-2 py-0.5 bg-emerald-500/20 text-emerald-300 rounded-full font-bold">
-                    {completedCount}
-                  </span>
-                )}
-              </button>
-
-              <button
-                onClick={() => setActiveTab('analytics')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap ${
-                  activeTab === 'analytics'
-                    ? 'bg-red-600 text-white shadow-lg shadow-red-600/30 font-semibold'
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <BarChart3 className="w-4 h-4" />
-                <span>Analytics</span>
-                <span className="ml-1 text-[11px] px-2 py-0.5 bg-yellow-500/20 text-yellow-300 rounded-full font-mono border border-yellow-500/30 font-semibold">
-                  {settings.playbackSpeed}×
-                </span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab('info')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap ${
-                  activeTab === 'info'
-                    ? 'bg-red-600 text-white shadow-lg shadow-red-600/30 font-semibold'
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
-                }`}
-                title="Documentation & Features"
-              >
-                <Info className="w-4 h-4" />
-                <span>Info</span>
-              </button>
-            </nav>
+          <div
+            onClick={() => setActiveTab('analytics')}
+            className="cursor-pointer flex items-center gap-2 group flex-shrink-0"
+          >
+            <span className="text-[#E50914] font-black text-xl sm:text-2xl tracking-tighter uppercase font-sans drop-shadow-sm group-hover:scale-105 transition-transform">
+              Netflix
+            </span>
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider bg-white/10 px-2 py-0.5 rounded-md text-gray-300 border border-white/5 whitespace-nowrap">
+              Watchlist
+            </span>
           </div>
 
-          {/* Action Controls */}
-          <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
+          {/* Desktop Nav (only xl+) */}
+          <nav className="hidden xl:flex items-center gap-2 bg-black/40 p-1.5 rounded-2xl border border-white/5 flex-1 mx-4">
+            <button
+              onClick={() => setActiveTab('import')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap ${
+                activeTab === 'import'
+                  ? 'bg-red-600 text-white shadow-lg shadow-red-600/30 font-semibold'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <UploadCloud className="w-4 h-4" />
+              <span>Library</span>
+              {items.length > 0 && (
+                <span className="ml-1 text-[11px] px-2 py-0.5 bg-black/40 rounded-full font-bold">
+                  {items.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('movies-series')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap ${
+                activeTab === 'movies-series'
+                  ? 'bg-red-600 text-white shadow-lg shadow-red-600/30 font-semibold'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Film className="w-4 h-4" />
+              <span>Movies / Series</span>
+              {items.length > 0 && (
+                <span className="ml-1 text-[11px] px-2 py-0.5 bg-black/40 rounded-full font-semibold">
+                  {movieCount}M · {tvCount}S
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('still-watching')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap ${
+                activeTab === 'still-watching'
+                  ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30 font-semibold'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Tv className="w-4 h-4 text-amber-400" />
+              <span>Still Watching</span>
+              {stillWatchingCount > 0 && (
+                <span className="ml-1 text-[11px] px-2 py-0.5 bg-amber-500/30 text-amber-300 rounded-full font-bold">
+                  {stillWatchingCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('dropped')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap ${
+                activeTab === 'dropped'
+                  ? 'bg-red-800 text-white shadow-lg shadow-red-800/30 font-semibold'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <span>Dropped</span>
+              {droppedCount > 0 && (
+                <span className="ml-1 text-[11px] px-2 py-0.5 bg-red-500/30 text-red-300 rounded-full font-bold">
+                  {droppedCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('tracker')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap ${
+                activeTab === 'tracker'
+                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 font-semibold'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <CheckSquare className="w-4 h-4 text-emerald-400" />
+              <span>Completed</span>
+              {completedCount > 0 && (
+                <span className="ml-1 text-[11px] px-2 py-0.5 bg-emerald-500/20 text-emerald-300 rounded-full font-bold">
+                  {completedCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('analytics')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap ${
+                activeTab === 'analytics'
+                  ? 'bg-red-600 text-white shadow-lg shadow-red-600/30 font-semibold'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <BarChart3 className="w-4 h-4" />
+              <span>Analytics</span>
+              <span className="ml-1 text-[11px] px-2 py-0.5 bg-yellow-500/20 text-yellow-300 rounded-full font-mono border border-yellow-500/30 font-semibold">
+                {settings.playbackSpeed}×
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('info')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap ${
+                activeTab === 'info'
+                  ? 'bg-red-600 text-white shadow-lg shadow-red-600/30 font-semibold'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+              title="Documentation & Features"
+            >
+              <Info className="w-4 h-4" />
+              <span>Info</span>
+            </button>
+          </nav>
+
+          {/* Action Controls — always visible, no text-clipping */}
+          <div className="flex items-center gap-2 flex-shrink-0">
             {items.length > 0 && (
               <button
                 onClick={onRescan}
                 disabled={isRescanning}
-                className={'flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl text-xs font-semibold border border-white/10 transition-colors whitespace-nowrap ' + (isRescanning ? 'bg-white/5 text-gray-400 cursor-not-allowed' : 'bg-white/10 hover:bg-white/20 text-gray-200 shadow-sm')}
+                className={'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-white/10 transition-colors whitespace-nowrap ' + (isRescanning ? 'bg-white/5 text-gray-400 cursor-not-allowed' : 'bg-white/10 hover:bg-white/20 text-gray-200')}
                 title="Refresh / Re-scan missing metadata"
               >
                 <RefreshCw className={'w-3.5 h-3.5 ' + (isRescanning ? 'animate-spin text-[#E50914]' : '')} />
-                <span className="hidden sm:inline">
-                  {isRescanning ? 'Scanning...' : 'Re-scan'}
-                </span>
+                <span className="hidden sm:inline">{isRescanning ? 'Scanning...' : 'Re-scan'}</span>
               </button>
             )}
 
             <button
               onClick={onOpenBackup}
-              className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-white/10 hover:bg-white/20 text-gray-200 border border-white/10 transition-colors flex items-center gap-1.5 text-xs font-semibold shadow-sm whitespace-nowrap"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-gray-200 border border-white/10 transition-colors text-xs font-semibold whitespace-nowrap"
               title="Backup & Restore Database"
             >
-              <UploadCloud className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-400" />
+              <UploadCloud className="w-3.5 h-3.5 text-blue-400" />
               <span className="hidden sm:inline">Backup</span>
             </button>
 
             <button
               onClick={onOpenSettings}
-              className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-white/10 hover:bg-white/20 text-gray-200 border border-white/10 transition-colors flex items-center gap-1.5 text-xs font-semibold shadow-sm whitespace-nowrap"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-gray-200 border border-white/10 transition-colors text-xs font-semibold whitespace-nowrap"
               title="Settings & API Keys"
             >
-              <SettingsIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <SettingsIcon className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Settings</span>
             </button>
           </div>
+        </div>
+
+        {/* Row 2: Scrollable nav pills on non-xl screens */}
+        <div className="xl:hidden border-t border-white/5 overflow-x-auto scrollbar-none">
+          <nav className="flex items-center gap-1 px-3 py-1.5 min-w-max">
+            <button
+              onClick={() => setActiveTab('import')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
+                activeTab === 'import'
+                  ? 'bg-red-600 text-white font-semibold'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <UploadCloud className="w-3.5 h-3.5" />
+              <span>Library</span>
+              {items.length > 0 && (
+                <span className="text-[10px] px-1.5 py-0.5 bg-black/40 rounded-full font-bold">{items.length}</span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('movies-series')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
+                activeTab === 'movies-series'
+                  ? 'bg-red-600 text-white font-semibold'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Film className="w-3.5 h-3.5" />
+              <span>Catalog</span>
+              {items.length > 0 && (
+                <span className="text-[10px] px-1.5 py-0.5 bg-black/40 rounded-full font-semibold">{movieCount}M·{tvCount}S</span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('still-watching')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
+                activeTab === 'still-watching'
+                  ? 'bg-amber-600 text-white font-semibold'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Tv className="w-3.5 h-3.5 text-amber-400" />
+              <span>Watching</span>
+              {stillWatchingCount > 0 && (
+                <span className="text-[10px] px-1.5 py-0.5 bg-amber-500/30 text-amber-300 rounded-full font-bold">{stillWatchingCount}</span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('dropped')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
+                activeTab === 'dropped'
+                  ? 'bg-red-800 text-white font-semibold'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <span>Dropped</span>
+              {droppedCount > 0 && (
+                <span className="text-[10px] px-1.5 py-0.5 bg-red-500/30 text-red-300 rounded-full font-bold">{droppedCount}</span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('tracker')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
+                activeTab === 'tracker'
+                  ? 'bg-emerald-600 text-white font-semibold'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <CheckSquare className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Completed</span>
+              {completedCount > 0 && (
+                <span className="text-[10px] px-1.5 py-0.5 bg-emerald-500/20 text-emerald-300 rounded-full font-bold">{completedCount}</span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('analytics')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
+                activeTab === 'analytics'
+                  ? 'bg-red-600 text-white font-semibold'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              <span>Analytics</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('info')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
+                activeTab === 'info'
+                  ? 'bg-red-600 text-white font-semibold'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Info className="w-3.5 h-3.5" />
+              <span>Info</span>
+            </button>
+          </nav>
         </div>
       </header>
 
