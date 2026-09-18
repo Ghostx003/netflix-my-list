@@ -9,6 +9,7 @@ interface ImportLibraryViewProps {
   onAddItems: (newItems: LibraryItem[]) => void;
   onClearLibrary: () => void;
   onNavigateToCatalog: () => void;
+  onDeleteItem?: (id: string) => void;
 }
 
 export const ImportLibraryView: React.FC<ImportLibraryViewProps> = ({
@@ -16,8 +17,10 @@ export const ImportLibraryView: React.FC<ImportLibraryViewProps> = ({
   onAddItems,
   onClearLibrary,
   onNavigateToCatalog,
+  onDeleteItem,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [manageSearch, setManageSearch] = useState('');
   const [manualTitle, setManualTitle] = useState('');
   const [importSummary, setImportSummary] = useState<{
     added: number;
@@ -314,50 +317,82 @@ export const ImportLibraryView: React.FC<ImportLibraryViewProps> = ({
           )}
         </div>
 
-        {items.length > 0 ? (
-          <div className="mt-4 max-h-[300px] overflow-y-auto divide-y divide-white/5 text-xs">
-            {items.slice(0, 15).map((item) => (
-              <div key={item.id} className="py-2.5 flex items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="font-semibold text-white truncate">
-                    {item.originalTitle}
-                  </div>
-                  <div className="text-[11px] text-gray-500 font-mono">
-                    Normalized: {item.normalizedTitle}
-                  </div>
-                </div>
+        {/* Search & Manage Input */}
+        {items.length > 0 && (
+          <div className="pt-4 pb-2">
+            <div className="relative">
+              <input
+                type="text"
+                value={manageSearch}
+                onChange={(e) => setManageSearch(e.target.value)}
+                placeholder="Search stored titles to delete or inspect..."
+                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#E50914]"
+              />
+              {manageSearch && (
+                <button
+                  onClick={() => setManageSearch('')}
+                  className="absolute right-3 top-2 text-gray-400 hover:text-white text-xs font-bold"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                      item.mediaType === 'movie'
-                        ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                        : item.mediaType === 'tv'
-                        ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                        : 'bg-gray-700 text-gray-300'
-                    }`}
-                  >
-                    {item.mediaType}
-                  </span>
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                      item.status === 'matched'
-                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                        : item.status === 'needs_review'
-                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                        : 'bg-neutral-800 text-gray-400'
-                    }`}
-                  >
-                    {item.status.replace('_', ' ')}
-                  </span>
+        {items.length > 0 ? (
+          <div className="mt-2 max-h-[360px] overflow-y-auto divide-y divide-white/5 text-xs">
+            {items
+              .filter((item) => {
+                if (!manageSearch.trim()) return true;
+                const q = manageSearch.toLowerCase();
+                return (
+                  (item.originalTitle && item.originalTitle.toLowerCase().includes(q)) ||
+                  (item.externalTitle && item.externalTitle.toLowerCase().includes(q)) ||
+                  (item.normalizedTitle && item.normalizedTitle.toLowerCase().includes(q))
+                );
+              })
+              .map((item) => (
+                <div key={item.id} className="py-2.5 flex items-center justify-between gap-4 group hover:bg-white/[0.02] px-2 rounded-lg transition-colors">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold text-white truncate flex items-center gap-2">
+                      <span>{item.externalTitle || item.originalTitle}</span>
+                      {item.releaseYear && (
+                        <span className="text-gray-500 font-normal text-[11px]">({item.releaseYear})</span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-gray-500 font-mono truncate">
+                      {item.externalTitle && item.externalTitle !== item.originalTitle && `${item.originalTitle} • `}
+                      ID: {item.videoId || item.id}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                        item.mediaType === 'movie'
+                          ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                          : item.mediaType === 'tv'
+                          ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                          : 'bg-gray-700 text-gray-300'
+                      }`}
+                    >
+                      {item.mediaType}
+                    </span>
+
+                    {onDeleteItem && (
+                      <button
+                        onClick={() => onDeleteItem(item.id)}
+                        className="p-1.5 rounded-lg bg-red-950/20 hover:bg-red-600 text-red-400 hover:text-white border border-red-800/30 transition-all flex items-center gap-1 text-[11px] font-semibold"
+                        title={`Permanently delete "${item.externalTitle || item.originalTitle}" from catalog`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Delete</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
-            {items.length > 15 && (
-              <div className="pt-3 text-center text-gray-500 text-xs">
-                ...and {items.length - 15} more titles stored in your catalog.
-              </div>
-            )}
+              ))}
           </div>
         ) : (
           <div className="py-12 text-center text-gray-500">

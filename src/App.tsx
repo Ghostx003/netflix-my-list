@@ -94,11 +94,21 @@ export const App: React.FC = () => {
           getAllLibraryItems(),
           getSettings(),
         ]);
-        setItems(savedItems || []);
+        // Filter out any bogus notification items that may have been imported accidentally
+        let validItems = (savedItems || []).filter(item => {
+          const t = (item.originalTitle || '').toLowerCase();
+          return !t.includes('new arrival') && !t.includes('watch now') && !t.includes('weeks ago') && !t.includes('days ago');
+        });
+
+        if (savedItems && validItems.length !== savedItems.length) {
+          await saveLibraryItems(validItems);
+        }
+
+        setItems(validItems);
         setSettings(savedSettings || DEFAULT_SETTINGS);
 
-        if (savedItems && savedItems.length > 0) {
-          const needsEnrichment = savedItems.some(
+        if (validItems && validItems.length > 0) {
+          const needsEnrichment = validItems.some(
             (i) => i.status === 'pending' || (!i.posterPath && !i.externalId) || i.rottenTomatoesRating === undefined
           );
           if (needsEnrichment) {
@@ -312,6 +322,17 @@ export const App: React.FC = () => {
               });
             }}
             onNavigateToCatalog={() => handleTabChange('movies-series')}
+            onDeleteItem={(id) => {
+              const target = items.find((i) => i.id === id);
+              setConfirmDialog({
+                isOpen: true,
+                title: 'Delete Title Permanently?',
+                message: `Are you sure you want to permanently remove "${target?.externalTitle || target?.originalTitle || 'this title'}" from your catalog?`,
+                onConfirm: async () => {
+                  await handleDeletePermanent(id);
+                },
+              });
+            }}
           />
         )}
 

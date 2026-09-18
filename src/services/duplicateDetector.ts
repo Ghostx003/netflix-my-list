@@ -44,6 +44,15 @@ export function deduplicateAndPrepareItems(
         }
       }
     }
+    // Strip Netflix notification artifacts
+    originalTitle = originalTitle.replace(/[\u{1F300}-\u{1F9FF}]/gu, '');
+    originalTitle = originalTitle.replace(/\b(new arrival|recently added|top 10|trending now|watch now|\d+\s+(?:days?|weeks?|months?|hours?)\s+ago)\b/gi, '');
+    originalTitle = originalTitle.replace(/^[-:•|,\s]+|[-:•|,\s]+$/g, '').trim();
+
+    if (!originalTitle || originalTitle.length < 1) continue;
+    if (/^(play|more info|watch|episodes|next|previous|my list|audio & subtitles)$/i.test(originalTitle)) {
+      continue;
+    }
 
     const normalized = normalizeTitle(originalTitle);
     const key = createDuplicateKey(normalized);
