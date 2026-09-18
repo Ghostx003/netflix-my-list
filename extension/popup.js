@@ -89,10 +89,86 @@ async function getExistingLibraryKeys() {
   return keys;
 }
 
+// Tab state
+let activeTab = 'missing'; // 'missing' | 'all'
+
+const tabMissingEl = document.getElementById('tabMissing');
+const tabAllEl = document.getElementById('tabAll');
+const tabMissingCountEl = document.getElementById('tabMissingCount');
+const tabAllCountEl = document.getElementById('tabAllCount');
+const titlesListEl = document.getElementById('titlesList');
+const listHintTextEl = document.getElementById('listHintText');
+
+function renderTitlesList() {
+  if (!titlesListEl) return;
+  titlesListEl.innerHTML = '';
+
+  const isMissingTab = activeTab === 'missing';
+  const listToRender = isMissingTab ? missingItems : lastScrapedItems;
+
+  if (listToRender.length === 0) {
+    const emptyMsg = document.createElement('div');
+    emptyMsg.style.padding = '12px 8px';
+    emptyMsg.style.textAlign = 'center';
+    emptyMsg.style.color = isMissingTab ? '#34d399' : '#888';
+    emptyMsg.textContent = isMissingTab 
+      ? '✓ All titles are already in your Library!'
+      : 'No titles scraped yet. Click Scrape button above.';
+    titlesListEl.appendChild(emptyMsg);
+    return;
+  }
+
+  // Create list rows
+  listToRender.forEach((item, index) => {
+    const row = document.createElement('div');
+    row.className = 'title-row';
+
+    const isMissing = missingItems.some(m => normalizeKey(m.title) === normalizeKey(item.title));
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'title-name';
+    nameSpan.title = item.title;
+    nameSpan.textContent = `${index + 1}. ${item.title}`;
+
+    const badge = document.createElement('span');
+    badge.className = `meta-tag ${isMissing ? 'new' : 'existing'}`;
+    badge.textContent = isMissing ? 'NEW' : 'IN LIBRARY';
+
+    row.appendChild(nameSpan);
+    row.appendChild(badge);
+    titlesListEl.appendChild(row);
+  });
+}
+
+// Tab click listeners
+if (tabMissingEl) {
+  tabMissingEl.addEventListener('click', () => {
+    activeTab = 'missing';
+    tabMissingEl.classList.add('active');
+    tabAllEl?.classList.remove('active');
+    if (listHintTextEl) {
+      listHintTextEl.textContent = `${missingItems.length} new to import`;
+    }
+    renderTitlesList();
+  });
+}
+
+if (tabAllEl) {
+  tabAllEl.addEventListener('click', () => {
+    activeTab = 'all';
+    tabAllEl.classList.add('active');
+    tabMissingEl?.classList.remove('active');
+    if (listHintTextEl) {
+      listHintTextEl.textContent = `${lastScrapedItems.length} total captured`;
+    }
+    renderTitlesList();
+  });
+}
+
 // 3. Compare scraped items with existing library
 async function processComparison(scrapedItems) {
   lastScrapedItems = scrapedItems;
-  scrapedTotalEl.textContent = scrapedItems.length.toString();
+  if (scrapedTotalEl) scrapedTotalEl.textContent = scrapedItems.length.toString();
 
   const existingKeys = await getExistingLibraryKeys();
 
@@ -110,30 +186,27 @@ async function processComparison(scrapedItems) {
     }
   });
 
-  missingCountEl.textContent = missingItems.length.toString();
-  diffCountBadgeEl.textContent = `${missingItems.length} New`;
+  if (missingCountEl) missingCountEl.textContent = missingItems.length.toString();
+  if (diffCountBadgeEl) diffCountBadgeEl.textContent = `${missingItems.length} New`;
+  if (tabMissingCountEl) tabMissingCountEl.textContent = missingItems.length.toString();
+  if (tabAllCountEl) tabAllCountEl.textContent = scrapedItems.length.toString();
 
-  // Render missing preview
-  missingListEl.innerHTML = '';
-  if (missingItems.length === 0) {
-    missingListEl.innerHTML = '<div style="color: #34d399; padding: 4px;">All titles are already present in your Library!</div>';
+  // Default tab: if new items exist, show 'missing', otherwise show 'all'
+  if (missingItems.length > 0) {
+    activeTab = 'missing';
+    tabMissingEl?.classList.add('active');
+    tabAllEl?.classList.remove('active');
+    if (listHintTextEl) listHintTextEl.textContent = `${missingItems.length} new to import`;
   } else {
-    missingItems.slice(0, 30).forEach(item => {
-      const div = document.createElement('div');
-      div.className = 'missing-item';
-      div.innerHTML = `<span>${item.title}</span><span class="item-id">${item.videoId || ''}</span>`;
-      missingListEl.appendChild(div);
-    });
-    if (missingItems.length > 30) {
-      const more = document.createElement('div');
-      more.style.padding = '4px';
-      more.style.color = '#888';
-      more.textContent = `...and ${missingItems.length - 30} more`;
-      missingListEl.appendChild(more);
-    }
+    activeTab = 'all';
+    tabAllEl?.classList.add('active');
+    tabMissingEl?.classList.remove('active');
+    if (listHintTextEl) listHintTextEl.textContent = 'All synced';
   }
 
-  diffSectionEl.style.display = 'flex';
+  renderTitlesList();
+
+  if (diffSectionEl) diffSectionEl.style.display = 'flex';
 }
 
 // 4. Trigger scrape on active tab
@@ -216,6 +289,9 @@ btnSendToAppEl.addEventListener('click', async () => {
   const itemsToSend = missingItems.length > 0 ? missingItems : lastScrapedItems;
   if (itemsToSend.length === 0) return;
 
+  const btnTextEl = document.getElementById('btnSendToAppText') || btnSendToAppEl.querySelector('span');
+  const originalText = btnTextEl ? btnTextEl.textContent : 'Export Directly to Web App';
+
   const tabs = await chrome.tabs.query({});
   let appTab = tabs.find(t => t.url && (t.url.includes('localhost') || t.url.includes('5173') || t.url.includes('netflix-my-list')));
 
@@ -231,19 +307,24 @@ btnSendToAppEl.addEventListener('click', async () => {
           }, '*');
         }
       });
-      btnSendToAppEl.querySelector('span').textContent = 'Synced Directly!';
+      if (btnTextEl) btnTextEl.textContent = `Exported ${itemsToSend.length} titles to Web App!`;
       await chrome.tabs.update(appTab.id, { active: true });
     } catch (e) {
       // Fallback: Copy to clipboard and focus
       navigator.clipboard.writeText(JSON.stringify(itemsToSend, null, 2));
-      btnSendToAppEl.querySelector('span').textContent = 'Copied! Paste in Import Tab';
+      if (btnTextEl) btnTextEl.textContent = `Copied ${itemsToSend.length} titles to Clipboard!`;
       await chrome.tabs.update(appTab.id, { active: true });
     }
   } else {
     // If app tab not found, copy JSON and open localhost:5173
     navigator.clipboard.writeText(JSON.stringify(itemsToSend, null, 2));
+    if (btnTextEl) btnTextEl.textContent = `Copied! Opening Web App...`;
     chrome.tabs.create({ url: 'http://localhost:5173/?tab=import' });
   }
+
+  setTimeout(() => {
+    if (btnTextEl) btnTextEl.textContent = originalText;
+  }, 2500);
 });
 
 // Initialize

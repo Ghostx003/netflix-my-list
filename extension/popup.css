@@ -235,45 +235,103 @@ body {
 }
 
 .missing-list-wrapper {
-  max-height: 120px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
-.missing-list-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: #aaa;
-}
-
-.missing-list {
-  background: #111;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 6px;
-  padding: 6px;
-  overflow-y: auto;
-  font-size: 11px;
-  max-height: 90px;
-}
-
-.missing-item {
-  padding: 3px 6px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  color: #eee;
+.list-tabs-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
-.missing-item:last-child {
+.list-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #111;
+  padding: 2px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.list-tab {
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.list-tab:hover {
+  color: #eee;
+}
+
+.list-tab.active {
+  background: #2a2a2a;
+  color: #fff;
+}
+
+.list-hint {
+  font-size: 10px;
+  color: #777;
+}
+
+.titles-list {
+  background: #111;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 4px;
+  overflow-y: auto;
+  font-size: 11px;
+  max-height: 140px;
+}
+
+.title-row {
+  padding: 4px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  color: #eee;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.title-row:last-child {
   border-bottom: none;
 }
 
-.missing-item .item-id {
+.title-row .title-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.title-row .meta-tag {
   font-family: monospace;
   font-size: 9px;
-  color: #666;
+  padding: 1px 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.title-row .meta-tag.new {
+  background: rgba(52, 211, 153, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.3);
+}
+
+.title-row .meta-tag.existing {
+  background: rgba(255, 255, 255, 0.05);
+  color: #777;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .sync-actions {
@@ -281,6 +339,12 @@ body {
   flex-direction: column;
   gap: 6px;
   margin-top: 4px;
+}
+
+.secondary-export-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
 }
 
 .footer {

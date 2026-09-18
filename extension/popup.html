@@ -63,30 +63,41 @@
         </div>
       </div>
 
-      <!-- Missing Titles List Preview -->
+      <!-- Captured & Missing Titles List Preview -->
       <div class="missing-list-wrapper">
-        <div class="missing-list-title">Titles Ready to Add:</div>
-        <div id="missingList" class="missing-list"></div>
+        <div class="list-tabs-header">
+          <div class="list-tabs">
+            <button id="tabMissing" class="list-tab active" type="button">New to Add (<span id="tabMissingCount">0</span>)</button>
+            <button id="tabAll" class="list-tab" type="button">All Captured (<span id="tabAllCount">0</span>)</button>
+          </div>
+          <span class="list-hint" id="listHintText">Ready to export</span>
+        </div>
+        <div id="titlesList" class="titles-list"></div>
       </div>
 
-      <!-- Sync Actions -->
+      <!-- Sync & Export Actions -->
       <div class="sync-actions">
-        <button id="btnDownloadJson" class="btn accent">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="7 10 12 15 17 10"/>
-            <line x1="12" y1="15" x2="12" y2="3"/>
-          </svg>
-          <span>Download JSON</span>
-        </button>
-
-        <button id="btnCopyJson" class="btn outline-sm">
-          <span>Copy JSON</span>
-        </button>
-
         <button id="btnSendToApp" class="btn red">
-          <span>Sync Directly into Web App</span>
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+          </svg>
+          <span id="btnSendToAppText">Export Directly to Web App</span>
         </button>
+
+        <div class="secondary-export-row">
+          <button id="btnDownloadJson" class="btn accent">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            <span>Download JSON</span>
+          </button>
+
+          <button id="btnCopyJson" class="btn outline-sm">
+            <span>Copy JSON</span>
+          </button>
+        </div>
       </div>
     </div>
 

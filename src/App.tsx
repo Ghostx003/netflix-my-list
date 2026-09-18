@@ -160,6 +160,9 @@ export const App: React.FC = () => {
     [isRescanning]
   );
 
+  // Sync toast state
+  const [syncToast, setSyncToast] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
+
   // Expose current library items to window for extension diffing
   useEffect(() => {
     (window as any).__NETFLIX_LIBRARY_ITEMS = items;
@@ -170,11 +173,23 @@ export const App: React.FC = () => {
     const handleMessage = async (event: MessageEvent) => {
       if (event.data && event.data.type === 'NETFLIX_EXTENSION_SYNC' && Array.isArray(event.data.items)) {
         const rawList: NetflixRawItem[] = event.data.items;
-        const { newItems } = deduplicateAndPrepareItems(rawList, items);
+        const { newItems, duplicateCount } = deduplicateAndPrepareItems(rawList, items);
         if (newItems.length > 0) {
           await handleAddItems(newItems);
           handleTabChange('movies-series');
+          setSyncToast({
+            message: `Successfully imported ${newItems.length} new title${newItems.length > 1 ? 's' : ''} from Netflix Extension!`,
+            type: 'success'
+          });
+        } else {
+          setSyncToast({
+            message: `All ${duplicateCount} titles from Netflix are already in your library.`,
+            type: 'info'
+          });
         }
+        setTimeout(() => {
+          setSyncToast(null);
+        }, 5000);
       }
     };
     window.addEventListener('message', handleMessage);
@@ -425,6 +440,20 @@ export const App: React.FC = () => {
         onClose={() => setIsBackupOpen(false)}
         onRefreshLibrary={handleRefreshLibrary}
       />
+
+      {/* Sync Notification Toast */}
+      {syncToast && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 bg-zinc-900 border border-emerald-500/40 text-white px-5 py-3.5 rounded-xl shadow-2xl animate-fade-in backdrop-blur-md">
+          <div className={`w-2.5 h-2.5 rounded-full ${syncToast.type === 'success' ? 'bg-emerald-400 animate-ping' : 'bg-blue-400'}`} />
+          <div className="text-sm font-medium">{syncToast.message}</div>
+          <button
+            onClick={() => setSyncToast(null)}
+            className="ml-2 text-zinc-400 hover:text-white transition-colors"
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   );
 };
