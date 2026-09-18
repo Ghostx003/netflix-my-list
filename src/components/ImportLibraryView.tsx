@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { UploadCloud, Plus, FileText, CheckCircle2, Copy, Trash2, ArrowRight, Sparkles, AlertCircle } from 'lucide-react';
+import { UploadCloud, Plus, FileText, CheckCircle2, Copy, Trash2, ArrowRight, Sparkles, AlertCircle, Puzzle } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { LibraryItem, NetflixRawItem } from '../types';
 import { deduplicateAndPrepareItems } from '../services/duplicateDetector';
@@ -213,9 +213,19 @@ export const ImportLibraryView: React.FC<ImportLibraryViewProps> = ({
             </form>
           </div>
 
-          {/* Quick Demo Helper */}
-          <div className="mt-6 pt-4 border-t border-white/5">
-            <p className="text-[11px] text-gray-500 mb-2">Workspace Quick Action:</p>
+          {/* Chrome Extension & Quick Actions */}
+          <div className="mt-6 pt-4 border-t border-white/5 space-y-2">
+            <div className="p-3 bg-gradient-to-r from-red-950/40 via-neutral-900 to-black rounded-xl border border-red-900/30">
+              <div className="flex items-center gap-2 text-white font-bold text-xs">
+                <Puzzle className="w-4 h-4 text-[#E50914]" />
+                <span>Netflix My List Chrome Extension</span>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">
+                Use the built-in extension in <code className="text-red-300 font-mono">/extension</code> to automatically scrape Netflix titles and sync new additions directly into this web app.
+              </p>
+            </div>
+
+            <p className="text-[11px] text-gray-500 mb-1">Workspace Quick Action:</p>
             <button
               type="button"
               onClick={handleLoadSampleFile}

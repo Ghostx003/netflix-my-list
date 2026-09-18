@@ -57,13 +57,29 @@ export function deduplicateAndPrepareItems(
 
     seenKeys.add(key);
 
+    const rawObj = typeof raw === 'object' && raw !== null ? raw : undefined;
+    const incomingMediaType = rawObj?.mediaType && ['movie', 'tv'].includes(rawObj.mediaType) ? rawObj.mediaType : 'unknown';
+
     newItems.push({
       id: 'item_' + Math.random().toString(36).slice(2, 9) + '_' + Date.now(),
       originalTitle: originalTitle.trim(),
       normalizedTitle: normalized,
       videoId,
-      mediaType: 'unknown',
-      status: 'pending',
+      mediaType: incomingMediaType,
+      status: rawObj?.posterPath && rawObj?.synopsis ? 'matched' : 'pending',
+      externalTitle: rawObj?.title,
+      synopsis: rawObj?.synopsis,
+      posterPath: rawObj?.posterPath,
+      backdropPath: rawObj?.backdropPath,
+      releaseYear: rawObj?.releaseYear,
+      rating: rawObj?.rating,
+      imdbRating: rawObj?.imdbRating,
+      rottenTomatoesRating: rawObj?.rottenTomatoesRating,
+      runtimeMinutes: rawObj?.runtimeMinutes,
+      genres: rawObj?.genres,
+      languages: rawObj?.languages,
+      countries: rawObj?.countries,
+      originalLanguage: rawObj?.originalLanguage,
       addedAt: now,
       updatedAt: now,
     });

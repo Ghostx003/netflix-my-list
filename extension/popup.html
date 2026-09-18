@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Netflix My List Sync</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo">
+        <span class="n-brand">NETFLIX</span>
+        <span class="badge">MY LIST SYNC</span>
+      </div>
+      <p class="subtitle">Extract, compare & sync titles directly to your Command Center</p>
+    </header>
+
+    <!-- Status Banner -->
+    <div id="pageStatus" class="page-status warning">
+      <span class="status-dot"></span>
+      <span id="statusText">Checking active tab...</span>
+    </div>
+
+    <!-- Main Actions -->
+    <div class="actions">
+      <button id="btnScrape" class="btn primary">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <span>Scrape My List Page</span>
+      </button>
+
+      <button id="btnAutoScroll" class="btn secondary">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 5v14M19 12l-7 7-7-7"/>
+        </svg>
+        <span>Auto-Scroll & Deep Scrape</span>
+      </button>
+
+      <button id="btnNavigateNetflix" class="btn outline" style="display:none;">
+        <span>Open netflix.com/browse/my-list</span>
+      </button>
+    </div>
+
+    <!-- Comparison & Diff Section (Appears after scrape) -->
+    <div id="diffSection" class="diff-section" style="display: none;">
+      <div class="diff-header">
+        <span class="title">Library Comparison</span>
+        <span id="diffCountBadge" class="diff-badge">0 Found</span>
+      </div>
+
+      <div class="diff-stats">
+        <div class="stat-box">
+          <span class="stat-label">Scraped</span>
+          <span id="scrapedTotal" class="stat-val">0</span>
+        </div>
+        <div class="stat-box highlight">
+          <span class="stat-label">New / Missing</span>
+          <span id="missingCount" class="stat-val new">0</span>
+        </div>
+      </div>
+
+      <!-- Missing Titles List Preview -->
+      <div class="missing-list-wrapper">
+        <div class="missing-list-title">Titles Ready to Add:</div>
+        <div id="missingList" class="missing-list"></div>
+      </div>
+
+      <!-- Sync Actions -->
+      <div class="sync-actions">
+        <button id="btnDownloadJson" class="btn accent">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          <span>Download JSON</span>
+        </button>
+
+        <button id="btnCopyJson" class="btn outline-sm">
+          <span>Copy JSON</span>
+        </button>
+
+        <button id="btnSendToApp" class="btn red">
+          <span>Sync Directly into Web App</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Instructions / Footer -->
+    <footer class="footer">
+      <p>Tip: Navigate to <a href="https://www.netflix.com/browse/my-list" target="_blank">netflix.com/browse/my-list</a> before scraping.</p>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

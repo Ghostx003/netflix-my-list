@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { AppSettings, LibraryItem } from './types';
+import { AppSettings, LibraryItem, NetflixRawItem } from './types';
 import { DEFAULT_SETTINGS, getAllLibraryItems, getSettings, saveLibraryItems, saveSettings, clearLibrary, deleteLibraryItem } from './services/db';
 import { enrichLibraryItem } from './services/tmdb';
+import { deduplicateAndPrepareItems } from './services/duplicateDetector';
 import { Navbar } from './components/Navbar';
 import { ImportLibraryView } from './components/ImportLibraryView';
 import { MoviesSeriesView } from './components/MoviesSeriesView';
@@ -158,6 +159,27 @@ export const App: React.FC = () => {
     },
     [isRescanning]
   );
+
+  // Expose current library items to window for extension diffing
+  useEffect(() => {
+    (window as any).__NETFLIX_LIBRARY_ITEMS = items;
+  }, [items]);
+
+  // Listen for direct sync messages from the Netflix My List Chrome Extension
+  useEffect(() => {
+    const handleMessage = async (event: MessageEvent) => {
+      if (event.data && event.data.type === 'NETFLIX_EXTENSION_SYNC' && Array.isArray(event.data.items)) {
+        const rawList: NetflixRawItem[] = event.data.items;
+        const { newItems } = deduplicateAndPrepareItems(rawList, items);
+        if (newItems.length > 0) {
+          await handleAddItems(newItems);
+          handleTabChange('movies-series');
+        }
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [items]);
 
   const handleAddItems = async (newItems: LibraryItem[]) => {
     const combined = [...items, ...newItems];

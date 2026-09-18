@@ -27,6 +27,19 @@ export type PredefinedDropReason = (typeof PREDEFINED_DROP_REASONS)[number];
 export interface NetflixRawItem {
   title: string;
   videoId?: string;
+  synopsis?: string;
+  posterPath?: string;
+  backdropPath?: string;
+  mediaType?: 'movie' | 'tv' | 'unknown';
+  releaseYear?: number;
+  rating?: number;
+  imdbRating?: number;
+  rottenTomatoesRating?: number;
+  runtimeMinutes?: number;
+  genres?: string[];
+  languages?: string[];
+  countries?: string[];
+  originalLanguage?: string;
 }
 
 export interface LibraryItem {
