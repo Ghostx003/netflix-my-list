@@ -1,33 +1,26 @@
-// State
-let lastScrapedItems = [];
-let missingItems = [];
-let localLibraryTitles = new Set();
+// Netflix My List Sync - Popup Controller
+let capturedItems = [];
+let localLibraryKeys = new Set();
+let sessionAddedKeys = new Set();
+let isCapturingActive = false;
 
+// UI Elements
 const pageStatusEl = document.getElementById('pageStatus');
 const statusTextEl = document.getElementById('statusText');
-const btnAutoSlideEl = document.getElementById('btnAutoSlide');
-const btnScrapeVisibleEl = document.getElementById('btnScrapeVisible');
+const btnToggleCaptureEl = document.getElementById('btnToggleCapture');
+const captureBtnTextEl = document.getElementById('captureBtnText');
+const btnRefreshListEl = document.getElementById('btnRefreshList');
+const btnClearListEl = document.getElementById('btnClearList');
 const btnNavigateNetflixEl = document.getElementById('btnNavigateNetflix');
-const numSlidePagesEl = document.getElementById('numSlidePages');
 
-const diffSectionEl = document.getElementById('diffSection');
-const diffCountBadgeEl = document.getElementById('diffCountBadge');
-const scrapedTotalEl = document.getElementById('scrapedTotal');
-const missingCountEl = document.getElementById('missingCount');
-
-const tabMissingEl = document.getElementById('tabMissing');
-const tabAllEl = document.getElementById('tabAll');
-const tabMissingCountEl = document.getElementById('tabMissingCount');
-const tabAllCountEl = document.getElementById('tabAllCount');
+const capturedBadgeEl = document.getElementById('capturedBadge');
+const newCountHintEl = document.getElementById('newCountHint');
 const titlesListEl = document.getElementById('titlesList');
-const listHintTextEl = document.getElementById('listHintText');
-
-const chkAutoExportEl = document.getElementById('chkAutoExport');
+const bottomActionsEl = document.getElementById('bottomActions');
+const btnAddAllEl = document.getElementById('btnAddAll');
+const btnAddAllTextEl = document.getElementById('btnAddAllText');
 const btnDownloadJsonEl = document.getElementById('btnDownloadJson');
 const btnCopyJsonEl = document.getElementById('btnCopyJson');
-const btnSendToAppEl = document.getElementById('btnSendToApp');
-
-let activeTab = 'missing'; // 'missing' | 'all'
 
 function normalizeKey(str) {
   if (!str) return '';
@@ -38,8 +31,13 @@ function normalizeKey(str) {
     .replace(/[^a-z0-9]/g, '');
 }
 
-// 1. Check current tab URL and whether "My List" container is present
-async function checkActiveTab() {
+function updateStatus(isOk, text) {
+  pageStatusEl.className = 'page-status ' + (isOk ? 'success' : 'warning');
+  statusTextEl.textContent = text;
+}
+
+// Check current tab and restore live status
+async function initTab() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.url) {
@@ -47,60 +45,76 @@ async function checkActiveTab() {
       return;
     }
 
-    if (tab.url.includes('netflix.com')) {
-      btnNavigateNetflixEl.style.display = 'none';
-
-      // Ask content script if "My List" row is currently detected
-      try {
-        chrome.tabs.sendMessage(tab.id, { action: 'CHECK_MY_LIST_CONTAINER' }, (response) => {
-          if (chrome.runtime.lastError || !response) {
-            updateStatus(true, 'Ready on Netflix. Make sure "My List" row is loaded on page.');
-            return;
-          }
-
-          if (response.found) {
-            const countText = response.capturedCount > 0 ? ` (${response.capturedCount} captured so far)` : '';
-            updateStatus(true, `✓ "My List" row detected & active!${countText}`);
-            // If items already accumulated in content script, show them
-            if (response.capturedCount > 0) {
-              chrome.tabs.sendMessage(tab.id, { action: 'SCRAPE_MY_LIST' }, (scrapeRes) => {
-                if (scrapeRes && scrapeRes.success && scrapeRes.items) {
-                  processComparison(scrapeRes.items);
-                }
-              });
-            }
-          } else {
-            updateStatus(false, 'Looking for "My List" row on page... Please scroll until "My List" appears or click button below.');
-            btnNavigateNetflixEl.style.display = 'block';
-            btnNavigateNetflixEl.onclick = () => {
-              chrome.tabs.create({ url: 'https://www.netflix.com/browse/my-list' });
-            };
-          }
-        });
-      } catch {
-        updateStatus(true, 'Ready on Netflix.');
-      }
-    } else {
-      updateStatus(false, 'Not on Netflix website');
+    if (!tab.url.includes('netflix.com')) {
+      updateStatus(false, 'Please navigate to Netflix');
       btnNavigateNetflixEl.style.display = 'block';
       btnNavigateNetflixEl.onclick = () => {
         chrome.tabs.create({ url: 'https://www.netflix.com/browse/my-list' });
       };
+      return;
     }
+
+    btnNavigateNetflixEl.style.display = 'none';
+
+    // Fetch existing keys from web app first
+    await fetchExistingLibraryKeys();
+
+    // Query content script
+    chrome.tabs.sendMessage(tab.id, { action: 'GET_STATUS' }, (response) => {
+      if (chrome.runtime.lastError || !response) {
+        // Fallback to storage
+        loadFromStorage();
+        updateStatus(true, 'Ready on Netflix. Make sure "My List" row is loaded.');
+        return;
+      }
+
+      isCapturingActive = response.isCapturing;
+      updateCaptureButtonUI();
+
+      if (response.containerFound) {
+        updateStatus(true, isCapturingActive
+          ? '🟢 Capturing My List: Scroll or slide through your My List row!'
+          : '✓ "My List" section detected & ready');
+      } else {
+        updateStatus(false, 'Looking for "My List" row... Please scroll down on Netflix until My List appears.');
+      }
+
+      if (Array.isArray(response.items)) {
+        capturedItems = response.items;
+        renderResults();
+      }
+    });
   } catch (err) {
-    updateStatus(false, 'Extension permissions checking...');
+    updateStatus(false, 'Connection note: ' + err.message);
   }
 }
 
-function updateStatus(isOk, text) {
-  pageStatusEl.className = 'page-status ' + (isOk ? 'success' : 'warning');
-  statusTextEl.textContent = text;
+function loadFromStorage() {
+  chrome.storage.local.get(['nmlCapturedItems', 'nmlIsCapturing'], (res) => {
+    if (res && Array.isArray(res.nmlCapturedItems)) {
+      capturedItems = res.nmlCapturedItems;
+    }
+    if (res && res.nmlIsCapturing) {
+      isCapturingActive = true;
+    }
+    updateCaptureButtonUI();
+    renderResults();
+  });
 }
 
-// 2. Fetch existing titles from the web app
-async function getExistingLibraryKeys() {
-  const keys = new Set();
+function updateCaptureButtonUI() {
+  if (isCapturingActive) {
+    btnToggleCaptureEl.className = 'btn btn-capture stop';
+    captureBtnTextEl.textContent = 'Stop Capturing';
+  } else {
+    btnToggleCaptureEl.className = 'btn btn-capture start';
+    captureBtnTextEl.textContent = 'Start Capturing';
+  }
+}
 
+// Fetch existing keys from active web app tabs
+async function fetchExistingLibraryKeys() {
+  localLibraryKeys.clear();
   try {
     const tabs = await chrome.tabs.query({});
     for (const t of tabs) {
@@ -108,48 +122,45 @@ async function getExistingLibraryKeys() {
         try {
           const res = await chrome.scripting.executeScript({
             target: { tabId: t.id },
-            func: () => {
-              return window.__NETFLIX_LIBRARY_ITEMS || null;
-            }
+            func: () => window.__NETFLIX_LIBRARY_ITEMS || null
           });
           if (res && res[0] && res[0].result && Array.isArray(res[0].result)) {
             res[0].result.forEach(item => {
-              if (item.originalTitle) keys.add(normalizeKey(item.originalTitle));
-              if (item.externalTitle) keys.add(normalizeKey(item.externalTitle));
+              if (item.originalTitle) localLibraryKeys.add(normalizeKey(item.originalTitle));
+              if (item.externalTitle) localLibraryKeys.add(normalizeKey(item.externalTitle));
             });
           }
         } catch {}
       }
     }
   } catch {}
-
-  return keys;
 }
 
-function renderTitlesList() {
-  if (!titlesListEl) return;
-  titlesListEl.innerHTML = '';
+// Render Results List with individual "Add" buttons
+function renderResults() {
+  capturedBadgeEl.textContent = capturedItems.length.toString();
 
-  const isMissingTab = activeTab === 'missing';
-  const listToRender = isMissingTab ? missingItems : lastScrapedItems;
-
-  if (listToRender.length === 0) {
-    const emptyMsg = document.createElement('div');
-    emptyMsg.style.padding = '12px 8px';
-    emptyMsg.style.textAlign = 'center';
-    emptyMsg.style.color = isMissingTab ? '#34d399' : '#888';
-    emptyMsg.textContent = isMissingTab 
-      ? '✓ All My List titles are already in your Library!'
-      : 'No titles scraped yet. Click Auto-Slide or Capture button.';
-    titlesListEl.appendChild(emptyMsg);
+  if (capturedItems.length === 0) {
+    titlesListEl.innerHTML = `
+      <div class="empty-placeholder">
+        Click <strong>Start Capturing</strong>, then slide or scroll your "My List" row on Netflix. New items will appear here!
+      </div>
+    `;
+    newCountHintEl.textContent = '0 new to add';
+    bottomActionsEl.style.display = 'none';
     return;
   }
 
-  listToRender.forEach((item, index) => {
+  titlesListEl.innerHTML = '';
+  let newTitlesCount = 0;
+
+  capturedItems.forEach((item, index) => {
     const row = document.createElement('div');
     row.className = 'title-row';
 
-    const isMissing = missingItems.some(m => normalizeKey(m.title) === normalizeKey(item.title));
+    const k = normalizeKey(item.title);
+    const inLibrary = localLibraryKeys.has(k);
+    const alreadyAdded = sessionAddedKeys.has(k);
 
     const infoDiv = document.createElement('div');
     infoDiv.className = 'title-info';
@@ -161,119 +172,73 @@ function renderTitlesList() {
 
     const detailsSpan = document.createElement('span');
     detailsSpan.className = 'title-details';
-    
-    const detailParts = [];
-    if (item.duration) detailParts.push(item.duration);
-    if (item.maturityRating) detailParts.push(item.maturityRating);
-    if (item.videoId) detailParts.push(`ID: ${item.videoId}`);
+    const parts = [];
+    if (item.duration) parts.push(item.duration);
+    if (item.maturityRating) parts.push(item.maturityRating);
+    if (item.videoId) parts.push(`ID: ${item.videoId}`);
     if (item.synopsis) {
-      detailParts.push(item.synopsis.length > 50 ? item.synopsis.substring(0, 50) + '...' : item.synopsis);
+      parts.push(item.synopsis.length > 40 ? item.synopsis.substring(0, 40) + '...' : item.synopsis);
     }
-    detailsSpan.textContent = detailParts.length > 0 ? detailParts.join(' • ') : 'Ready to export';
+    detailsSpan.textContent = parts.length > 0 ? parts.join(' • ') : 'From My List';
 
     infoDiv.appendChild(nameSpan);
     infoDiv.appendChild(detailsSpan);
-
-    const badge = document.createElement('span');
-    badge.className = `meta-tag ${isMissing ? 'new' : 'existing'}`;
-    badge.textContent = isMissing ? 'NEW' : 'IN LIBRARY';
-
     row.appendChild(infoDiv);
-    row.appendChild(badge);
+
+    // Right Action: Add button or In Library badge
+    if (inLibrary && !alreadyAdded) {
+      const tag = document.createElement('span');
+      tag.className = 'meta-tag existing';
+      tag.textContent = 'IN LIBRARY';
+      row.appendChild(tag);
+    } else if (alreadyAdded) {
+      const btn = document.createElement('button');
+      btn.className = 'btn-add-item added';
+      btn.disabled = true;
+      btn.textContent = 'Added ✓';
+      row.appendChild(btn);
+    } else {
+      newTitlesCount++;
+      const btn = document.createElement('button');
+      btn.className = 'btn-add-item';
+      btn.textContent = '+ Add';
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.textContent = 'Adding...';
+        await exportItemsToApp([item]);
+        sessionAddedKeys.add(k);
+        btn.className = 'btn-add-item added';
+        btn.textContent = 'Added ✓';
+        renderResults();
+      });
+      row.appendChild(btn);
+    }
+
     titlesListEl.appendChild(row);
   });
-}
 
-// Tab click listeners
-if (tabMissingEl) {
-  tabMissingEl.addEventListener('click', () => {
-    activeTab = 'missing';
-    tabMissingEl.classList.add('active');
-    tabAllEl?.classList.remove('active');
-    if (listHintTextEl) {
-      listHintTextEl.textContent = `${missingItems.length} new to import`;
+  newCountHintEl.textContent = `${newTitlesCount} new to add`;
+
+  if (capturedItems.length > 0) {
+    bottomActionsEl.style.display = 'flex';
+    if (newTitlesCount > 0) {
+      btnAddAllEl.disabled = false;
+      btnAddAllTextEl.textContent = `Add All (${newTitlesCount}) New Titles to Web App`;
+    } else {
+      btnAddAllEl.disabled = true;
+      btnAddAllTextEl.textContent = 'All Titles Already in Library ✓';
     }
-    renderTitlesList();
-  });
-}
-
-if (tabAllEl) {
-  tabAllEl.addEventListener('click', () => {
-    activeTab = 'all';
-    tabAllEl.classList.add('active');
-    tabMissingEl?.classList.remove('active');
-    if (listHintTextEl) {
-      listHintTextEl.textContent = `${lastScrapedItems.length} total captured`;
-    }
-    renderTitlesList();
-  });
-}
-
-// 3. Compare scraped items with existing library
-async function processComparison(scrapedItems) {
-  lastScrapedItems = scrapedItems;
-  if (scrapedTotalEl) scrapedTotalEl.textContent = scrapedItems.length.toString();
-
-  const existingKeys = await getExistingLibraryKeys();
-
-  try {
-    if (chrome && chrome.storage && chrome.storage.local) {
-      const stored = await chrome.storage.local.get(['knownLibraryTitles']);
-      if (stored && Array.isArray(stored.knownLibraryTitles)) {
-        stored.knownLibraryTitles.forEach(t => existingKeys.add(normalizeKey(t)));
-      }
-    }
-  } catch (err) {
-    console.warn('Storage read fallback:', err);
-  }
-
-  missingItems = [];
-  scrapedItems.forEach(item => {
-    const k = normalizeKey(item.title);
-    if (!existingKeys.has(k)) {
-      missingItems.push(item);
-    }
-  });
-
-  if (missingCountEl) missingCountEl.textContent = missingItems.length.toString();
-  if (diffCountBadgeEl) diffCountBadgeEl.textContent = `${missingItems.length} New`;
-  if (tabMissingCountEl) tabMissingCountEl.textContent = missingItems.length.toString();
-  if (tabAllCountEl) tabAllCountEl.textContent = scrapedItems.length.toString();
-
-  if (missingItems.length > 0) {
-    activeTab = 'missing';
-    tabMissingEl?.classList.add('active');
-    tabAllEl?.classList.remove('active');
-    if (listHintTextEl) listHintTextEl.textContent = `${missingItems.length} new to import`;
   } else {
-    activeTab = 'all';
-    tabAllEl?.classList.add('active');
-    tabMissingEl?.classList.remove('active');
-    if (listHintTextEl) listHintTextEl.textContent = 'All synced';
-  }
-
-  renderTitlesList();
-
-  if (diffSectionEl) diffSectionEl.style.display = 'flex';
-
-  // Automatically export if enabled
-  if (chkAutoExportEl && chkAutoExportEl.checked) {
-    const itemsToAutoExport = missingItems.length > 0 ? missingItems : scrapedItems;
-    if (itemsToAutoExport.length > 0) {
-      exportDirectlyToApp(itemsToAutoExport, true);
-    }
+    bottomActionsEl.style.display = 'none';
   }
 }
 
-// Core export helper
-async function exportDirectlyToApp(itemsToSend, isAuto = false) {
+// Export items to web app tab
+async function exportItemsToApp(itemsToSend) {
   if (!itemsToSend || itemsToSend.length === 0) return;
 
-  const btnTextEl = document.getElementById('btnSendToAppText') || btnSendToAppEl.querySelector('span');
-  const originalText = btnTextEl ? btnTextEl.textContent : 'Export Directly to Web App';
-
   const tabs = await chrome.tabs.query({});
-  let appTab = tabs.find(t => t.url && (
+  const appTab = tabs.find(t => t.url && (
     t.url.includes('localhost') || 
     t.url.includes('5173') || 
     t.url.includes('127.0.0.1') ||
@@ -293,125 +258,126 @@ async function exportDirectlyToApp(itemsToSend, isAuto = false) {
           }, '*');
         }
       });
-
-      const message = isAuto 
-        ? `Auto-Exported ${itemsToSend.length} titles to Web App!` 
-        : `Exported ${itemsToSend.length} titles to Web App!`;
-
-      if (btnTextEl) btnTextEl.textContent = message;
-      updateStatus(true, `Synced ${itemsToSend.length} titles directly to Web App!`);
-    } catch (e) {
+      updateStatus(true, `Successfully added ${itemsToSend.length} title(s) to Web App!`);
+    } catch {
       navigator.clipboard.writeText(JSON.stringify(itemsToSend, null, 2));
-      if (btnTextEl) btnTextEl.textContent = `Copied ${itemsToSend.length} titles to Clipboard!`;
+      updateStatus(true, `Copied ${itemsToSend.length} item(s) to clipboard!`);
     }
   } else {
     navigator.clipboard.writeText(JSON.stringify(itemsToSend, null, 2));
-    if (btnTextEl) btnTextEl.textContent = `Copied! Opening Web App...`;
+    updateStatus(true, `Copied to clipboard! Opening Web App...`);
     chrome.tabs.create({ url: 'http://localhost:5173/?tab=import' });
   }
-
-  setTimeout(() => {
-    if (btnTextEl) btnTextEl.textContent = originalText;
-  }, 3000);
 }
 
-// 4. Listen for progress updates from content script
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.action === 'SCRAPE_PROGRESS' && msg.message) {
-    updateStatus(true, msg.message);
+// Toggle Capture Button
+btnToggleCaptureEl.addEventListener('click', async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !tab.id) return;
+
+  const action = isCapturingActive ? 'STOP_CAPTURING' : 'START_CAPTURING';
+
+  chrome.tabs.sendMessage(tab.id, { action }, (response) => {
+    if (chrome.runtime.lastError || !response) {
+      updateStatus(false, 'Make sure Netflix is open and refresh the tab.');
+      return;
+    }
+
+    isCapturingActive = !isCapturingActive;
+    updateCaptureButtonUI();
+
+    if (isCapturingActive) {
+      updateStatus(true, '🟢 Capturing My List: Now manually slide or scroll the My List row on Netflix!');
+    } else {
+      updateStatus(true, `Capture stopped. ${response.count || 0} My List titles captured!`);
+    }
+
+    if (Array.isArray(response.items)) {
+      capturedItems = response.items;
+      renderResults();
+    }
+  });
+});
+
+// Refresh button
+btnRefreshListEl.addEventListener('click', async () => {
+  btnRefreshListEl.disabled = true;
+  await fetchExistingLibraryKeys();
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab && tab.id) {
+    chrome.tabs.sendMessage(tab.id, { action: 'GET_STATUS' }, (res) => {
+      btnRefreshListEl.disabled = false;
+      if (res && Array.isArray(res.items)) {
+        capturedItems = res.items;
+        isCapturingActive = res.isCapturing;
+        updateCaptureButtonUI();
+        renderResults();
+        updateStatus(true, `Refreshed: ${capturedItems.length} My List titles loaded.`);
+      }
+    });
+  } else {
+    loadFromStorage();
+    btnRefreshListEl.disabled = false;
   }
 });
 
-// 5. Trigger Auto-Slide & Scrape
-if (btnAutoSlideEl) {
-  btnAutoSlideEl.addEventListener('click', async () => {
-    btnAutoSlideEl.disabled = true;
-    const maxPages = parseInt(numSlidePagesEl?.value) || 10;
-    btnAutoSlideEl.querySelector('span').textContent = `Sliding My List (max ${maxPages} pages)...`;
-    updateStatus(true, `Initiating horizontal slider scan across My List...`);
+// Clear list button
+btnClearListEl.addEventListener('click', async () => {
+  if (capturedItems.length === 0) return;
+  if (!confirm('Clear all captured titles and start fresh?')) return;
 
-    // Save page limit preference
-    try {
-      chrome.storage.local.set({ slidePageLimit: maxPages });
-    } catch {}
+  sessionAddedKeys.clear();
+  capturedItems = [];
 
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      chrome.tabs.sendMessage(tab.id, { action: 'AUTO_SLIDE_MY_LIST', maxPages }, async (response) => {
-        btnAutoSlideEl.disabled = false;
-        btnAutoSlideEl.querySelector('span').textContent = 'Auto-Slide & Deep Scrape';
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab && tab.id) {
+    chrome.tabs.sendMessage(tab.id, { action: 'CLEAR_CAPTURED' });
+  }
+  chrome.storage.local.remove(['nmlCapturedItems']);
 
-        if (chrome.runtime.lastError || !response || !response.success) {
-          const err = response?.error || 'Could not auto-slide. Make sure you are on Netflix and the "My List" row is visible.';
-          updateStatus(false, err);
-          return;
-        }
+  renderResults();
+  updateStatus(true, 'Captured titles cleared.');
+});
 
-        updateStatus(true, `Extraction complete: ${response.count} My List titles extracted!`);
-        await processComparison(response.items);
-      });
-    } catch (err) {
-      btnAutoSlideEl.disabled = false;
-      btnAutoSlideEl.querySelector('span').textContent = 'Auto-Slide & Deep Scrape';
-      updateStatus(false, err.message);
-    }
+// Add All button
+btnAddAllEl.addEventListener('click', async () => {
+  const itemsToAdd = capturedItems.filter(item => {
+    const k = normalizeKey(item.title);
+    return !localLibraryKeys.has(k) && !sessionAddedKeys.has(k);
   });
-}
 
-// 6. Trigger Scrape Visible Titles
-if (btnScrapeVisibleEl) {
-  btnScrapeVisibleEl.addEventListener('click', async () => {
-    btnScrapeVisibleEl.disabled = true;
-    btnScrapeVisibleEl.querySelector('span').textContent = 'Capturing titles...';
+  if (itemsToAdd.length === 0) return;
 
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      chrome.tabs.sendMessage(tab.id, { action: 'SCRAPE_MY_LIST' }, async (response) => {
-        btnScrapeVisibleEl.disabled = false;
-        btnScrapeVisibleEl.querySelector('span').textContent = 'Capture Visible Titles Now';
+  btnAddAllEl.disabled = true;
+  btnAddAllTextEl.textContent = 'Adding all titles...';
 
-        if (chrome.runtime.lastError || !response || !response.success) {
-          const err = response?.error || 'Could not find "My List" row. Make sure "My List" is in view and refresh.';
-          updateStatus(false, err);
-          return;
-        }
+  await exportItemsToApp(itemsToAdd);
 
-        updateStatus(true, `Captured ${response.count} My List titles!`);
-        await processComparison(response.items);
-      });
-    } catch (err) {
-      btnScrapeVisibleEl.disabled = false;
-      btnScrapeVisibleEl.querySelector('span').textContent = 'Capture Visible Titles Now';
-      updateStatus(false, err.message);
-    }
+  itemsToAdd.forEach(item => {
+    sessionAddedKeys.add(normalizeKey(item.title));
   });
-}
 
-// Load saved preferences
-try {
-  chrome.storage.local.get(['slidePageLimit'], (res) => {
-    if (res && res.slidePageLimit && numSlidePagesEl) {
-      numSlidePagesEl.value = res.slidePageLimit;
-    }
-  });
-} catch {}
+  btnAddAllTextEl.textContent = 'All Titles Added ✓';
+  renderResults();
+});
 
-// 7. Download JSON
-btnDownloadJsonEl?.addEventListener('click', () => {
-  const data = missingItems.length > 0 ? missingItems : lastScrapedItems;
-  const jsonBlob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+// Download JSON
+btnDownloadJsonEl.addEventListener('click', () => {
+  if (capturedItems.length === 0) return;
+  const jsonBlob = new Blob([JSON.stringify(capturedItems, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(jsonBlob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `netflix-my-list-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `netflix-my-list-captured-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
 });
 
-// 8. Copy JSON
-btnCopyJsonEl?.addEventListener('click', () => {
-  const data = missingItems.length > 0 ? missingItems : lastScrapedItems;
-  navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+// Copy JSON
+btnCopyJsonEl.addEventListener('click', () => {
+  if (capturedItems.length === 0) return;
+  navigator.clipboard.writeText(JSON.stringify(capturedItems, null, 2));
   const orig = btnCopyJsonEl.querySelector('span').textContent;
   btnCopyJsonEl.querySelector('span').textContent = 'Copied!';
   setTimeout(() => {
@@ -419,11 +385,5 @@ btnCopyJsonEl?.addEventListener('click', () => {
   }, 1800);
 });
 
-// 9. Direct sync to open web app tab button
-btnSendToAppEl?.addEventListener('click', async () => {
-  const itemsToSend = missingItems.length > 0 ? missingItems : lastScrapedItems;
-  await exportDirectlyToApp(itemsToSend, false);
-});
-
-// Initialize
-checkActiveTab();
+// Initialize on popup open
+initTab();

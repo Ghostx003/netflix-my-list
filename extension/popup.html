@@ -14,7 +14,7 @@
         <span class="n-brand">NETFLIX</span>
         <span class="badge">MY LIST SYNC</span>
       </div>
-      <p class="subtitle">Strictly extracts & syncs your <strong>My List</strong> items only</p>
+      <p class="subtitle">Live manual capture engine • Strictly My List only</p>
     </header>
 
     <!-- Status Banner -->
@@ -23,98 +23,69 @@
       <span id="statusText">Checking active tab...</span>
     </div>
 
-    <!-- Targeted Row Notice -->
+    <!-- Row Target Notice -->
     <div class="row-target-notice">
       <svg class="notice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="12" r="10"></circle>
         <line x1="12" y1="8" x2="12" y2="12"></line>
         <line x1="12" y1="16" x2="12.01" y2="16"></line>
       </svg>
-      <span>Row filter active: Ignores <em>Trailers</em>, <em>Continue Watching</em> &amp; other rows.</span>
+      <span>Captures <strong>strictly from My List</strong> in the HTML. Zero trailers or continue watching.</span>
     </div>
 
-    <!-- Slide Settings -->
-    <div class="slider-settings-card">
-      <div class="setting-row">
-        <label for="numSlidePages" class="setting-label">
-          <span>Auto-Slide Limit:</span>
-          <span class="setting-subtext">Max pages to slide right (>)</span>
-        </label>
-        <div class="input-stepper">
-          <input type="number" id="numSlidePages" min="1" max="50" value="10" />
-          <span class="stepper-unit">pages</span>
-        </div>
-      </div>
-      <div class="live-intervention-hint">
-        💡 <strong>Human Intervention Ready:</strong> If you manually click &gt; or slide through My List on Netflix, new titles are captured automatically!
-      </div>
-    </div>
-
-    <!-- Main Actions -->
-    <div class="actions">
-      <button id="btnAutoSlide" class="btn primary">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polygon points="5 3 19 12 5 21 5 3"></polygon>
-        </svg>
-        <span>Auto-Slide &amp; Deep Scrape</span>
+    <!-- Main Capture Toggle Controls -->
+    <div class="capture-controls">
+      <button id="btnToggleCapture" class="btn btn-capture start">
+        <span class="pulse-dot"></span>
+        <span id="captureBtnText">Start Capturing</span>
       </button>
 
-      <button id="btnScrapeVisible" class="btn secondary">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="8"></circle>
-          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-        </svg>
-        <span>Capture Visible Titles Now</span>
-      </button>
-
-      <button id="btnNavigateNetflix" class="btn outline" style="display:none;">
-        <span>Open netflix.com/browse/my-list</span>
-      </button>
-
-      <!-- Auto Export Toggle -->
-      <label class="auto-export-option">
-        <input type="checkbox" id="chkAutoExport" checked />
-        <span>Immediately export extracted titles to Web App</span>
-      </label>
-    </div>
-
-    <!-- Comparison & Diff Section (Appears after scrape) -->
-    <div id="diffSection" class="diff-section" style="display: none;">
-      <div class="diff-header">
-        <span class="title">Library Comparison</span>
-        <span id="diffCountBadge" class="diff-badge">0 Found</span>
-      </div>
-
-      <div class="diff-stats">
-        <div class="stat-box">
-          <span class="stat-label">My List Scraped</span>
-          <span id="scrapedTotal" class="stat-val">0</span>
-        </div>
-        <div class="stat-box highlight">
-          <span class="stat-label">New / Missing</span>
-          <span id="missingCount" class="stat-val new">0</span>
-        </div>
-      </div>
-
-      <!-- Captured & Missing Titles List Preview -->
-      <div class="missing-list-wrapper">
-        <div class="list-tabs-header">
-          <div class="list-tabs">
-            <button id="tabMissing" class="list-tab active" type="button">New to Add (<span id="tabMissingCount">0</span>)</button>
-            <button id="tabAll" class="list-tab" type="button">All My List (<span id="tabAllCount">0</span>)</button>
-          </div>
-          <span class="list-hint" id="listHintText">Ready to export</span>
-        </div>
-        <div id="titlesList" class="titles-list"></div>
-      </div>
-
-      <!-- Sync & Export Actions -->
-      <div class="sync-actions">
-        <button id="btnSendToApp" class="btn red">
+      <div class="secondary-btn-row">
+        <button id="btnRefreshList" class="btn outline-sm" title="Refresh captured items from tab">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+            <path d="M23 4v6h-6M1 20v-6h6"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
           </svg>
-          <span id="btnSendToAppText">Export Directly to Web App</span>
+          <span>Refresh</span>
+        </button>
+        <button id="btnClearList" class="btn outline-sm text-red" title="Clear all captured items">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+          <span>Clear Captured</span>
+        </button>
+      </div>
+
+      <div class="capture-instruction">
+        👉 Click <strong>Start Capturing</strong>, then manually slide or scroll through your "My List" row on Netflix. New titles are captured on-the-fly!
+      </div>
+    </div>
+
+    <!-- Review & Results Section -->
+    <div id="resultsSection" class="results-section">
+      <div class="results-header">
+        <div class="results-title-group">
+          <span class="results-heading">Captured Titles</span>
+          <span id="capturedBadge" class="results-badge">0</span>
+        </div>
+        <span id="newCountHint" class="new-hint">0 new to add</span>
+      </div>
+
+      <!-- Titles List (Each with its own Add button) -->
+      <div id="titlesList" class="titles-list">
+        <div class="empty-placeholder">
+          Click <strong>Start Capturing</strong> above and slide through your My List to capture items.
+        </div>
+      </div>
+
+      <!-- Add All at the bottom -->
+      <div id="bottomActions" class="bottom-actions" style="display: none;">
+        <button id="btnAddAll" class="btn btn-add-all">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+          <span id="btnAddAllText">Add All New Titles to Web App</span>
         </button>
 
         <div class="secondary-export-row">
@@ -136,6 +107,11 @@
         </div>
       </div>
     </div>
+
+    <!-- Navigate fallback if not on netflix -->
+    <button id="btnNavigateNetflix" class="btn outline" style="display:none;">
+      <span>Open netflix.com/browse/my-list</span>
+    </button>
 
     <!-- Footer -->
     <footer class="footer">

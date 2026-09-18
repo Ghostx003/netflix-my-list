@@ -1,21 +1,23 @@
 /**
- * Netflix My List Scraper Content Script
+ * Netflix My List - Manual Capture Engine
  * 
  * STRICT FOCUS: Exclusively scrapes the "My List" row/section.
  * Completely ignores other rows like "Trailers you have watched", "Continue Watching",
  * "Watch it again", "Trending Now", etc.
  * 
- * Features:
- * - Automatically finds the "My List" horizontal row or gallery anywhere on the page
- * - Slides through the horizontal carousel up to user-defined page limit
- * - Human Intervention Support: Live observer tracks manual scrolling/clicking and captures new titles
- * - Strips badges (Top 10, Recently Added, New Episode, Watch Now, Emmy Winner, etc.)
+ * Flow:
+ * 1. User clicks "Start Capturing" in the extension.
+ * 2. An on-screen floating HUD appears on Netflix showing live captured count.
+ * 3. User manually scrolls, slides, or clicks chevrons through "My List".
+ * 4. DOM observer captures newly discovered titles inside the My List container only.
+ * 5. Titles are saved in chrome.storage.local for review.
+ * 6. User opens extension to review results with individual "Add" buttons and an "Add All" button.
  */
 
-// In-memory accumulator for titles captured from the "My List" container
-if (!window.__netflixMyListAccumulator) {
-  window.__netflixMyListAccumulator = new Map();
-}
+let isCapturingActive = false;
+let capturedTitlesMap = new Map(); // key -> item
+let liveObserver = null;
+let hudElement = null;
 
 function cleanTitle(raw) {
   if (!raw) return '';
@@ -40,7 +42,7 @@ function extractVideoId(urlOrStr) {
 }
 
 /**
- * Locate ONLY the "My List" section/container on the current Netflix page.
+ * Locate strictly the "My List" container on the current Netflix page.
  * Strictly avoids capturing "Continue Watching", "Watch It Again", "Trailers", etc.
  */
 function findMyListContainer() {
@@ -60,7 +62,6 @@ function findMyListContainer() {
   for (const el of candidates) {
     const text = el.textContent?.trim() || '';
     if (/^my\s*list$/i.test(text) || text.toLowerCase() === 'my list') {
-      // Find the row container wrapping this header
       const row = el.closest('.lolomoRow, .rowContainer, [data-list-context], .row, .slider-hover-trigger-layer')
                || el.closest('div.slider')?.parentElement
                || el.parentElement?.parentElement;
@@ -68,7 +69,7 @@ function findMyListContainer() {
     }
   }
 
-  // 3. Fallback header matching "My List" without forbidden row terms
+  // 3. Fallback header containing "My List" without other section keywords
   for (const el of candidates) {
     const text = el.textContent?.trim() || '';
     if (/\bmy\s*list\b/i.test(text) && !/(continue|trailer|top\s*10|trending|watch it again|popular|because you watched)/i.test(text)) {
@@ -88,10 +89,12 @@ function findMyListContainer() {
 }
 
 /**
- * Scrape titles strictly from a specific container (The My List container).
+ * Scrape titles strictly from the My List container.
+ * Returns count of newly added items in this cycle.
  */
-function scrapeFromContainer(container) {
-  if (!container) return [];
+function scrapeFromMyListContainer() {
+  const container = findMyListContainer();
+  if (!container) return 0;
 
   const cardSelectors = [
     '.slider-item',
@@ -103,22 +106,20 @@ function scrapeFromContainer(container) {
   ];
 
   const cards = container.querySelectorAll(cardSelectors.join(', '));
-  const newlyScraped = [];
+  let newlyDiscovered = 0;
 
   cards.forEach(card => {
-    // Try to get title link / anchor
     const linkEl = card.querySelector('a[href*="/title/"], a[href*="/watch/"]');
     const href = linkEl ? linkEl.getAttribute('href') : '';
     const videoId = extractVideoId(href);
 
-    // 1. Box art image alt attribute (Netflix's cleanest title source)
+    // Box art image alt attribute (Netflix's cleanest title source)
     let title = '';
     const imgEl = card.querySelector('img.boxart-image, img');
     if (imgEl && imgEl.getAttribute('alt')) {
       title = cleanTitle(imgEl.getAttribute('alt'));
     }
 
-    // 2. Specific text labels
     if (!title) {
       const textTitleEl = card.querySelector('.fallback-text, .title-card-title, .video-title');
       if (textTitleEl) {
@@ -126,7 +127,6 @@ function scrapeFromContainer(container) {
       }
     }
 
-    // 3. Aria-labels
     if (!title && linkEl) {
       title = cleanTitle(linkEl.getAttribute('aria-label') || '');
     }
@@ -145,13 +145,11 @@ function scrapeFromContainer(container) {
       return;
     }
 
-    // Poster image
     let posterPath = '';
     if (imgEl && imgEl.src && !imgEl.src.startsWith('data:')) {
       posterPath = imgEl.src;
     }
 
-    // Synopsis / details if visible
     let synopsis = '';
     const synopsisEl = card.querySelector('.synopsis, .bob-overview, .overview');
     if (synopsisEl) synopsis = synopsisEl.textContent?.trim() || '';
@@ -166,22 +164,21 @@ function scrapeFromContainer(container) {
 
     const key = (title + (videoId ? '_' + videoId : '')).toLowerCase();
 
-    const itemObj = {
-      title,
-      videoId,
-      synopsis: synopsis || undefined,
-      posterPath: posterPath || undefined,
-      maturityRating: maturityRating || undefined,
-      duration: duration || undefined,
-    };
-
-    if (!window.__netflixMyListAccumulator.has(key)) {
-      window.__netflixMyListAccumulator.set(key, itemObj);
-      newlyScraped.push(itemObj);
+    if (!capturedTitlesMap.has(key)) {
+      capturedTitlesMap.set(key, {
+        title,
+        videoId,
+        synopsis: synopsis || undefined,
+        posterPath: posterPath || undefined,
+        maturityRating: maturityRating || undefined,
+        duration: duration || undefined,
+        capturedAt: Date.now()
+      });
+      newlyDiscovered++;
     }
   });
 
-  // Also check direct links ONLY inside this container
+  // Also scan title links inside this container
   const links = container.querySelectorAll('a[href*="/title/"], a[href*="/watch/"]');
   links.forEach(link => {
     const href = link.getAttribute('href') || '';
@@ -195,176 +192,194 @@ function scrapeFromContainer(container) {
 
     if (title && title.length > 1 && !/^(play|more info|watch|episodes|next|previous|my list)$/i.test(title)) {
       const key = (title + (videoId ? '_' + videoId : '')).toLowerCase();
-      if (!window.__netflixMyListAccumulator.has(key)) {
-        const itemObj = { title, videoId };
-        window.__netflixMyListAccumulator.set(key, itemObj);
-        newlyScraped.push(itemObj);
+      if (!capturedTitlesMap.has(key)) {
+        capturedTitlesMap.set(key, {
+          title,
+          videoId,
+          capturedAt: Date.now()
+        });
+        newlyDiscovered++;
       }
     }
   });
 
-  return Array.from(window.__netflixMyListAccumulator.values());
-}
-
-/**
- * Setup live observer for Human Intervention:
- * If the user manually clicks horizontal slider arrows or scrolls, capture uncaptured titles immediately!
- */
-function setupLiveObserver() {
-  const container = findMyListContainer();
-  if (container) {
-    scrapeFromContainer(container);
+  if (newlyDiscovered > 0) {
+    updateOnScreenHUD();
+    syncToStorage();
   }
 
-  // Observe DOM changes in document so when user slides or scrolls, new cards are captured
-  const observer = new MutationObserver(() => {
-    const c = findMyListContainer();
-    if (c) {
-      scrapeFromContainer(c);
-    }
+  return newlyDiscovered;
+}
+
+function syncToStorage() {
+  const items = Array.from(capturedTitlesMap.values());
+  chrome.storage.local.set({
+    nmlCapturedItems: items,
+    nmlIsCapturing: isCapturingActive
   });
-
-  observer.observe(document.body, { childList: true, subtree: true });
-
-  // Listen for user interaction events (clicking next chevron or scrolling)
-  window.addEventListener('click', (e) => {
-    const c = findMyListContainer();
-    if (c && (c.contains(e.target) || e.target.closest?.('.handleNext, .sliderButtonNext'))) {
-      setTimeout(() => scrapeFromContainer(c), 500);
-      setTimeout(() => scrapeFromContainer(c), 1200);
-    }
-  }, true);
-
-  window.addEventListener('scroll', () => {
-    const c = findMyListContainer();
-    if (c) {
-      scrapeFromContainer(c);
-    }
-  }, { passive: true });
-}
-
-setupLiveObserver();
-
-/**
- * Find the next button inside the My List row.
- */
-function getNextSlideButton(container) {
-  if (!container) return null;
-  return container.querySelector(
-    '.handleNext, .sliderButtonNext, span.handle.handleNext, .slider-button-right, [aria-label*="See more"], [aria-label*="Next"]'
-  );
 }
 
 /**
- * Auto-slide through My List horizontal row up to maxPages.
+ * On-Screen Floating HUD when Capturing is Active
  */
-async function autoSlideMyList(maxPages = 10, sendFeedback = () => {}) {
-  const container = findMyListContainer();
-  if (!container) {
-    throw new Error('Could not find "My List" row on this page. Please scroll until "My List" is in view or navigate to netflix.com/browse/my-list.');
+function createOnScreenHUD() {
+  if (document.getElementById('nml-capture-hud')) return;
+
+  const hud = document.createElement('div');
+  hud.id = 'nml-capture-hud';
+  hud.style.cssText = `
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 9999999;
+    background: rgba(18, 18, 18, 0.95);
+    color: #ffffff;
+    border: 1.5px solid #E50914;
+    border-radius: 40px;
+    padding: 8px 16px 8px 14px;
+    box-shadow: 0 10px 35px rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 13px;
+    backdrop-filter: blur(10px);
+    transition: all 0.2s ease;
+    user-select: none;
+  `;
+
+  hud.innerHTML = `
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 10px #22c55e;"></span>
+      <span style="font-weight: 500;">Capturing My List:</span>
+      <span id="nml-hud-count" style="color: #ffffff; font-weight: 800; background: #E50914; padding: 1px 8px; border-radius: 12px; font-size: 13px;">${capturedTitlesMap.size}</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <button id="nml-hud-stop" style="background: #27272a; color: #f4f4f5; border: 1px solid rgba(255,255,255,0.15); border-radius: 20px; padding: 4px 12px; font-size: 11.5px; font-weight: 600; cursor: pointer;">
+        Stop &amp; Review
+      </button>
+    </div>
+  `;
+
+  document.body.appendChild(hud);
+  hudElement = hud;
+
+  const stopBtn = hud.querySelector('#nml-hud-stop');
+  if (stopBtn) {
+    stopBtn.addEventListener('click', () => {
+      stopCapturing();
+    });
   }
+}
 
-  // Initial capture
-  scrapeFromContainer(container);
-  sendFeedback(`Initial scan: ${window.__netflixMyListAccumulator.size} titles found.`);
+function updateOnScreenHUD() {
+  const countEl = document.getElementById('nml-hud-count');
+  if (countEl) {
+    countEl.textContent = capturedTitlesMap.size.toString();
+  }
+}
 
-  // Scroll container smoothly into view so Netflix triggers card renders
-  try {
-    container.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  } catch {}
+function removeOnScreenHUD() {
+  const el = document.getElementById('nml-capture-hud');
+  if (el) el.remove();
+  hudElement = null;
+}
 
-  let consecutiveNoNewTitles = 0;
-  let pagesSlid = 0;
+/**
+ * Start Live Capturing:
+ * User manually scrolls or clicks chevrons, observer captures any new title in My List.
+ */
+function startCapturing() {
+  isCapturingActive = true;
+  createOnScreenHUD();
 
-  for (let p = 1; p <= maxPages; p++) {
-    const beforeCount = window.__netflixMyListAccumulator.size;
-    const nextBtn = getNextSlideButton(container);
+  // Initial pass
+  scrapeFromMyListContainer();
 
-    if (nextBtn) {
-      // Simulate authentic user click on next slide handle
-      nextBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      nextBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-      nextBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-      nextBtn.click();
-    } else {
-      // Fallback: horizontal scroll
-      const slider = container.querySelector('.slider, .sliderMask, .sliderContent') || container;
-      if (slider && slider.scrollWidth > slider.clientWidth) {
-        slider.scrollBy({ left: slider.clientWidth * 0.85, behavior: 'smooth' });
+  if (!liveObserver) {
+    liveObserver = new MutationObserver(() => {
+      if (isCapturingActive) {
+        scrapeFromMyListContainer();
       }
-    }
-
-    pagesSlid++;
-    sendFeedback(`Sliding page ${p}/${maxPages}... (${window.__netflixMyListAccumulator.size} titles captured)`);
-
-    // Allow Netflix slide transition and lazy card loading to settle
-    await new Promise(r => setTimeout(r, 900));
-
-    // Scrape cards on current page view
-    scrapeFromContainer(container);
-
-    const afterCount = window.__netflixMyListAccumulator.size;
-    if (afterCount === beforeCount) {
-      consecutiveNoNewTitles++;
-    } else {
-      consecutiveNoNewTitles = 0;
-    }
-
-    // If 2 consecutive slides show no new titles, or next button disappeared, we've covered the full row
-    if (consecutiveNoNewTitles >= 2 && p >= 3) {
-      sendFeedback(`Reached end of My List after ${p} slides.`);
-      break;
-    }
+    });
+    liveObserver.observe(document.body, { childList: true, subtree: true });
   }
 
-  return Array.from(window.__netflixMyListAccumulator.values());
+  syncToStorage();
 }
 
-// Extension message listener
+function stopCapturing() {
+  isCapturingActive = false;
+  // Final scrape of whatever is visible
+  scrapeFromMyListContainer();
+  removeOnScreenHUD();
+  syncToStorage();
+}
+
+// User manual scroll and click listeners
+window.addEventListener('click', () => {
+  if (isCapturingActive) {
+    setTimeout(scrapeFromMyListContainer, 300);
+    setTimeout(scrapeFromMyListContainer, 800);
+  }
+}, true);
+
+window.addEventListener('scroll', () => {
+  if (isCapturingActive) {
+    scrapeFromMyListContainer();
+  }
+}, { passive: true });
+
+// Restore state from storage on load
+chrome.storage.local.get(['nmlCapturedItems', 'nmlIsCapturing'], (res) => {
+  if (res && Array.isArray(res.nmlCapturedItems)) {
+    res.nmlCapturedItems.forEach(item => {
+      const key = (item.title + (item.videoId ? '_' + item.videoId : '')).toLowerCase();
+      capturedTitlesMap.set(key, item);
+    });
+  }
+  if (res && res.nmlIsCapturing) {
+    startCapturing();
+  }
+});
+
+// Extension popup communication
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'CHECK_MY_LIST_CONTAINER') {
+  if (request.action === 'GET_STATUS') {
     const container = findMyListContainer();
-    const isDedicated = window.location.pathname.includes('/my-list');
     sendResponse({
-      found: !!container,
-      isDedicated,
-      capturedCount: window.__netflixMyListAccumulator.size
+      containerFound: !!container,
+      isCapturing: isCapturingActive,
+      count: capturedTitlesMap.size,
+      items: Array.from(capturedTitlesMap.values())
     });
     return;
   }
 
-  if (request.action === 'SCRAPE_MY_LIST') {
-    const container = findMyListContainer();
-    if (!container) {
-      sendResponse({
-        success: false,
-        error: 'Could not find "My List" row on this page. Please make sure "My List" is loaded or open netflix.com/browse/my-list.'
-      });
-      return;
-    }
-
-    const items = scrapeFromContainer(container);
-    sendResponse({ success: true, count: items.length, items });
+  if (request.action === 'START_CAPTURING') {
+    startCapturing();
+    sendResponse({
+      success: true,
+      count: capturedTitlesMap.size,
+      items: Array.from(capturedTitlesMap.values())
+    });
     return;
   }
 
-  if (request.action === 'AUTO_SLIDE_MY_LIST') {
-    const maxPages = request.maxPages || 10;
-    autoSlideMyList(maxPages, (statusMsg) => {
-      chrome.runtime.sendMessage({ action: 'SCRAPE_PROGRESS', message: statusMsg }).catch(() => {});
-    })
-      .then((items) => {
-        sendResponse({ success: true, count: items.length, items });
-      })
-      .catch((err) => {
-        sendResponse({ success: false, error: err.message });
-      });
-
-    return true; // Keep async channel open
+  if (request.action === 'STOP_CAPTURING') {
+    stopCapturing();
+    sendResponse({
+      success: true,
+      count: capturedTitlesMap.size,
+      items: Array.from(capturedTitlesMap.values())
+    });
+    return;
   }
 
-  if (request.action === 'CLEAR_ACCUMULATOR') {
-    window.__netflixMyListAccumulator.clear();
+  if (request.action === 'CLEAR_CAPTURED') {
+    capturedTitlesMap.clear();
+    removeOnScreenHUD();
+    syncToStorage();
     sendResponse({ success: true });
     return;
   }
