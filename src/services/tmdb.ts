@@ -372,9 +372,12 @@ export async function fetchFullDetails(
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
 
-    // Check if Hindi translation or dub is available in TMDB translations
+    // Check if Hindi or English translation or dub is available in TMDB translations
     const hasHindiTranslation = Array.isArray(data.translations?.translations) && data.translations.translations.some(
       (t: any) => t.iso_639_1 === 'hi' || (t.english_name && t.english_name.toLowerCase() === 'hindi') || (t.name && t.name.toLowerCase().includes('hindi'))
+    );
+    const hasEnglishTranslation = Array.isArray(data.translations?.translations) && data.translations.translations.some(
+      (t: any) => t.iso_639_1 === 'en' || (t.english_name && t.english_name.toLowerCase() === 'english') || (t.name && t.name.toLowerCase().includes('english'))
     );
 
     let trailer = selectBestTrailer(data.videos?.results);
@@ -403,6 +406,9 @@ export async function fetchFullDetails(
       const spokenLangs: string[] = (data.spoken_languages || []).map((l: any) => l.english_name || l.name || l.iso_639_1).concat(omdbData?.languages || []).filter(Boolean);
       if (hasHindiTranslation && !spokenLangs.some((l) => l.toLowerCase() === 'hindi' || l.toLowerCase() === 'hi')) {
         spokenLangs.push('Hindi');
+      }
+      if (hasEnglishTranslation && !spokenLangs.some((l) => l.toLowerCase() === 'english' || l.toLowerCase() === 'en')) {
+        spokenLangs.push('English');
       }
       const uniqueLangs: string[] = Array.from(new Set(spokenLangs));
       const origLang: string | undefined = data.original_language || undefined;
@@ -465,6 +471,9 @@ export async function fetchFullDetails(
       const spokenLangs: string[] = (data.spoken_languages || []).map((l: any) => l.english_name || l.name || l.iso_639_1).concat(omdbData?.languages || []).filter(Boolean);
       if (hasHindiTranslation && !spokenLangs.some((l) => l.toLowerCase() === 'hindi' || l.toLowerCase() === 'hi')) {
         spokenLangs.push('Hindi');
+      }
+      if (hasEnglishTranslation && !spokenLangs.some((l) => l.toLowerCase() === 'english' || l.toLowerCase() === 'en')) {
+        spokenLangs.push('English');
       }
       const uniqueLangs: string[] = Array.from(new Set(spokenLangs));
       const origLang: string | undefined = data.original_language || undefined;
