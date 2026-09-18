@@ -117,11 +117,11 @@ export const DroppedView: React.FC<DroppedViewProps> = ({
           <select
             value={selectedReasonFilter}
             onChange={(e) => setSelectedReasonFilter(e.target.value)}
-            className="bg-black/40 border border-zinc-700 rounded-xl px-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-red-500"
+            className="bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-1.5 text-xs text-white font-medium focus:outline-none focus:border-red-500 cursor-pointer"
           >
-            <option value="all">All Reasons ({droppedItems.length})</option>
+            <option value="all" className="bg-zinc-900 text-white font-medium">All Reasons ({droppedItems.length})</option>
             {availableReasons.map((r) => (
-              <option key={r} value={r}>
+              <option key={r} value={r} className="bg-zinc-900 text-white font-medium">
                 {r}
               </option>
             ))}

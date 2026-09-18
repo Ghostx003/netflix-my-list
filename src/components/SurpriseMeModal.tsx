@@ -141,11 +141,11 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
             <select
               value={selectedGenre}
               onChange={(e) => setSelectedGenre(e.target.value)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white font-medium focus:outline-none focus:border-purple-500 cursor-pointer"
             >
-              <option value="all">All Genres</option>
+              <option value="all" className="bg-zinc-900 text-white font-medium">All Genres</option>
               {allGenres.map((g) => (
-                <option key={g} value={g}>{g}</option>
+                <option key={g} value={g} className="bg-zinc-900 text-white font-medium">{g}</option>
               ))}
             </select>
           </div>

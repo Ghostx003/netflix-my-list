@@ -264,39 +264,39 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
             <select
               value={mediaTypeFilter}
               onChange={(e) => setMediaTypeFilter(e.target.value as MediaFilterType)}
-              className="bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#E50914]"
+              className="bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-[#E50914] cursor-pointer"
             >
-              <option value="all">All Types</option>
-              <option value="movie">Movies Only</option>
-              <option value="tv">TV Shows Only</option>
+              <option value="all" className="bg-zinc-900 text-white">All Types</option>
+              <option value="movie" className="bg-zinc-900 text-white">Movies Only</option>
+              <option value="tv" className="bg-zinc-900 text-white">TV Shows Only</option>
             </select>
 
             {/* Status selector */}
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as StatusFilterType)}
-              className="bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#E50914]"
+              className="bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-[#E50914] cursor-pointer"
             >
-              <option value="all">All Statuses</option>
-              <option value="unwatched">Unwatched</option>
-              <option value="still_watching">Still Watching</option>
-              <option value="completed">Completed</option>
-              <option value="dropped">Dropped</option>
+              <option value="all" className="bg-zinc-900 text-white">All Statuses</option>
+              <option value="unwatched" className="bg-zinc-900 text-white">Unwatched</option>
+              <option value="still_watching" className="bg-zinc-900 text-white">Still Watching</option>
+              <option value="completed" className="bg-zinc-900 text-white">Completed</option>
+              <option value="dropped" className="bg-zinc-900 text-white">Dropped</option>
             </select>
 
             {/* Sort Dropdown */}
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as SortField)}
-              className="bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#E50914] font-medium"
+              className="bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#E50914] font-medium cursor-pointer"
             >
-              <option value="recently_added">Recently Added</option>
-              <option value="rottenTomatoes">🍅 Rotten Tomatoes (High to Low)</option>
-              <option value="imdb">⭐ IMDb Rating (High to Low)</option>
-              <option value="runtime">⏱️ Duration (Longest to Shortest)</option>
-              <option value="title">Alphabetical (A - Z)</option>
-              <option value="year">Release Year</option>
-              <option value="rating">TMDB Score</option>
+              <option value="recently_added" className="bg-zinc-900 text-white">Recently Added</option>
+              <option value="rottenTomatoes" className="bg-zinc-900 text-white">🍅 Rotten Tomatoes (High to Low)</option>
+              <option value="imdb" className="bg-zinc-900 text-white">⭐ IMDb Rating (High to Low)</option>
+              <option value="runtime" className="bg-zinc-900 text-white">⏱️ Duration (Longest to Shortest)</option>
+              <option value="title" className="bg-zinc-900 text-white">Alphabetical (A - Z)</option>
+              <option value="year" className="bg-zinc-900 text-white">Release Year</option>
+              <option value="rating" className="bg-zinc-900 text-white">TMDB Score</option>
             </select>
 
             <button
@@ -365,17 +365,17 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
             <select
               value={minRating}
               onChange={(e) => setMinRating(Number(e.target.value))}
-              className={`bg-black/30 border rounded-xl px-2.5 py-1.5 text-xs focus:outline-none ${
+              className={`bg-zinc-900 border rounded-xl px-2.5 py-1.5 text-xs text-zinc-100 font-semibold focus:outline-none cursor-pointer ${
                 minRating > 0
                   ? 'border-yellow-500/50 text-yellow-300'
-                  : 'border-white/5 text-gray-400'
+                  : 'border-white/10 text-zinc-300'
               }`}
             >
-              <option value="0">All Ratings</option>
-              <option value="6">6.0+ Rating</option>
-              <option value="7">7.0+ Rating</option>
-              <option value="7.5">7.5+ Rating</option>
-              <option value="8">8.0+ Rating</option>
+              <option value="0" className="bg-zinc-900 text-white font-medium">All Ratings</option>
+              <option value="6" className="bg-zinc-900 text-white font-medium">6.0+ Rating</option>
+              <option value="7" className="bg-zinc-900 text-white font-medium">7.0+ Rating</option>
+              <option value="7.5" className="bg-zinc-900 text-white font-medium">7.5+ Rating</option>
+              <option value="8" className="bg-zinc-900 text-white font-medium">8.0+ Rating</option>
             </select>
           </div>
 

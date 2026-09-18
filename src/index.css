@@ -15,6 +15,27 @@ body {
   overflow-x: hidden;
 }
 
+/* Ensure all select elements and dropdown options render crisp, high-contrast dark theme */
+select {
+  background-color: #18181b !important;
+  color: #f4f4f5 !important;
+  color-scheme: dark;
+}
+
+select option,
+select optgroup {
+  background-color: #1c1c1e !important;
+  color: #ffffff !important;
+  padding: 8px 12px;
+}
+
+select option:hover,
+select option:focus,
+select option:checked {
+  background-color: #E50914 !important;
+  color: #ffffff !important;
+}
+
 /* Custom scrollbar for dark streaming aesthetic */
 ::-webkit-scrollbar {
   width: 8px;
@@ -33,4 +54,3 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #e50914;
 }
-

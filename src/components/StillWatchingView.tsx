@@ -179,11 +179,11 @@ export const StillWatchingView: React.FC<StillWatchingViewProps> = ({
                 e.target.value = '';
               }}
               defaultValue=""
-              className="bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
+              className="bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-blue-500 cursor-pointer"
             >
-              <option value="" disabled>+ Add Title to Still Watching...</option>
+              <option value="" disabled className="bg-zinc-900 text-zinc-400 font-medium">+ Add Title to Still Watching...</option>
               {availableToAdd.slice(0, 50).map((t) => (
-                <option key={t.id} value={t.id}>
+                <option key={t.id} value={t.id} className="bg-zinc-900 text-white font-medium py-1">
                   {t.mediaType === 'tv' ? '📺' : '🎬'} {t.externalTitle || t.originalTitle}
                 </option>
               ))}
@@ -210,12 +210,12 @@ export const StillWatchingView: React.FC<StillWatchingViewProps> = ({
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as StillSortOption)}
-            className="bg-black/40 border border-zinc-700 rounded-xl px-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
+            className="bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-1.5 text-xs text-zinc-100 font-medium focus:outline-none focus:border-blue-500 cursor-pointer"
           >
-            <option value="recently_watched">Recently Watched</option>
-            <option value="recently_added">Recently Added</option>
-            <option value="progress">Progress %</option>
-            <option value="alphabetical">Alphabetical</option>
+            <option value="recently_watched" className="bg-zinc-900 text-white">Recently Watched</option>
+            <option value="recently_added" className="bg-zinc-900 text-white">Recently Added</option>
+            <option value="progress" className="bg-zinc-900 text-white">Progress %</option>
+            <option value="alphabetical" className="bg-zinc-900 text-white">Alphabetical</option>
           </select>
         </div>
       </div>
