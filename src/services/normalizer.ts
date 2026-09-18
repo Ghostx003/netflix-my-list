@@ -49,19 +49,327 @@ export interface LanguageBadgeInfo {
 }
 
 /**
- * Checks if an item has a specific language either in languages, originalLanguage,
- * or country context (e.g. India implies Hindi availability).
+ * Curated list of popular Netflix India Hindi dubbed international titles
+ * (American, Korean, Japanese anime/live-action, European, and global series/movies).
+ * Netflix India dubs all major originals and blockbuster franchises in Hindi.
  */
-export function itemHasLanguage(item: { languages?: string[]; originalLanguage?: string; countries?: string[] }, targetLang: string): boolean {
+export const NETFLIX_HINDI_DUBBED_TITLES: Set<string> = new Set([
+  // Popular Global & American TV Series
+  'stranger things',
+  'wednesday',
+  'money heist',
+  'squid game',
+  'all of us are dead',
+  'dark',
+  'the witcher',
+  'lucifer',
+  'cobra kai',
+  'sex education',
+  'alice in borderland',
+  'one piece',
+  '1899',
+  'sweet home',
+  'my name',
+  'the glory',
+  'narcos',
+  'narcos mexico',
+  'peaky blinders',
+  'ozark',
+  'the crown',
+  'bridgerton',
+  'queen charlotte',
+  'the sandman',
+  'dahmer',
+  'dahmer monster the jeffrey dahmer story',
+  'monster the jeffrey dahmer story',
+  'monsters the lyle and erik menendez story',
+  'you',
+  'manifest',
+  'outer banks',
+  'shadow and bone',
+  'locke & key',
+  'locke and key',
+  'the umbrella academy',
+  'altered carbon',
+  'lost in space',
+  'another life',
+  'avatar the last airbender',
+  '3 body problem',
+  'fall of the house of usher',
+  'the fall of the house of usher',
+  'the night agent',
+  'the diplomat',
+  'the recruit',
+  'fubar',
+  'beef',
+  'baby reindeer',
+  'supacell',
+  'kaos',
+  'a man in full',
+  'bodkin',
+  'fool me once',
+  'the gentlemen',
+  'one day',
+  'griselda',
+  'berlin',
+  'lupin',
+  'elite',
+  'control z',
+  'who killed sara',
+  'cable girls',
+  'high seas',
+  'undercover',
+  'ragnarok',
+  'young royals',
+  'heartstopper',
+  'heartbreak high',
+  'dead boy detectives',
+  'sens8',
+  'sense8',
+  'the oa',
+  'mindhunter',
+  'house of cards',
+  'orange is the new black',
+  'black mirror',
+  'love death & robots',
+  'love death and robots',
+  'arcane',
+  'castlevania',
+  'castlevania nocturne',
+  'blood of zeus',
+  'blue eye samurai',
+  'captain laserhawk',
+  'cyberpunk edgerunners',
+  'dota dragons blood',
+  'the cuphead show',
+  'jurassic world camp cretaceous',
+  'jurassic world chaos theory',
+  'sonic prime',
+  'he man and the masters of the universe',
+  'masters of the universe revelation',
+  'carmen sandiego',
+  'the dragon prince',
+  'trollhunters',
+  'voltron legendary defender',
+  'she ra and the princesses of power',
+  'baki',
+  'baki hanma',
+  'kengan ashura',
+  'record of ragnarok',
+  'tekken bloodline',
+  'demon slayer',
+  'demon slayer kimetsu no yaiba',
+  'jujutsu kaisen',
+  'attack on titan',
+  'naruto',
+  'naruto shippuden',
+  'boruto',
+  'death note',
+  'hunter x hunter',
+  'vinland saga',
+  'spy x family',
+  'chainsaw man',
+  'my hero academia',
+  'tokyo ghoul',
+  'parasyte',
+  'rurouni kenshin',
+  'hells paradise',
+  'solo leveling',
+  'kaiju no 8',
+  'pluto',
+  'thermae romae novae',
+  'kotaro lives alone',
+  'komi cant communicate',
+  'the way of the househusband',
+  'delicious in dungeon',
+  'dungeon meshi',
+  'suzume',
+  'bubble',
+  'a whisker away',
+  'drifting home',
+
+  // Korean Dramas (K-Dramas with Hindi Dubs on Netflix)
+  'crash landing on you',
+  'itaewon class',
+  'vincenzo',
+  'hometown cha cha cha',
+  'business proposal',
+  'extraordinary attorney woo',
+  'king the land',
+  'queen of tears',
+  'marry my husband',
+  'doctor slump',
+  'welcome to samdalri',
+  'destined with you',
+  'see you in my 19th life',
+  'bloodhounds',
+  'celebrity',
+  'mask girl',
+  'doona',
+  'daily dose of sunshine',
+  'gyeongseong creature',
+  'a killer paradox',
+  'hierarchy',
+  'the 8 show',
+  'the whirlpool',
+  'parasyte the grey',
+  'song of the bandits',
+  'black knight',
+  'kill boksoon',
+  'ballerina',
+  'badland hunters',
+  'officer black belt',
+  'space sweepers',
+  'the call',
+  'unlocked',
+  'seoul vibe',
+  'yaksha ruthless operations',
+  'jung e',
+  'carnival row',
+  'the silent sea',
+  'hellbound',
+  'df',
+  'dp',
+
+  // Global & Hollywood Movies dubbed in Hindi on Netflix India
+  'red notice',
+  'extraction',
+  'extraction 2',
+  'the gray man',
+  'glass onion',
+  'knives out',
+  'heart of stone',
+  'rebel moon',
+  'rebel moon part one',
+  'rebel moon part two',
+  'leave the world behind',
+  'society of the snow',
+  'nowhere',
+  'lift',
+  'damsei',
+  'damsel',
+  'atlas',
+  'beverly hills cop axel f',
+  'the union',
+  'incoming',
+  'ugly',
+  'uglies',
+  'rebel ridge',
+  'lonely planet',
+  'carry on',
+  'the mother',
+  'the adam project',
+  'don t look up',
+  'dont look up',
+  'bird box',
+  'bird box barcelona',
+  'army of the dead',
+  'army of thieves',
+  'project power',
+  'the old guard',
+  'triple frontier',
+  '6 underground',
+  'spenser confidential',
+  'enola holmes',
+  'enola holmes 2',
+  'murder mystery',
+  'murder mystery 2',
+  'me time',
+  'the man from toronto',
+  'day shift',
+  'slumberland',
+  'guillermo del toro s pinocchio',
+  'pinocchio',
+  'nimona',
+  'the sea beast',
+  'leo',
+  'orion and the dark',
+  'spellbound',
+  'spider man into the spider verse',
+  'spider man across the spider verse',
+  'spider man no way home',
+  'the batman',
+  'interstellar',
+  'inception',
+  'oppenheimer',
+  'dune',
+  'dune part one',
+  'dune part two',
+  'godzilla minus one',
+  'godzilla vs kong',
+  'kong skull island',
+  'pacific rim',
+  'transformers',
+  'fast and furious',
+  'fast & furious',
+  'f9',
+  'jurassic park',
+  'jurassic world',
+  'mission impossible',
+  'top gun',
+  'top gun maverick',
+  'john wick',
+  'john wick chapter 4',
+  'matrix',
+  'the matrix ressurections',
+  'the matrix resurrections',
+  'avatar',
+  'avatar the way of water',
+  'gladiator',
+  'titanic',
+  'bullet train',
+  'uncharted',
+  'morbius',
+  'venom',
+  'venom let there be carnage',
+  'ghostbusters afterlife',
+  'ghostbusters frozen empire',
+  'bad boys for life',
+  'bad boys ride or die',
+  'jumanji the next level',
+  'jumanji welcome to the jungle',
+]);
+
+/**
+ * Checks if an item has a specific language either in languages, originalLanguage,
+ * country context (e.g. India implies Hindi availability), or known Netflix India dubbing catalogs.
+ */
+export function itemHasLanguage(
+  item: {
+    originalTitle?: string;
+    externalTitle?: string;
+    languages?: string[];
+    originalLanguage?: string;
+    countries?: string[];
+  },
+  targetLang: string
+): boolean {
   const normTarget = targetLang.toLowerCase().trim();
   const langs = (item.languages || []).map((l) => l.toLowerCase());
   const orig = (item.originalLanguage || '').toLowerCase();
   const countries = (item.countries || []).map((c) => c.toLowerCase());
 
   if (normTarget === 'hi' || normTarget === 'hindi') {
-    if (langs.some((l) => l === 'hi' || l === 'hin' || l.includes('hindi'))) return true;
+    if (langs.some((l) => l === 'hi' || l === 'hin' || l.includes('hindi') || l.includes('हिन्दी'))) return true;
     if (orig === 'hi' || orig === 'hin') return true;
     if (countries.some((c) => c === 'in' || c === 'india')) return true;
+
+    // Check titles against known Netflix India Hindi-dubbed catalog
+    const t1 = normalizeTitle(item.originalTitle || '');
+    const t2 = normalizeTitle(item.externalTitle || '');
+    if (t1 && NETFLIX_HINDI_DUBBED_TITLES.has(t1)) return true;
+    if (t2 && NETFLIX_HINDI_DUBBED_TITLES.has(t2)) return true;
+
+    // Substring checks for prominent Hindi-dubbed franchises
+    for (const dubbed of NETFLIX_HINDI_DUBBED_TITLES) {
+      if (t1 && (t1 === dubbed || t1.includes(dubbed) || dubbed.includes(t1))) {
+        if (t1.length >= 4 && Math.abs(t1.length - dubbed.length) <= 12) return true;
+      }
+      if (t2 && (t2 === dubbed || t2.includes(dubbed) || dubbed.includes(t2))) {
+        if (t2.length >= 4 && Math.abs(t2.length - dubbed.length) <= 12) return true;
+      }
+    }
+
     return false;
   }
 
@@ -99,7 +407,13 @@ export function itemHasLanguage(item: { languages?: string[]; originalLanguage?:
  * 3. Else if available in Japanese -> show Japanese (JAP)
  * 4. Else Korean / Other if available.
  */
-export function getPriorityLanguageBadge(item: { languages?: string[]; originalLanguage?: string; countries?: string[] }): LanguageBadgeInfo | null {
+export function getPriorityLanguageBadge(item: {
+  originalTitle?: string;
+  externalTitle?: string;
+  languages?: string[];
+  originalLanguage?: string;
+  countries?: string[];
+}): LanguageBadgeInfo | null {
   if (itemHasLanguage(item, 'hindi')) {
     return {
       code: 'hi',

@@ -366,11 +366,16 @@ export async function fetchFullDetails(
   if (!effectiveKey) return null;
 
   try {
-    // Request multi-language videos (en, hi, es, de, null) to discover all trailers
-    const detailsUrl = TMDB_BASE_URL + '/' + mediaType + '/' + id + '?api_key=' + effectiveKey + '&append_to_response=videos&include_video_language=en,hi,es,de,null';
+    // Request multi-language videos (en, hi, es, de, null) & translations to discover all trailers and dubbed languages (e.g. Hindi dub)
+    const detailsUrl = TMDB_BASE_URL + '/' + mediaType + '/' + id + '?api_key=' + effectiveKey + '&append_to_response=videos,translations&include_video_language=en,hi,es,de,null';
     const res = await fetch(detailsUrl);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
+
+    // Check if Hindi translation or dub is available in TMDB translations
+    const hasHindiTranslation = Array.isArray(data.translations?.translations) && data.translations.translations.some(
+      (t: any) => t.iso_639_1 === 'hi' || (t.english_name && t.english_name.toLowerCase() === 'hindi') || (t.name && t.name.toLowerCase().includes('hindi'))
+    );
 
     let trailer = selectBestTrailer(data.videos?.results);
 
@@ -396,6 +401,9 @@ export async function fetchFullDetails(
       const rawCountries = (data.production_countries || []).map((c: any) => c.name || c.iso_3166_1).filter(Boolean);
       const countries = normalizeCountriesList(rawCountries.length > 0 ? rawCountries : (omdbData?.countries || []));
       const spokenLangs: string[] = (data.spoken_languages || []).map((l: any) => l.english_name || l.name || l.iso_639_1).concat(omdbData?.languages || []).filter(Boolean);
+      if (hasHindiTranslation && !spokenLangs.some((l) => l.toLowerCase() === 'hindi' || l.toLowerCase() === 'hi')) {
+        spokenLangs.push('Hindi');
+      }
       const uniqueLangs: string[] = Array.from(new Set(spokenLangs));
       const origLang: string | undefined = data.original_language || undefined;
 
@@ -455,6 +463,9 @@ export async function fetchFullDetails(
         .filter(Boolean);
       const countries = normalizeCountriesList(rawCountries.length > 0 ? rawCountries : (omdbData?.countries || []));
       const spokenLangs: string[] = (data.spoken_languages || []).map((l: any) => l.english_name || l.name || l.iso_639_1).concat(omdbData?.languages || []).filter(Boolean);
+      if (hasHindiTranslation && !spokenLangs.some((l) => l.toLowerCase() === 'hindi' || l.toLowerCase() === 'hi')) {
+        spokenLangs.push('Hindi');
+      }
       const uniqueLangs: string[] = Array.from(new Set(spokenLangs));
       const origLang: string | undefined = data.original_language || undefined;
 

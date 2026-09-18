@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { X, Star, Clock, Calendar, Film, Tv, Play, ExternalLink, Sparkles, Layers, Video, ChevronDown, ChevronUp } from 'lucide-react';
 import { AppSettings, LibraryItem, EpisodeInfo } from '../types';
 import { formatRuntime, calculateSeriesRuntime } from '../services/analytics';
-import { getNetflixUrl, normalizeCountryName } from '../services/normalizer';
+import { getNetflixUrl, normalizeCountryName, getPriorityLanguageBadge } from '../services/normalizer';
 
 interface MediaDetailModalProps {
   item: LibraryItem | null;
@@ -24,6 +24,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const displayTitle = item.externalTitle || item.originalTitle;
   const youtubeSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(displayTitle + ' official trailer')}`;
   const netflixUrl = getNetflixUrl(item);
+  const langBadge = getPriorityLanguageBadge(item);
 
   // Group TV episodes by season
   const seasonsMap = useMemo(() => {
@@ -132,6 +133,15 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                 <span className="text-xs uppercase font-black px-2.5 py-0.5 rounded bg-[#E50914] text-white">
                   {isMovie ? 'Movie' : 'TV Series'}
                 </span>
+                {langBadge && (
+                  <span
+                    className={`text-xs px-2.5 py-0.5 rounded border shadow-sm flex items-center gap-1 ${langBadge.bgClass} ${langBadge.textClass}`}
+                    title={`Available in ${langBadge.label}`}
+                  >
+                    <span>{langBadge.badge}</span>
+                    <span className="text-[10px] opacity-90">({langBadge.label})</span>
+                  </span>
+                )}
                 {item.trailer ? (
                   <span className="text-xs font-semibold px-2.5 py-0.5 rounded bg-red-600/20 text-red-400 border border-red-500/30 flex items-center gap-1">
                     <Play className="w-3 h-3 text-red-500 fill-red-500" />
