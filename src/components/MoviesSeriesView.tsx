@@ -1,10 +1,17 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Film, Tv, Search, RefreshCw, AlertCircle, ArrowUpDown, Sliders, Globe, Calendar, X, Sparkles, Languages, Ban, Check } from 'lucide-react';
 import { AppSettings, LibraryItem } from '../types';
 import { MovieCard } from './MovieCard';
 import { TvSeriesCard } from './TvSeriesCard';
 import { itemHasLanguage, normalizeCountryName, normalizeCountriesList } from '../services/normalizer';
 import { calculateSeriesRuntime } from '../services/analytics';
+import {
+  parseInitialFilters,
+  syncFiltersToUrlAndStorage,
+  clearFiltersFromUrlAndStorage,
+  DEFAULT_FILTER_STATE,
+  CatalogFilterState,
+} from '../services/filterUrlSync';
 
 interface MoviesSeriesViewProps {
   items: LibraryItem[];
@@ -33,39 +40,102 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
   onUpdateItem,
   onOpenDropModal,
 }) => {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'with_trailers'>('all');
-  const [mediaTypeFilter, setMediaTypeFilter] = useState<MediaFilterType>('all');
-  const [statusFilter, setStatusFilter] = useState<StatusFilterType>('all');
+  // Load initial filters from URL search params or localStorage
+  const initialFilters = useMemo(() => parseInitialFilters(), []);
+
+  const [searchQuery, setSearchQuery] = useState(initialFilters.searchQuery);
+  const [filterType, setFilterType] = useState<'all' | 'with_trailers'>(initialFilters.filterType);
+  const [mediaTypeFilter, setMediaTypeFilter] = useState<MediaFilterType>(initialFilters.mediaTypeFilter);
+  const [statusFilter, setStatusFilter] = useState<StatusFilterType>(initialFilters.statusFilter);
   
   // Language filter: 'all' | 'hindi' | 'english' | 'japanese' | 'korean' | custom
-  const [languageFilter, setLanguageFilter] = useState<string>('all');
+  const [languageFilter, setLanguageFilter] = useState<string>(initialFilters.languageFilter);
 
   // Country search inside modal
   const [countrySearchQuery, setCountrySearchQuery] = useState('');
 
   // Sorting
-  const [sortBy, setSortBy] = useState<SortField>('recently_added');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [sortBy, setSortBy] = useState<SortField>(initialFilters.sortBy);
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(initialFilters.sortOrder);
 
   // Multi-genre filter
-  const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
-  const [genreMatchMode, setGenreMatchMode] = useState<'any' | 'all'>('any');
+  const [selectedGenres, setSelectedGenres] = useState<string[]>(initialFilters.selectedGenres);
+  const [genreMatchMode, setGenreMatchMode] = useState<'any' | 'all'>(initialFilters.genreMatchMode);
   const [showGenreModal, setShowGenreModal] = useState(false);
 
   // Multi-country filter (include & exclude)
-  const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
-  const [excludedCountries, setExcludedCountries] = useState<string[]>([]);
+  const [selectedCountries, setSelectedCountries] = useState<string[]>(initialFilters.selectedCountries);
+  const [excludedCountries, setExcludedCountries] = useState<string[]>(initialFilters.excludedCountries);
   const [countryModalTab, setCountryModalTab] = useState<'include' | 'exclude'>('include');
   const [showCountryModal, setShowCountryModal] = useState(false);
 
   // Year range filter
-  const [minYear, setMinYear] = useState<string>('');
-  const [maxYear, setMaxYear] = useState<string>('');
+  const [minYear, setMinYear] = useState<string>(initialFilters.minYear);
+  const [maxYear, setMaxYear] = useState<string>(initialFilters.maxYear);
   const [showYearModal, setShowYearModal] = useState(false);
 
   // Min rating filter
-  const [minRating, setMinRating] = useState<number>(0);
+  const [minRating, setMinRating] = useState<number>(initialFilters.minRating);
+
+  // Synchronize state changes to URL query params and localStorage
+  useEffect(() => {
+    const currentState: CatalogFilterState = {
+      searchQuery,
+      filterType,
+      mediaTypeFilter,
+      statusFilter,
+      languageFilter,
+      sortBy,
+      sortOrder,
+      selectedGenres,
+      genreMatchMode,
+      selectedCountries,
+      excludedCountries,
+      minYear,
+      maxYear,
+      minRating,
+    };
+    syncFiltersToUrlAndStorage(currentState);
+  }, [
+    searchQuery,
+    filterType,
+    mediaTypeFilter,
+    statusFilter,
+    languageFilter,
+    sortBy,
+    sortOrder,
+    selectedGenres,
+    genreMatchMode,
+    selectedCountries,
+    excludedCountries,
+    minYear,
+    maxYear,
+    minRating,
+  ]);
+
+  // Support browser back/forward buttons (popstate)
+  useEffect(() => {
+    const handlePopState = () => {
+      const updated = parseInitialFilters();
+      setSearchQuery(updated.searchQuery);
+      setFilterType(updated.filterType);
+      setMediaTypeFilter(updated.mediaTypeFilter);
+      setStatusFilter(updated.statusFilter);
+      setLanguageFilter(updated.languageFilter);
+      setSortBy(updated.sortBy);
+      setSortOrder(updated.sortOrder);
+      setSelectedGenres(updated.selectedGenres);
+      setGenreMatchMode(updated.genreMatchMode);
+      setSelectedCountries(updated.selectedCountries);
+      setExcludedCountries(updated.excludedCountries);
+      setMinYear(updated.minYear);
+      setMaxYear(updated.maxYear);
+      setMinRating(updated.minRating);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Dynamic available genres from library
   const allGenres = useMemo(() => {
@@ -115,6 +185,7 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
     setMinRating(0);
     setFilterType('all');
     setSearchQuery('');
+    clearFiltersFromUrlAndStorage();
   };
 
   // Quick action: Mark watched directly from card

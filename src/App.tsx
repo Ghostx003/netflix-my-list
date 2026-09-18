@@ -18,14 +18,49 @@ import { SurpriseMeModal } from './components/SurpriseMeModal';
 import { BackupModal } from './components/BackupModal';
 import { InfoView } from './components/InfoView';
 
+type ActiveTabType = 'import' | 'movies-series' | 'still-watching' | 'dropped' | 'tracker' | 'analytics' | 'info';
+
+const VALID_TABS: ActiveTabType[] = ['import', 'movies-series', 'still-watching', 'dropped', 'tracker', 'analytics', 'info'];
+
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<
-    'import' | 'movies-series' | 'still-watching' | 'dropped' | 'tracker' | 'analytics' | 'info'
-  >('movies-series');
+  const [activeTab, setActiveTab] = useState<ActiveTabType>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tabParam = params.get('tab') as ActiveTabType;
+    return VALID_TABS.includes(tabParam) ? tabParam : 'movies-series';
+  });
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [isRescanning, setIsRescanning] = useState(false);
+
+  // Sync activeTab changes to URL
+  const handleTabChange = (newTab: ActiveTabType) => {
+    setActiveTab(newTab);
+    const params = new URLSearchParams(window.location.search);
+    if (newTab === 'movies-series') {
+      params.delete('tab');
+    } else {
+      params.set('tab', newTab);
+    }
+    const queryString = params.toString();
+    const newRelativePathQuery = window.location.pathname + (queryString ? '?' + queryString : '') + window.location.hash;
+    window.history.replaceState(null, '', newRelativePathQuery);
+  };
+
+  // Listen to popstate for tab navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab') as ActiveTabType;
+      if (VALID_TABS.includes(tabParam)) {
+        setActiveTab(tabParam);
+      } else {
+        setActiveTab('movies-series');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Modals state
   const [selectedDetailItem, setSelectedDetailItem] = useState<LibraryItem | null>(null);
@@ -69,7 +104,11 @@ export const App: React.FC = () => {
             triggerBackgroundScan(savedItems, savedSettings);
           }
         } else {
-          setActiveTab('import');
+          // If no items and tab wasn't explicitly set in url, switch to import
+          const params = new URLSearchParams(window.location.search);
+          if (!params.has('tab')) {
+            handleTabChange('import');
+          }
         }
       } catch (err) {
         console.error('Failed initializing app state:', err);
@@ -209,7 +248,7 @@ export const App: React.FC = () => {
       {/* Persistent Top Navigation Bar */}
       <Navbar
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={handleTabChange}
         items={items}
         settings={settings}
         onOpenSettings={() => setIsSettingsOpen(true)}
@@ -235,7 +274,7 @@ export const App: React.FC = () => {
                 },
               });
             }}
-            onNavigateToCatalog={() => setActiveTab('movies-series')}
+            onNavigateToCatalog={() => handleTabChange('movies-series')}
           />
         )}
 
