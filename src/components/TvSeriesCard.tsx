@@ -59,10 +59,10 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
           </div>
         </div>
 
-        <div className="absolute top-2 right-2 flex flex-col gap-1 items-end z-10">
+        <div className="absolute top-1.5 sm:top-2 right-1.5 sm:right-2 flex flex-col gap-1 items-end z-10">
           {item.rottenTomatoesRating !== undefined ? (
             <div
-              className={'px-1.5 py-0.5 rounded text-[11px] font-bold flex items-center gap-1 shadow-md backdrop-blur-md border ' + (item.rottenTomatoesRating >= 60 ? 'bg-red-950/80 text-red-400 border-red-500/40' : 'bg-emerald-950/80 text-emerald-400 border-emerald-500/40')}
+              className={'px-1.5 py-0.5 rounded text-[10px] sm:text-[11px] font-bold flex items-center gap-1 shadow-md backdrop-blur-md border ' + (item.rottenTomatoesRating >= 60 ? 'bg-red-950/80 text-red-400 border-red-500/40' : 'bg-emerald-950/80 text-emerald-400 border-emerald-500/40')}
               title="Rotten Tomatoes Score"
             >
               <span>🍅 {item.rottenTomatoesRating}%</span>
@@ -71,14 +71,14 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
 
           {item.imdbRating ? (
             <div
-              className="bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded flex items-center gap-1 text-[11px] font-bold text-amber-400 shadow-md border border-amber-500/30"
+              className="bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-amber-400 shadow-md border border-amber-500/30"
               title="IMDb Rating"
             >
-              <span className="text-[10px] text-amber-500 font-black">IMDb</span>
+              <span className="text-[9px] sm:text-[10px] text-amber-500 font-black">IMDb</span>
               <span>{item.imdbRating}</span>
             </div>
           ) : item.rating ? (
-            <div className="bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded flex items-center gap-1 text-[11px] font-bold text-amber-400 shadow-md border border-amber-500/30">
+            <div className="bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-amber-400 shadow-md border border-amber-500/30">
               <Star className="w-3 h-3 fill-amber-400" />
               <span>{item.rating}</span>
             </div>
@@ -86,15 +86,15 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
         </div>
 
         {/* Top-left: Episodes count & Language badge */}
-        <div className="absolute top-2 left-2 flex flex-col gap-1 items-start z-10">
-          <div className="bg-black/80 backdrop-blur-md px-2 py-0.5 rounded text-[11px] font-semibold text-zinc-300 border border-white/10 flex items-center gap-1 shadow-sm">
-            <Layers className="w-3 h-3 text-[#E50914]" />
+        <div className="absolute top-1.5 sm:top-2 left-1.5 sm:left-2 flex flex-col gap-1 items-start z-10">
+          <div className="bg-black/80 backdrop-blur-md px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-semibold text-zinc-300 border border-white/10 flex items-center gap-1 shadow-sm">
+            <Layers className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-[#E50914]" />
             <span>{breakdown.totalEpisodes} eps</span>
           </div>
 
           {langBadge && (
             <div
-              className={`px-2 py-0.5 rounded shadow-lg backdrop-blur-md border flex items-center justify-center ${langBadge.bgClass} ${langBadge.textClass}`}
+              className={`px-1.5 sm:px-2 py-0.5 rounded shadow-lg backdrop-blur-md border flex items-center justify-center text-[10px] sm:text-xs font-bold ${langBadge.bgClass} ${langBadge.textClass}`}
               title={`Available in ${langBadge.label}`}
             >
               <span>{langBadge.badge}</span>
@@ -103,17 +103,17 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
         </div>
       </div>
 
-      <div className="p-3.5 flex flex-col justify-between flex-1">
+      <div className="p-2.5 sm:p-3.5 flex flex-col justify-between flex-1">
         <div>
-          <div className="flex items-center justify-between gap-1 mb-1">
+          <div className="flex items-center justify-between gap-1 mb-0.5 sm:mb-1">
             <h3
-              className="text-sm font-bold text-white line-clamp-1 group-hover:text-[#E50914] transition-colors"
+              className="text-xs sm:text-sm font-bold text-white line-clamp-1 group-hover:text-[#E50914] transition-colors"
               title={item.externalTitle || item.originalTitle}
             >
               {item.externalTitle || item.originalTitle}
             </h3>
             {item.viewingStatus && item.viewingStatus !== 'unwatched' && (
-              <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${
+              <span className={`text-[8px] sm:text-[9px] px-1 sm:px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${
                 item.viewingStatus === 'still_watching' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
                 item.viewingStatus === 'completed' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
                 'bg-red-500/20 text-red-300 border border-red-500/30'
@@ -123,25 +123,25 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
             )}
           </div>
           {item.externalTitle && item.externalTitle !== item.originalTitle && (
-            <p className="text-[11px] text-zinc-400 line-clamp-1 italic mb-1.5">
+            <p className="text-[10px] sm:text-[11px] text-zinc-400 line-clamp-1 italic mb-1 sm:mb-1.5">
               {item.originalTitle}
             </p>
           )}
 
           {/* Compact Genre Tags */}
           {item.genres && item.genres.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-1">
-              {item.genres.slice(0, 3).map((g) => (
+            <div className="flex flex-wrap gap-1 mt-0.5 sm:mt-1">
+              {item.genres.slice(0, 2).map((g) => (
                 <span
                   key={g}
-                  className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 border border-zinc-700/50 font-medium"
+                  className="text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 border border-zinc-700/50 font-medium truncate max-w-[90px]"
                 >
                   {g}
                 </span>
               ))}
-              {item.genres.length > 3 && (
-                <span className="text-[10px] text-zinc-500 font-mono self-center">
-                  +{item.genres.length - 3}
+              {item.genres.length > 2 && (
+                <span className="text-[9px] sm:text-[10px] text-zinc-500 font-mono self-center">
+                  +{item.genres.length - 2}
                 </span>
               )}
             </div>
@@ -149,10 +149,10 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
         </div>
 
         {/* Action Row */}
-        <div className="mt-3 pt-2.5 border-t border-zinc-800/80 flex flex-col gap-2">
-          <div className="flex items-center justify-between gap-2 text-xs text-zinc-300">
-            <div className="flex items-center gap-1.5 font-mono text-zinc-400 whitespace-nowrap text-[11px] min-w-0">
-              <Clock className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+        <div className="mt-2 sm:mt-3 pt-2 border-t border-zinc-800/80 flex flex-col gap-1.5 sm:gap-2">
+          <div className="flex items-center justify-between gap-1 text-xs text-zinc-300">
+            <div className="flex items-center gap-1 font-mono text-zinc-400 whitespace-nowrap text-[10px] sm:text-[11px] min-w-0">
+              <Clock className="w-3 h-3 text-zinc-500 shrink-0" />
               <span className="truncate">{formatRuntime(breakdown.includedRuntimeMinutes)}</span>
             </div>
 
@@ -161,28 +161,28 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
               target="_blank"
               rel="noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="px-2.5 py-1 rounded-lg bg-[#E50914] hover:bg-red-700 text-white font-black text-[11px] flex items-center gap-1 shadow-md shadow-red-600/30 transition-transform hover:scale-105 shrink-0 whitespace-nowrap"
+              className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-[#E50914] hover:bg-red-700 text-white font-black text-[10px] sm:text-[11px] flex items-center gap-1 shadow-md shadow-red-600/30 transition-transform active:scale-95 shrink-0 whitespace-nowrap"
               title="Watch Series on Netflix"
             >
-              <Play className="w-3 h-3 fill-white" />
+              <Play className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-white" />
               <span>Netflix</span>
             </a>
           </div>
 
           {/* Quick Action Buttons: Watched & Drop */}
-          <div className="flex items-center justify-between gap-1.5 pt-1">
+          <div className="flex items-center justify-between gap-1 pt-0.5">
             <div className="flex items-center gap-1">
               {onMarkWatched && (
                 <button
                   onClick={(e) => onMarkWatched(item, e)}
-                  className={`px-2 py-1 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all ${
+                  className={`px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md text-[9px] sm:text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95 ${
                     isCompleted
                       ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/40'
                       : 'bg-zinc-800 hover:bg-emerald-600 hover:text-white text-zinc-300 border border-zinc-700'
                   }`}
                   title={isCompleted ? 'Completed' : 'Mark as Watched'}
                 >
-                  <CheckCircle2 className="w-3 h-3" />
+                  <CheckCircle2 className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                   <span>{isCompleted ? 'Watched' : 'Watched'}</span>
                 </button>
               )}
@@ -190,14 +190,14 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
               {onDrop && (
                 <button
                   onClick={(e) => onDrop(item, e)}
-                  className={`px-2 py-1 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all ${
+                  className={`px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md text-[9px] sm:text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95 ${
                     isDropped
                       ? 'bg-red-900/30 text-red-300 border border-red-500/40'
                       : 'bg-zinc-800 hover:bg-red-800 hover:text-white text-zinc-300 border border-zinc-700'
                   }`}
                   title={isDropped ? 'Dropped' : 'Drop Series'}
                 >
-                  <UserX className="w-3 h-3" />
+                  <UserX className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                   <span>Drop</span>
                 </button>
               )}
@@ -206,7 +206,7 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
             {onChangeMatch && (
               <button
                 onClick={onChangeMatch}
-                className="text-[10px] text-zinc-400 hover:text-white underline hover:no-underline transition-colors ml-auto"
+                className="text-[9px] sm:text-[10px] text-zinc-400 hover:text-white underline hover:no-underline transition-colors ml-auto"
               >
                 Match
               </button>

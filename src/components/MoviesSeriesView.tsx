@@ -365,24 +365,26 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
     sortOrder,
   ]);
 
+  const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
+
   return (
-    <div className="max-w-7xl mx-auto py-8 px-4 lg:px-8 space-y-6 animate-in fade-in duration-300">
+    <div className="max-w-7xl mx-auto py-4 sm:py-8 px-3 sm:px-6 lg:px-8 space-y-4 sm:space-y-6 animate-in fade-in duration-300 pb-20 xl:pb-8">
       {/* Top Header & Action Buttons */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-white tracking-tight">
             Movies & Series Catalog
           </h1>
-          <p className="text-xs sm:text-sm text-gray-400 mt-1">
+          <p className="text-[11px] sm:text-xs md:text-sm text-gray-400 mt-0.5 sm:mt-1">
             Browse, filter, and sort your streaming collection with live genre & country tags.
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           {onOpenSurpriseMe && (
             <button
               onClick={onOpenSurpriseMe}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-red-600 to-purple-600 hover:from-red-500 hover:to-purple-500 text-white shadow-lg shadow-red-600/20 transition-all"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-red-600 to-purple-600 hover:from-red-500 hover:to-purple-500 text-white shadow-lg shadow-red-600/20 transition-all active:scale-95"
             >
               <Sparkles className="w-4 h-4" />
               <span>Surprise Me!</span>
@@ -392,23 +394,23 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
           <button
             onClick={onRescan}
             disabled={isRescanning}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold border transition-all shadow-md ${
+            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all shadow-md active:scale-95 ${
               isRescanning
                 ? 'bg-white/5 border-white/10 text-gray-500 cursor-not-allowed'
                 : 'bg-[#E50914] border-transparent text-white hover:bg-red-700'
             }`}
           >
-            <RefreshCw className={`w-4 h-4 ${isRescanning ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${isRescanning ? 'animate-spin' : ''}`} />
             <span>{isRescanning ? 'Scanning...' : 'Re-scan'}</span>
           </button>
         </div>
       </div>
 
       {/* Filter & Sort Toolbar */}
-      <div className="bg-[#1c1c1e] p-4 rounded-2xl border border-white/10 space-y-3 shadow-md">
-        {/* Row 1: Search, Media Type, Status, Sort */}
-        <div className="flex flex-col md:flex-row gap-3 justify-between">
-          <div className="relative flex-1">
+      <div className="bg-[#1c1c1e] p-3 sm:p-4 rounded-2xl border border-white/10 space-y-2.5 sm:space-y-3 shadow-md">
+        {/* Row 1: Search & Mobile Quick Row */}
+        <div className="flex flex-col gap-2.5">
+          <div className="relative w-full">
             <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-3" />
             <input
               type="text"
@@ -417,14 +419,23 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
               placeholder="Search by title..."
               className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 pl-10 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#E50914]"
             />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-2.5 text-gray-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Primary Filter Grid on mobile (2 cols on small screen, row on desktop) */}
+          <div className="grid grid-cols-2 md:flex md:flex-wrap items-center gap-2">
             {/* Type selector */}
             <select
               value={mediaTypeFilter}
               onChange={(e) => setMediaTypeFilter(e.target.value as MediaFilterType)}
-              className="bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-[#E50914] cursor-pointer"
+              className="w-full md:w-auto bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-[#E50914] cursor-pointer"
             >
               <option value="all" className="bg-zinc-900 text-white">All Types</option>
               <option value="movie" className="bg-zinc-900 text-white">Movies Only</option>
@@ -435,11 +446,11 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as StatusFilterType)}
-              className="bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-[#E50914] cursor-pointer"
+              className="w-full md:w-auto bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-[#E50914] cursor-pointer truncate"
             >
-              <option value="all" className="bg-zinc-900 text-white">Active Catalog (Excludes Watched & Dropped)</option>
+              <option value="all" className="bg-zinc-900 text-white">Active Catalog</option>
               <option value="unwatched" className="bg-zinc-900 text-white">Unwatched Only</option>
-              <option value="still_watching" className="bg-zinc-900 text-white">Still Watching Only</option>
+              <option value="still_watching" className="bg-zinc-900 text-white">Still Watching</option>
               <option value="completed" className="bg-zinc-900 text-white">Completed (Watched)</option>
               <option value="dropped" className="bg-zinc-900 text-white">Dropped</option>
             </select>
@@ -448,10 +459,10 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as SortField)}
-              className="bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#E50914] font-medium cursor-pointer"
+              className="w-full md:w-auto bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#E50914] font-medium cursor-pointer"
             >
               <option value="recently_added" className="bg-zinc-900 text-white">Recently Added</option>
-              <option value="runtime" className="bg-zinc-900 text-white">⏱️ Duration / Runtime</option>
+              <option value="runtime" className="bg-zinc-900 text-white">⏱️ Runtime</option>
               <option value="rottenTomatoes" className="bg-zinc-900 text-white">🍅 Rotten Tomatoes</option>
               <option value="imdb" className="bg-zinc-900 text-white">⭐ IMDb Rating</option>
               <option value="title" className="bg-zinc-900 text-white">Alphabetical (A - Z)</option>
@@ -459,14 +470,15 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
               <option value="rating" className="bg-zinc-900 text-white">TMDB Score</option>
             </select>
 
+            {/* Sort Order Toggle */}
             <button
               onClick={() => setSortOrder((o) => (o === 'asc' ? 'desc' : 'asc'))}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition-colors ${
+              className={`w-full md:w-auto flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition-colors ${
                 sortOrder === 'desc'
                   ? 'bg-red-600/20 border-red-500/50 text-red-400 hover:bg-red-600/30'
                   : 'bg-blue-600/20 border-blue-500/50 text-blue-400 hover:bg-blue-600/30'
               }`}
-              title={`Click to change order. Current: ${sortOrder === 'desc' ? 'Descending (Highest / Longest first)' : 'Ascending (Lowest / Shortest first)'}`}
+              title={`Order: ${sortOrder === 'desc' ? 'Descending' : 'Ascending'}`}
             >
               <ArrowUpDown className="w-3.5 h-3.5" />
               <span>{sortOrder === 'desc' ? 'DESC (High → Low)' : 'ASC (Low → High)'}</span>
@@ -474,22 +486,36 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
           </div>
         </div>
 
-        {/* Row 2: Category, Country, Year, Rating modals triggers & active count */}
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/5">
-          <div className="flex flex-wrap items-center gap-2">
+        {/* Row 2: Category, Country, Year, Hindi & Language filter tags (Horizontally scrollable on mobile) */}
+        <div className="pt-2 border-t border-white/5 space-y-2">
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+            {/* Quick Filter: Available in Hindi */}
+            <button
+              onClick={() => setLanguageFilter((prev) => prev === 'hindi' ? 'all' : 'hindi')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all shrink-0 ${
+                languageFilter === 'hindi'
+                  ? 'bg-amber-500 text-black border-amber-400 shadow-md shadow-amber-500/20'
+                  : 'bg-black/40 border-white/10 text-gray-300 hover:text-white hover:border-amber-500/40'
+              }`}
+              title="Filter titles available in Hindi"
+            >
+              <span className="font-black text-sm">हिं</span>
+              <span>Hindi Dub</span>
+            </button>
+
             {/* Categories Multi-select Trigger */}
             <button
               onClick={() => setShowGenreModal(true)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all shrink-0 ${
                 selectedGenres.length > 0
                   ? 'bg-red-600/20 border-red-500/50 text-red-300'
-                  : 'bg-black/30 border-white/5 text-gray-400 hover:text-white'
+                  : 'bg-black/40 border-white/10 text-gray-300 hover:text-white'
               }`}
             >
               <Sliders className="w-3.5 h-3.5" />
               <span>Categories</span>
               {selectedGenres.length > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full bg-red-500/30 text-[10px]">
+                <span className="px-1.5 py-0.2 rounded-full bg-red-500/30 text-[10px] font-bold">
                   {selectedGenres.length}
                 </span>
               )}
@@ -498,23 +524,23 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
             {/* Country Trigger (Includes & Excludes) */}
             <button
               onClick={() => setShowCountryModal(true)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all shrink-0 ${
                 selectedCountries.length > 0 || excludedCountries.length > 0
                   ? selectedCountries.length > 0
                     ? 'bg-blue-600/20 border-blue-500/50 text-blue-300'
                     : 'bg-red-600/20 border-red-500/50 text-red-300'
-                  : 'bg-black/30 border-white/5 text-gray-400 hover:text-white'
+                  : 'bg-black/40 border-white/10 text-gray-300 hover:text-white'
               }`}
             >
               <Globe className="w-3.5 h-3.5" />
               <span>Country</span>
               {selectedCountries.length > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full bg-blue-500/30 text-blue-200 text-[10px] font-bold" title={`${selectedCountries.length} included`}>
+                <span className="px-1.5 py-0.2 rounded-full bg-blue-500/30 text-blue-200 text-[10px] font-bold">
                   +{selectedCountries.length}
                 </span>
               )}
               {excludedCountries.length > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full bg-red-500/30 text-red-200 text-[10px] font-bold" title={`${excludedCountries.length} excluded`}>
+                <span className="px-1.5 py-0.2 rounded-full bg-red-500/30 text-red-200 text-[10px] font-bold">
                   -{excludedCountries.length}
                 </span>
               )}
@@ -523,32 +549,18 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
             {/* Year Range Trigger */}
             <button
               onClick={() => setShowYearModal(true)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all shrink-0 ${
                 minYear || maxYear
                   ? 'bg-yellow-600/20 border-yellow-500/50 text-yellow-300'
-                  : 'bg-black/30 border-white/5 text-gray-400 hover:text-white'
+                  : 'bg-black/40 border-white/10 text-gray-300 hover:text-white'
               }`}
             >
               <Calendar className="w-3.5 h-3.5" />
               <span>{minYear || maxYear ? `${minYear || 'Any'}–${maxYear || 'Any'}` : 'Year'}</span>
             </button>
 
-            {/* Quick Filter: Available in Hindi */}
-            <button
-              onClick={() => setLanguageFilter((prev) => prev === 'hindi' ? 'all' : 'hindi')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
-                languageFilter === 'hindi'
-                  ? 'bg-amber-500 text-black border-amber-400 shadow-md shadow-amber-500/20'
-                  : 'bg-black/30 border-white/5 text-gray-300 hover:text-white hover:border-amber-500/40'
-              }`}
-              title="Filter titles available in Hindi"
-            >
-              <span className="font-black text-sm">हिं</span>
-              <span>Available in Hindi</span>
-            </button>
-
             {/* Language Selector Dropdown */}
-            <div className="flex items-center gap-1 bg-zinc-900 border border-white/10 rounded-xl px-2 py-1 text-xs">
+            <div className="flex items-center gap-1 bg-zinc-900 border border-white/10 rounded-xl px-2 py-1 text-xs shrink-0">
               <Languages className="w-3.5 h-3.5 text-zinc-400" />
               <select
                 value={languageFilter}
@@ -557,7 +569,7 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
                 title="Filter by Audio / Spoken Language"
               >
                 <option value="all" className="bg-zinc-900 text-white">All Languages</option>
-                <option value="hindi" className="bg-zinc-900 text-amber-400 font-bold">हिं Hindi (Top)</option>
+                <option value="hindi" className="bg-zinc-900 text-amber-400 font-bold">हिं Hindi</option>
                 <option value="english" className="bg-zinc-900 text-white">EN English</option>
                 <option value="japanese" className="bg-zinc-900 text-white">JAP Japanese</option>
                 <option value="korean" className="bg-zinc-900 text-white">KOR Korean</option>
@@ -568,24 +580,20 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            {activeFiltersCount > 0 && (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-400 font-medium">
-                  {activeFiltersCount} active filter{activeFiltersCount > 1 ? 's' : ''}
-                </span>
-                <button
-                  onClick={clearAllFilters}
-                  className="text-xs text-red-400 hover:text-red-300 underline"
-                >
-                  Clear All Filters
-                </button>
-              </div>
-            )}
-
-            <span className="text-xs text-gray-400 font-medium">
-              Showing <span className="text-white font-bold">{sortedItems.length}</span> of {items.length}
+          {/* Counts & Clear status row */}
+          <div className="flex items-center justify-between text-xs pt-1 text-gray-400">
+            <span className="font-medium">
+              Showing <span className="text-white font-bold">{sortedItems.length}</span> of {items.length} titles
             </span>
+
+            {activeFiltersCount > 0 && (
+              <button
+                onClick={clearAllFilters}
+                className="text-red-400 hover:text-red-300 font-semibold underline"
+              >
+                Clear Filters ({activeFiltersCount})
+              </button>
+            )}
           </div>
         </div>
 
@@ -669,7 +677,7 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
 
       {/* Catalog Grid */}
       {sortedItems.length > 0 ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-4">
           {sortedItems.map((item) =>
             item.mediaType === 'movie' ? (
               <MovieCard
