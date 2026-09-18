@@ -14,7 +14,7 @@
         <span class="n-brand">NETFLIX</span>
         <span class="badge">MY LIST SYNC</span>
       </div>
-      <p class="subtitle">Extract, compare & sync titles directly to your Command Center</p>
+      <p class="subtitle">Strictly extracts & syncs your <strong>My List</strong> items only</p>
     </header>
 
     <!-- Status Banner -->
@@ -23,21 +23,48 @@
       <span id="statusText">Checking active tab...</span>
     </div>
 
+    <!-- Targeted Row Notice -->
+    <div class="row-target-notice">
+      <svg class="notice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="8" x2="12" y2="12"></line>
+        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+      </svg>
+      <span>Row filter active: Ignores <em>Trailers</em>, <em>Continue Watching</em> &amp; other rows.</span>
+    </div>
+
+    <!-- Slide Settings -->
+    <div class="slider-settings-card">
+      <div class="setting-row">
+        <label for="numSlidePages" class="setting-label">
+          <span>Auto-Slide Limit:</span>
+          <span class="setting-subtext">Max pages to slide right (>)</span>
+        </label>
+        <div class="input-stepper">
+          <input type="number" id="numSlidePages" min="1" max="50" value="10" />
+          <span class="stepper-unit">pages</span>
+        </div>
+      </div>
+      <div class="live-intervention-hint">
+        💡 <strong>Human Intervention Ready:</strong> If you manually click &gt; or slide through My List on Netflix, new titles are captured automatically!
+      </div>
+    </div>
+
     <!-- Main Actions -->
     <div class="actions">
-      <button id="btnScrape" class="btn primary">
+      <button id="btnAutoSlide" class="btn primary">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+        <span>Auto-Slide &amp; Deep Scrape</span>
+      </button>
+
+      <button id="btnScrapeVisible" class="btn secondary">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="11" cy="11" r="8"></circle>
           <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
         </svg>
-        <span>Scrape My List Page</span>
-      </button>
-
-      <button id="btnAutoScroll" class="btn secondary">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 5v14M19 12l-7 7-7-7"/>
-        </svg>
-        <span>Auto-Scroll & Deep Scrape</span>
+        <span>Capture Visible Titles Now</span>
       </button>
 
       <button id="btnNavigateNetflix" class="btn outline" style="display:none;">
@@ -60,7 +87,7 @@
 
       <div class="diff-stats">
         <div class="stat-box">
-          <span class="stat-label">Scraped</span>
+          <span class="stat-label">My List Scraped</span>
           <span id="scrapedTotal" class="stat-val">0</span>
         </div>
         <div class="stat-box highlight">
@@ -74,7 +101,7 @@
         <div class="list-tabs-header">
           <div class="list-tabs">
             <button id="tabMissing" class="list-tab active" type="button">New to Add (<span id="tabMissingCount">0</span>)</button>
-            <button id="tabAll" class="list-tab" type="button">All Captured (<span id="tabAllCount">0</span>)</button>
+            <button id="tabAll" class="list-tab" type="button">All My List (<span id="tabAllCount">0</span>)</button>
           </div>
           <span class="list-hint" id="listHintText">Ready to export</span>
         </div>
@@ -99,17 +126,20 @@
             </svg>
             <span>Download JSON</span>
           </button>
-
-          <button id="btnCopyJson" class="btn outline-sm">
+          <button id="btnCopyJson" class="btn outline">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
             <span>Copy JSON</span>
           </button>
         </div>
       </div>
     </div>
 
-    <!-- Instructions / Footer -->
+    <!-- Footer -->
     <footer class="footer">
-      <p>Tip: Navigate to <a href="https://www.netflix.com/browse/my-list" target="_blank">netflix.com/browse/my-list</a> before scraping.</p>
+      <span>Connected to Netflix Catalog System</span>
     </footer>
   </div>
 

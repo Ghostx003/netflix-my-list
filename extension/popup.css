@@ -84,6 +84,96 @@ body {
   background-color: currentColor;
 }
 
+.row-target-notice {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(229, 9, 20, 0.08);
+  border: 1px dashed rgba(229, 9, 20, 0.25);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 10.5px;
+  color: #ff9999;
+}
+
+.notice-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  stroke: #ff6666;
+}
+
+.slider-settings-card {
+  background: #1c1c1c;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.setting-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+}
+
+.setting-label span {
+  font-weight: 600;
+  font-size: 11.5px;
+  color: #eee;
+}
+
+.setting-subtext {
+  font-size: 9.5px;
+  color: #888;
+  font-weight: normal !important;
+}
+
+.input-stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #111;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 3px 8px;
+}
+
+.input-stepper input[type="number"] {
+  width: 44px;
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-weight: 700;
+  font-size: 12px;
+  text-align: right;
+  outline: none;
+}
+
+.stepper-unit {
+  font-size: 10px;
+  color: #888;
+}
+
+.live-intervention-hint {
+  font-size: 10px;
+  line-height: 1.35;
+  color: #9ca3af;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 5px;
+  padding: 6px 8px;
+  border-left: 2px solid #38bdf8;
+}
+
 .actions {
   display: flex;
   flex-direction: column;
