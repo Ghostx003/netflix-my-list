@@ -114,11 +114,11 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
         </div>
 
         {/* Content body */}
-        <div className="p-6">
-          <div className="flex flex-col sm:flex-row gap-6">
-            {/* Poster thumbnail */}
+        <div className="p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row gap-4 sm:gap-6">
+            {/* Poster thumbnail - visible on both mobile and desktop */}
             {item.posterPath && (
-              <div className="hidden sm:block flex-shrink-0 w-36 h-52 aspect-[2/3] rounded-xl overflow-hidden shadow-2xl border border-zinc-700/80 relative z-10 bg-zinc-800">
+              <div className="flex-shrink-0 w-24 h-36 sm:w-36 sm:h-52 aspect-[2/3] rounded-xl overflow-hidden shadow-2xl border border-zinc-700/80 relative z-10 bg-zinc-800 mx-auto sm:mx-0">
                 <img
                   src={item.posterPath}
                   alt={displayTitle}
@@ -155,14 +155,14 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                     className="text-xs font-medium px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center gap-1 border border-zinc-700 transition-colors"
                   >
                     <ExternalLink className="w-3 h-3 text-red-400" />
-                    <span>Search Web Trailer</span>
+                    <span>Search Trailer</span>
                   </a>
                 )}
                 <a
                   href={netflixUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#E50914] hover:bg-red-700 text-white text-xs font-black shadow-md transition-all transform hover:scale-105 ml-auto"
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#E50914] hover:bg-red-700 text-white text-xs font-black shadow-md transition-all transform hover:scale-105 sm:ml-auto w-full sm:w-auto justify-center"
                 >
                   <Play className="w-3.5 h-3.5 fill-white" />
                   <span>Watch on Netflix</span>
@@ -170,7 +170,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                 </a>
               </div>
 
-              <h2 className="text-2xl sm:text-3xl font-black mt-2 text-white tracking-tight">
+              <h2 className="text-xl sm:text-3xl font-black mt-2 text-white tracking-tight">
                 {displayTitle}
               </h2>
 

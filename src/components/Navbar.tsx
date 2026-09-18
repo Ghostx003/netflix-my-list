@@ -202,48 +202,96 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* Mobile nav bottom strip */}
-      <div className="flex xl:hidden items-center justify-around pt-2 mt-2 border-t border-white/10 text-[11px] overflow-x-auto">
+      {/* Mobile nav bottom strip with responsive touch tabs */}
+      <div className="flex xl:hidden items-center justify-between pt-2.5 mt-2 border-t border-white/10 text-[10px] sm:text-[11px] overflow-x-auto scrollbar-none gap-1 px-1">
         <button
           onClick={() => setActiveTab('import')}
-          className={'flex flex-col items-center py-1 px-2 whitespace-nowrap ' + (activeTab === 'import' ? 'text-[#E50914] font-bold' : 'text-gray-400')}
+          className={`flex flex-col items-center py-1 px-2.5 rounded-lg whitespace-nowrap transition-all shrink-0 ${
+            activeTab === 'import' ? 'text-[#E50914] bg-red-600/15 font-bold' : 'text-gray-400 hover:text-white'
+          }`}
         >
+          <UploadCloud className="w-4 h-4 mb-0.5" />
           <span>Library</span>
         </button>
+
         <button
           onClick={() => setActiveTab('movies-series')}
-          className={'flex flex-col items-center py-1 px-2 whitespace-nowrap ' + (activeTab === 'movies-series' ? 'text-[#E50914] font-bold' : 'text-gray-400')}
+          className={`flex flex-col items-center py-1 px-2.5 rounded-lg whitespace-nowrap transition-all shrink-0 ${
+            activeTab === 'movies-series' ? 'text-[#E50914] bg-red-600/15 font-bold' : 'text-gray-400 hover:text-white'
+          }`}
         >
+          <Film className="w-4 h-4 mb-0.5" />
           <span>Catalog</span>
         </button>
+
         <button
           onClick={() => setActiveTab('still-watching')}
-          className={'flex flex-col items-center py-1 px-2 whitespace-nowrap ' + (activeTab === 'still-watching' ? 'text-amber-400 font-bold' : 'text-gray-400')}
+          className={`flex flex-col items-center py-1 px-2.5 rounded-lg whitespace-nowrap transition-all shrink-0 ${
+            activeTab === 'still-watching' ? 'text-amber-400 bg-amber-500/15 font-bold' : 'text-gray-400 hover:text-white'
+          }`}
         >
-          <span>Watching</span>
+          <Tv className="w-4 h-4 mb-0.5" />
+          <div className="flex items-center gap-1">
+            <span>Watching</span>
+            {stillWatchingCount > 0 && (
+              <span className="text-[9px] px-1 py-0 rounded-full bg-amber-500/30 text-amber-300 font-bold">
+                {stillWatchingCount}
+              </span>
+            )}
+          </div>
         </button>
+
         <button
           onClick={() => setActiveTab('dropped')}
-          className={'flex flex-col items-center py-1 px-2 whitespace-nowrap ' + (activeTab === 'dropped' ? 'text-red-400 font-bold' : 'text-gray-400')}
+          className={`flex flex-col items-center py-1 px-2.5 rounded-lg whitespace-nowrap transition-all shrink-0 ${
+            activeTab === 'dropped' ? 'text-red-400 bg-red-500/15 font-bold' : 'text-gray-400 hover:text-white'
+          }`}
         >
-          <span>Dropped</span>
+          <div className="w-4 h-4 mb-0.5 flex items-center justify-center font-bold text-xs">✕</div>
+          <div className="flex items-center gap-1">
+            <span>Dropped</span>
+            {droppedCount > 0 && (
+              <span className="text-[9px] px-1 py-0 rounded-full bg-red-500/30 text-red-300 font-bold">
+                {droppedCount}
+              </span>
+            )}
+          </div>
         </button>
+
         <button
           onClick={() => setActiveTab('tracker')}
-          className={'flex flex-col items-center py-1 px-2 whitespace-nowrap ' + (activeTab === 'tracker' ? 'text-emerald-400 font-bold' : 'text-gray-400')}
+          className={`flex flex-col items-center py-1 px-2.5 rounded-lg whitespace-nowrap transition-all shrink-0 ${
+            activeTab === 'tracker' ? 'text-emerald-400 bg-emerald-500/15 font-bold' : 'text-gray-400 hover:text-white'
+          }`}
         >
-          <span>Completed</span>
+          <CheckSquare className="w-4 h-4 mb-0.5" />
+          <div className="flex items-center gap-1">
+            <span>Done</span>
+            {completedCount > 0 && (
+              <span className="text-[9px] px-1 py-0 rounded-full bg-emerald-500/30 text-emerald-300 font-bold">
+                {completedCount}
+              </span>
+            )}
+          </div>
         </button>
+
         <button
           onClick={() => setActiveTab('analytics')}
-          className={'flex flex-col items-center py-1 px-2 whitespace-nowrap ' + (activeTab === 'analytics' ? 'text-[#E50914] font-bold' : 'text-gray-400')}
+          className={`flex flex-col items-center py-1 px-2.5 rounded-lg whitespace-nowrap transition-all shrink-0 ${
+            activeTab === 'analytics' ? 'text-[#E50914] bg-red-600/15 font-bold' : 'text-gray-400 hover:text-white'
+          }`}
         >
-          <span>Analytics</span>
+          <BarChart3 className="w-4 h-4 mb-0.5" />
+          <span>Stats</span>
         </button>
+
         <button
           onClick={() => setActiveTab('info')}
-          className={'flex flex-col items-center py-1 px-2 whitespace-nowrap ' + (activeTab === 'info' ? 'text-[#E50914] font-bold' : 'text-gray-400')}
+          className={`flex flex-col items-center py-1 px-2.5 rounded-lg whitespace-nowrap transition-all shrink-0 ${
+            activeTab === 'info' ? 'text-[#E50914] bg-red-600/15 font-bold' : 'text-gray-400 hover:text-white'
+          }`}
         >
+          <Info className="w-4 h-4 mb-0.5" />
           <span>Info</span>
         </button>
       </div>

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Film, Tv, Search, RefreshCw, AlertCircle, ArrowUpDown, Sliders, Globe, Calendar, X, Sparkles, Languages } from 'lucide-react';
+import { Film, Tv, Search, RefreshCw, AlertCircle, ArrowUpDown, Sliders, Globe, Calendar, X, Sparkles, Languages, Ban, Check } from 'lucide-react';
 import { AppSettings, LibraryItem } from '../types';
 import { MovieCard } from './MovieCard';
 import { TvSeriesCard } from './TvSeriesCard';
@@ -53,8 +53,10 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
   const [genreMatchMode, setGenreMatchMode] = useState<'any' | 'all'>('any');
   const [showGenreModal, setShowGenreModal] = useState(false);
 
-  // Multi-country filter
+  // Multi-country filter (include & exclude)
   const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
+  const [excludedCountries, setExcludedCountries] = useState<string[]>([]);
+  const [countryModalTab, setCountryModalTab] = useState<'include' | 'exclude'>('include');
   const [showCountryModal, setShowCountryModal] = useState(false);
 
   // Year range filter
@@ -92,12 +94,13 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
     if (languageFilter !== 'all') count++;
     if (selectedGenres.length > 0) count++;
     if (selectedCountries.length > 0) count++;
+    if (excludedCountries.length > 0) count++;
     if (minYear || maxYear) count++;
     if (minRating > 0) count++;
     if (filterType !== 'all') count++;
     if (searchQuery.trim()) count++;
     return count;
-  }, [mediaTypeFilter, statusFilter, languageFilter, selectedGenres, selectedCountries, minYear, maxYear, minRating, filterType, searchQuery]);
+  }, [mediaTypeFilter, statusFilter, languageFilter, selectedGenres, selectedCountries, excludedCountries, minYear, maxYear, minRating, filterType, searchQuery]);
 
   const clearAllFilters = () => {
     setMediaTypeFilter('all');
@@ -105,6 +108,7 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
     setLanguageFilter('all');
     setSelectedGenres([]);
     setSelectedCountries([]);
+    setExcludedCountries([]);
     setCountrySearchQuery('');
     setMinYear('');
     setMaxYear('');
@@ -201,6 +205,14 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
       });
     }
 
+    // 7b. Exclude Countries filter
+    if (excludedCountries.length > 0) {
+      result = result.filter((x) => {
+        const itemCountries = (x.countries || []).map((c) => normalizeCountryName(c));
+        return !excludedCountries.some((excluded) => itemCountries.includes(excluded));
+      });
+    }
+
     // 8. Year range
     if (minYear) {
       const y = parseInt(minYear, 10);
@@ -214,52 +226,46 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
     // 9. Min rating
     if (minRating > 0) {
       result = result.filter((x) => {
-        const r = x.imdbRating || x.rating || 0;
-        return r >= minRating;
+        const score = x.rottenTomatoesRating !== undefined ? x.rottenTomatoesRating / 10 : (x.imdbRating || x.rating || 0);
+        return score >= minRating;
       });
     }
 
-    // Helper to get total effective runtime for any item (movie or series)
-    const getItemRuntime = (item: LibraryItem): number => {
-      if (item.mediaType === 'movie') {
-        return item.runtimeMinutes || 0;
-      }
-      // For TV series, accurately calculate included/total series runtime
-      const b = calculateSeriesRuntime(
-        item,
-        settings.maxEpisodesPerSeries,
-        settings.capSeriesEpisodes
-      );
-      return b.includedRuntimeMinutes || item.includedRuntimeMinutes || (b.totalEpisodes * 45) || 0;
-    };
-
-    // 10. Sorting
+    // 10. Sort
     return [...result].sort((a, b) => {
       let comparison = 0;
-      if (sortBy === 'rottenTomatoes') {
+
+      if (sortBy === 'recently_added') {
+        const dateA = new Date(a.addedAt || 0).getTime();
+        const dateB = new Date(b.addedAt || 0).getTime();
+        comparison = dateB - dateA;
+      } else if (sortBy === 'runtime') {
+        const runtimeA = a.mediaType === 'movie' ? (a.runtimeMinutes || 0) : calculateSeriesRuntime(a, settings.maxEpisodesPerSeries, settings.capSeriesEpisodes).includedRuntimeMinutes;
+        const runtimeB = b.mediaType === 'movie' ? (b.runtimeMinutes || 0) : calculateSeriesRuntime(b, settings.maxEpisodesPerSeries, settings.capSeriesEpisodes).includedRuntimeMinutes;
+        comparison = runtimeB - runtimeA;
+      } else if (sortBy === 'rottenTomatoes') {
         const rtA = a.rottenTomatoesRating !== undefined ? a.rottenTomatoesRating : -1;
         const rtB = b.rottenTomatoesRating !== undefined ? b.rottenTomatoesRating : -1;
-        comparison = rtA - rtB;
+        comparison = rtB - rtA;
       } else if (sortBy === 'imdb') {
-        const imdbA = a.imdbRating !== undefined ? a.imdbRating : (a.rating || -1);
-        const imdbB = b.imdbRating !== undefined ? b.imdbRating : (b.rating || -1);
-        comparison = imdbA - imdbB;
-      } else if (sortBy === 'runtime') {
-        const rA = getItemRuntime(a);
-        const rB = getItemRuntime(b);
-        comparison = rA - rB;
-      } else if (sortBy === 'rating') {
-        comparison = (a.rating || 0) - (b.rating || 0);
+        const imdbA = a.imdbRating || a.rating || 0;
+        const imdbB = b.imdbRating || b.rating || 0;
+        comparison = imdbB - imdbA;
       } else if (sortBy === 'title') {
-        comparison = (a.externalTitle || a.originalTitle).localeCompare(b.externalTitle || b.originalTitle);
+        const titleA = a.externalTitle || a.originalTitle;
+        const titleB = b.externalTitle || b.originalTitle;
+        comparison = titleA.localeCompare(titleB);
       } else if (sortBy === 'year') {
-        comparison = (a.releaseYear || 0) - (b.releaseYear || 0);
-      } else {
-        // recently_added
-        comparison = (a.addedAt || '').localeCompare(b.addedAt || '');
+        const yearA = a.releaseYear || 0;
+        const yearB = b.releaseYear || 0;
+        comparison = yearB - yearA;
+      } else if (sortBy === 'rating') {
+        const rA = a.rating || 0;
+        const rB = b.rating || 0;
+        comparison = rB - rA;
       }
 
-      return sortOrder === 'desc' ? -comparison : comparison;
+      return sortOrder === 'asc' ? -comparison : comparison;
     });
   }, [
     items,
@@ -273,6 +279,7 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
     selectedGenres,
     genreMatchMode,
     selectedCountries,
+    excludedCountries,
     minYear,
     maxYear,
     minRating,
@@ -410,20 +417,27 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
               )}
             </button>
 
-            {/* Country Trigger */}
+            {/* Country Trigger (Includes & Excludes) */}
             <button
               onClick={() => setShowCountryModal(true)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
-                selectedCountries.length > 0
-                  ? 'bg-blue-600/20 border-blue-500/50 text-blue-300'
+                selectedCountries.length > 0 || excludedCountries.length > 0
+                  ? selectedCountries.length > 0
+                    ? 'bg-blue-600/20 border-blue-500/50 text-blue-300'
+                    : 'bg-red-600/20 border-red-500/50 text-red-300'
                   : 'bg-black/30 border-white/5 text-gray-400 hover:text-white'
               }`}
             >
               <Globe className="w-3.5 h-3.5" />
               <span>Country</span>
               {selectedCountries.length > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full bg-blue-500/30 text-[10px]">
-                  {selectedCountries.length}
+                <span className="px-1.5 py-0.2 rounded-full bg-blue-500/30 text-blue-200 text-[10px] font-bold" title={`${selectedCountries.length} included`}>
+                  +{selectedCountries.length}
+                </span>
+              )}
+              {excludedCountries.length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-red-500/30 text-red-200 text-[10px] font-bold" title={`${excludedCountries.length} excluded`}>
+                  -{excludedCountries.length}
                 </span>
               )}
             </button>
@@ -517,12 +531,27 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
 
             {selectedCountries.map((c) => (
               <span
-                key={c}
+                key={'inc_' + c}
                 className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-600/20 border border-blue-500/30 text-blue-300 text-[11px]"
               >
-                <span>{c}</span>
+                <span>🌍 {c}</span>
                 <button
                   onClick={() => setSelectedCountries((prev) => prev.filter((x) => x !== c))}
+                  className="hover:text-white"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+
+            {excludedCountries.map((c) => (
+              <span
+                key={'exc_' + c}
+                className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-red-600/20 border border-red-500/30 text-red-300 text-[11px]"
+              >
+                <span>🚫 Exclude: {c}</span>
+                <button
+                  onClick={() => setExcludedCountries((prev) => prev.filter((x) => x !== c))}
                   className="hover:text-white"
                 >
                   <X className="w-3 h-3" />
@@ -696,14 +725,19 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
         </div>
       )}
 
-      {/* Country Multi-select Modal */}
+      {/* Country Multi-select Modal with Include & Exclude */}
       {showCountryModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="relative w-full max-w-lg bg-[#1c1c1e] border border-white/15 rounded-2xl p-6 shadow-2xl animate-in fade-in duration-200">
-            <div className="flex items-center justify-between mb-4">
+          <div className="relative w-full max-w-lg bg-[#1c1c1e] border border-white/15 rounded-2xl p-5 sm:p-6 shadow-2xl animate-in fade-in duration-200">
+            <div className="flex items-center justify-between mb-3">
               <div>
-                <h3 className="text-lg font-bold text-white">Filter by Country</h3>
-                <p className="text-xs text-gray-400">Production or origin countries from your titles.</p>
+                <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                  <Globe className="w-4 h-4 text-blue-400" />
+                  <span>Country Filter & Exclusion</span>
+                </h3>
+                <p className="text-[11px] sm:text-xs text-gray-400">
+                  Include or exclude specific production countries from your view.
+                </p>
               </div>
               <button
                 onClick={() => setShowCountryModal(false)}
@@ -711,6 +745,53 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
               >
                 <X className="w-5 h-5" />
               </button>
+            </div>
+
+            {/* Mode Switcher Tabs: Include vs Exclude */}
+            <div className="grid grid-cols-2 gap-2 p-1 bg-black/50 rounded-xl border border-white/10 mb-3">
+              <button
+                type="button"
+                onClick={() => setCountryModalTab('include')}
+                className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                  countryModalTab === 'include'
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>Include Countries</span>
+                {selectedCountries.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-black/40 text-[10px]">
+                    {selectedCountries.length}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCountryModalTab('exclude')}
+                className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                  countryModalTab === 'exclude'
+                    ? 'bg-red-600 text-white shadow-md'
+                    : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <Ban className="w-3.5 h-3.5 text-red-200" />
+                <span>Exclude Countries</span>
+                {excludedCountries.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-black/40 text-[10px]">
+                    {excludedCountries.length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Explanation banner */}
+            <div className="text-[11px] px-3 py-1.5 rounded-lg mb-3 bg-white/5 border border-white/5 text-zinc-300">
+              {countryModalTab === 'include' ? (
+                <span>Showing titles made in <strong>any</strong> selected country. (Leave empty for all).</span>
+              ) : (
+                <span className="text-red-300">Hiding titles originating from any of the selected excluded countries.</span>
+              )}
             </div>
 
             {/* Search Country Input */}
@@ -733,33 +814,78 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
               )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto p-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto p-1 scrollbar-thin">
               {allCountries
                 .filter((c) => c.toLowerCase().includes(countrySearchQuery.toLowerCase()))
                 .map((c) => {
-                  const isChecked = selectedCountries.includes(c);
-                  return (
-                    <label
-                      key={c}
-                      className={`flex items-center gap-2 py-1.5 px-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
-                        isChecked
-                          ? 'bg-blue-600/20 border-blue-500/40 text-white font-semibold'
-                          : 'bg-black/30 border-white/5 text-gray-400 hover:text-white'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => {
-                          setSelectedCountries((prev) =>
-                            isChecked ? prev.filter((x) => x !== c) : [...prev, c]
-                          );
-                        }}
-                        className="rounded bg-neutral-800 border-white/20 text-blue-600"
-                      />
-                      <span>{c}</span>
-                    </label>
-                  );
+                  const isIncluded = selectedCountries.includes(c);
+                  const isExcluded = excludedCountries.includes(c);
+
+                  if (countryModalTab === 'include') {
+                    return (
+                      <label
+                        key={c}
+                        className={`flex items-center justify-between py-2 px-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                          isIncluded
+                            ? 'bg-blue-600/20 border-blue-500/50 text-white font-semibold shadow-sm'
+                            : 'bg-black/30 border-white/5 text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={isIncluded}
+                            onChange={() => {
+                              if (isIncluded) {
+                                setSelectedCountries((prev) => prev.filter((x) => x !== c));
+                              } else {
+                                setSelectedCountries((prev) => [...prev, c]);
+                                // Remove from excluded if user wants to include it
+                                setExcludedCountries((prev) => prev.filter((x) => x !== c));
+                              }
+                            }}
+                            className="rounded bg-neutral-800 border-white/20 text-blue-600"
+                          />
+                          <span>{c}</span>
+                        </div>
+                        {isExcluded && (
+                          <span className="text-[10px] text-red-400 font-normal">Excluded</span>
+                        )}
+                      </label>
+                    );
+                  } else {
+                    return (
+                      <label
+                        key={c}
+                        className={`flex items-center justify-between py-2 px-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                          isExcluded
+                            ? 'bg-red-600/20 border-red-500/50 text-red-200 font-semibold shadow-sm'
+                            : 'bg-black/30 border-white/5 text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={isExcluded}
+                            onChange={() => {
+                              if (isExcluded) {
+                                setExcludedCountries((prev) => prev.filter((x) => x !== c));
+                              } else {
+                                setExcludedCountries((prev) => [...prev, c]);
+                                // Remove from included if user excludes it
+                                setSelectedCountries((prev) => prev.filter((x) => x !== c));
+                              }
+                            }}
+                            className="rounded bg-neutral-800 border-white/20 text-red-600"
+                          />
+                          <span>{c}</span>
+                        </div>
+                        {isIncluded && (
+                          <span className="text-[10px] text-blue-400 font-normal">Included</span>
+                        )}
+                      </label>
+                    );
+                  }
                 })}
               {allCountries.filter((c) => c.toLowerCase().includes(countrySearchQuery.toLowerCase())).length === 0 && (
                 <div className="col-span-2 text-center py-6 text-xs text-zinc-500">
@@ -768,16 +894,38 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
               )}
             </div>
 
-            <div className="flex items-center justify-between mt-5 pt-3 border-t border-white/10">
+            <div className="flex items-center justify-between mt-4 pt-3 border-t border-white/10 text-xs">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (countryModalTab === 'include') {
+                      setSelectedCountries([]);
+                    } else {
+                      setExcludedCountries([]);
+                    }
+                  }}
+                  className="text-gray-400 hover:text-white underline text-[11px]"
+                >
+                  Reset {countryModalTab === 'include' ? 'Included' : 'Excluded'}
+                </button>
+                {(selectedCountries.length > 0 || excludedCountries.length > 0) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCountries([]);
+                      setExcludedCountries([]);
+                    }}
+                    className="text-red-400 hover:text-red-300 underline text-[11px]"
+                  >
+                    Clear Both
+                  </button>
+                )}
+              </div>
               <button
-                onClick={() => setSelectedCountries([])}
-                className="text-xs text-gray-400 hover:text-white underline"
-              >
-                Reset Countries
-              </button>
-              <button
+                type="button"
                 onClick={() => setShowCountryModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white"
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-[#E50914] hover:bg-red-700 text-white shadow-md transition-all"
               >
                 Done
               </button>
