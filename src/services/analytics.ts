@@ -191,24 +191,55 @@ export function computeAnalytics(
   const stillWatchingRemainingHours = Number((stillWatchingRemainingMinutes / 60).toFixed(1));
   const stillWatchingRealHoursAtSpeed = Number(((stillWatchingRemainingMinutes / 60) / speed).toFixed(1));
 
-  const effectiveDailyHours = Math.max(
-    0.1,
-    (settings.dailyViewingHours || 1.0) + (settings.mealDailyHours || 0)
+  // Multi-speed configuration:
+  // - Home usage: playbackSpeed (e.g. 2.0x) for dailyViewingHours
+  // - Gym / Cardio: gymSpeed (e.g. 1.5x) for gymHoursPerSession * gymSessionsPerDay
+  // - Meal / Lunch: mealSpeed (e.g. 1.5x) for mealDailyHours
+  const homeSpeed = speed;
+  const gymSpeed = settings.gymSpeed || 1.5;
+  const mealSpeed = settings.mealSpeed || 1.5;
+
+  const homeDailyContentHours = Number(((settings.dailyViewingHours || 0) * homeSpeed).toFixed(1));
+  const gymHoursPerSession = settings.gymHoursPerSession || 1.0;
+  const gymSessionsPerDay = settings.gymSessionsPerDay || 1.0;
+  const gymDailyClockHours = settings.enableGymMode ? (gymHoursPerSession * gymSessionsPerDay) : 0;
+  const gymDailyContentHours = Number((gymDailyClockHours * gymSpeed).toFixed(1));
+  const gymContentHoursPerSession = Number((gymHoursPerSession * gymSpeed).toFixed(2));
+
+  const mealDailyClockHours = settings.mealDailyHours || 0;
+  const mealDailyContentHours = Number((mealDailyClockHours * mealSpeed).toFixed(1));
+
+  // Combined daily content consumed across all modes at their respective speeds
+  const combinedDailyContentHours = Number(
+    (homeDailyContentHours + gymDailyContentHours + mealDailyContentHours).toFixed(1)
+  );
+  const combinedDailyClockHours = Number(
+    ((settings.dailyViewingHours || 0) + gymDailyClockHours + mealDailyClockHours).toFixed(1)
   );
 
   // Time to complete calculates based on REMAINING content (Unwatched + unfinished Still Watching)
-  const { days, months, years } = calculateCompletionMetrics(
-    rawRemainingRealHours,
-    effectiveDailyHours
-  );
+  // Dropped titles and completed titles are 100% excluded!
+  let days: number;
+  let months: number;
+  let years: number;
 
-  const gymHoursPerSession = settings.gymHoursPerSession || 1.0;
-  const gymContentHoursPerSession = Number((gymHoursPerSession * speed).toFixed(2));
+  if (combinedDailyContentHours > 0) {
+    const rawDays = remainingContentHours / combinedDailyContentHours;
+    days = Number(rawDays.toFixed(1));
+    months = Number((rawDays / 30.4375).toFixed(1));
+    years = Number((rawDays / 365.25).toFixed(2));
+  } else {
+    const effectiveDailyHours = Math.max(0.1, (settings.dailyViewingHours || 1.0));
+    const res = calculateCompletionMetrics(rawRemainingRealHours, effectiveDailyHours);
+    days = res.days;
+    months = res.months;
+    years = res.years;
+  }
+
   const gymSessionsRequired = gymContentHoursPerSession > 0
     ? Math.ceil(remainingContentHours / gymContentHoursPerSession)
     : 0;
 
-  const gymSessionsPerDay = settings.gymSessionsPerDay || 1.0;
   const gymDaysRequired = gymSessionsPerDay > 0
     ? Number((gymSessionsRequired / gymSessionsPerDay).toFixed(1))
     : gymSessionsRequired;
@@ -260,6 +291,12 @@ export function computeAnalytics(
     gymSessionsRequired,
     gymDaysRequired,
     gymYearsRequired,
+
+    homeDailyContentHours,
+    gymDailyContentHours,
+    mealDailyContentHours,
+    combinedDailyContentHours,
+    combinedDailyClockHours,
   };
 }
 

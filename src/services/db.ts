@@ -9,7 +9,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   omdbApiKey: '',
   capSeriesEpisodes: false, // Default: uncapped!
   maxEpisodesPerSeries: 10,
-  playbackSpeed: 1.5,
+  playbackSpeed: 2.0, // Default home usage speed
+  gymSpeed: 1.5,      // Default gym / cardio speed
+  mealSpeed: 1.5,     // Default meal / lunch speed
   dailyViewingHours: 1.0,
   gymSessionsPerDay: 1.0,
   gymHoursPerSession: 1.0,

@@ -435,11 +435,11 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/30 text-xs font-bold uppercase mb-2">
               <Dumbbell className="w-3.5 h-3.5" />
-              <span>Cardio & Gym Mode</span>
+              <span>Cardio & Multi-Speed Lifestyle Mode</span>
             </div>
-            <h3 className="text-2xl font-black text-white">Pair Watchlist with Workouts</h3>
+            <h3 className="text-2xl font-black text-white">Pair Watchlist with Workouts & Meals</h3>
             <p className="text-xs text-gray-400 mt-1 max-w-xl">
-              Turn your Netflix backlog into workout milestones. Calculate how many cardio sessions it will take to finish your library at {settings.playbackSpeed}× speed.
+              Turn your backlog into milestones at customized speeds (e.g. {settings.gymSpeed || 1.5}× for gym, {settings.mealSpeed || 1.5}× for lunch, and {settings.playbackSpeed}× at home). Dropping or completing titles automatically recalculates remaining time!
             </p>
           </div>
 
@@ -449,16 +449,66 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               className="px-4 py-2 rounded-xl bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 text-xs font-bold border border-orange-500/30 transition-colors flex items-center gap-1.5"
             >
               <Sliders className="w-3.5 h-3.5" />
-              <span>Configure Workout Params</span>
+              <span>Configure Workout & Speeds</span>
             </button>
           </div>
         </div>
 
+        {/* Multi-Speed Combined Consumption Banner */}
+        <div className="p-5 rounded-2xl bg-black/40 border border-orange-500/20 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-orange-400 flex items-center gap-1.5">
+              <Zap className="w-4 h-4" />
+              Combined Actual Content Consumed Daily:
+            </span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl sm:text-3xl font-black font-mono text-emerald-400">
+                {stats.combinedDailyContentHours} hrs
+              </span>
+              <span className="text-xs text-gray-400 font-medium">
+                content cleared in {stats.combinedDailyClockHours} clock hrs/day
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-white/5 text-xs">
+            <div className="flex items-center justify-between bg-zinc-900/60 p-2.5 rounded-xl border border-white/5">
+              <span className="text-gray-400 flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-[#E50914]" />
+                Home ({settings.playbackSpeed}×):
+              </span>
+              <span className="font-mono font-bold text-white">
+                +{stats.homeDailyContentHours} content hrs ({settings.dailyViewingHours}h real)
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between bg-zinc-900/60 p-2.5 rounded-xl border border-white/5">
+              <span className="text-gray-400 flex items-center gap-1.5">
+                <Dumbbell className="w-3.5 h-3.5 text-orange-400" />
+                Gym ({settings.gymSpeed || 1.5}×):
+              </span>
+              <span className="font-mono font-bold text-orange-300">
+                +{stats.gymDailyContentHours} content hrs ({settings.enableGymMode ? ((settings.gymHoursPerSession || 1.0) * (settings.gymSessionsPerDay || 1.0)) : 0}h real)
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between bg-zinc-900/60 p-2.5 rounded-xl border border-white/5">
+              <span className="text-gray-400 flex items-center gap-1.5">
+                <Utensils className="w-3.5 h-3.5 text-yellow-400" />
+                Lunch / Meals ({settings.mealSpeed || 1.5}×):
+              </span>
+              <span className="font-mono font-bold text-yellow-300">
+                +{stats.mealDailyContentHours} content hrs ({settings.mealDailyHours || 0}h real)
+              </span>
+            </div>
+          </div>
+        </div>
+
         {/* Gym Calculations Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-2">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-1">
           <div className="bg-black/40 p-4 rounded-2xl border border-white/5">
             <span className="text-[11px] font-semibold text-gray-400 uppercase block">
-              Per Gym Session
+              Per Gym Session @ {settings.gymSpeed || 1.5}×
             </span>
             <div className="mt-2 font-mono">
               <span className="text-2xl font-bold text-white">
@@ -482,11 +532,11 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
           <div className="bg-black/40 p-4 rounded-2xl border border-white/5">
             <span className="text-[11px] font-semibold text-gray-400 uppercase block">
-              If Going Every Day
+              Combined Finish Horizon
             </span>
             <div className="mt-2 font-mono">
-              <span className="text-2xl font-bold text-white">
-                ~{Math.round(stats.gymDaysRequired)}
+              <span className="text-2xl font-bold text-emerald-400">
+                ~{Math.round(stats.daysToComplete)}
               </span>
               <span className="text-xs text-gray-500 block">days to clear catalog</span>
             </div>
@@ -498,24 +548,24 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             </span>
             <div className="mt-2 font-mono">
               <span className="text-2xl font-bold text-gray-300">
-                ~{stats.gymYearsRequired}
+                ~{stats.yearsToComplete}
               </span>
-              <span className="text-xs text-gray-500 block">years of cardio</span>
+              <span className="text-xs text-gray-500 block">years with lifestyle plan</span>
             </div>
           </div>
         </div>
 
-        {/* Meals Watch Time Integration */}
+        {/* Meals Watch Time Integration Pill */}
         {settings.mealDailyHours > 0 && (
           <div className="p-4 rounded-xl bg-black/30 border border-white/5 flex items-center justify-between text-xs text-gray-300">
             <div className="flex items-center gap-2">
               <Utensils className="w-4 h-4 text-yellow-400" />
               <span>
-                Includes <strong className="text-white font-mono">{settings.mealDailyHours} hrs/day</strong> during breakfast/lunch/dinner.
+                Includes <strong className="text-white font-mono">{settings.mealDailyHours} hrs/day</strong> during breakfast/lunch/dinner watching at <strong className="text-yellow-400 font-mono">{settings.mealSpeed || 1.5}×</strong>.
               </span>
             </div>
-            <span className="text-emerald-400 font-mono font-bold">
-              +{(settings.mealDailyHours * settings.playbackSpeed).toFixed(1)} content hrs/day
+            <span className="text-yellow-400 font-mono font-bold">
+              +{stats.mealDailyContentHours} content hrs/day
             </span>
           </div>
         )}

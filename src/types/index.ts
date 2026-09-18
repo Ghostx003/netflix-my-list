@@ -117,7 +117,9 @@ export interface AppSettings {
   omdbApiKey?: string;
   capSeriesEpisodes?: boolean; // Toggle capping
   maxEpisodesPerSeries: number;
-  playbackSpeed: number;
+  playbackSpeed: number; // Home / General usage speed (e.g. 2.0x)
+  gymSpeed?: number; // Cardio / Gym speed (e.g. 1.5x)
+  mealSpeed?: number; // Meal / Lunch speed (e.g. 1.5x)
   dailyViewingHours: number;
   gymSessionsPerDay: number;
   gymHoursPerSession: number;
@@ -182,4 +184,11 @@ export interface AnalyticsStats {
   gymSessionsRequired: number;
   gymDaysRequired: number;
   gymYearsRequired: number;
+
+  // Multi-speed combined consumption breakdown
+  homeDailyContentHours: number;
+  gymDailyContentHours: number;
+  mealDailyContentHours: number;
+  combinedDailyContentHours: number;
+  combinedDailyClockHours: number;
 }
