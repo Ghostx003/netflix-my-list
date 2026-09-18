@@ -141,6 +141,9 @@ export const App: React.FC = () => {
 
       for (let i = 0; i < updatedList.length; i++) {
         const item = updatedList[i];
+        // Never overwrite a manual match chosen by user
+        if (item.isManualMatch) continue;
+
         // Automatically enrich items if pending, missing poster, missing trailer, or missing ratings
         if (item.status === 'pending' || !item.posterPath || !item.trailer || item.rottenTomatoesRating === undefined || item.status === 'needs_review') {
           try {

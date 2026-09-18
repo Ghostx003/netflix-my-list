@@ -32,7 +32,7 @@ export const BackupModal: React.FC<BackupModalProps> = ({
     setIsExporting(true);
     setExportSuccess(null);
     try {
-      const file = await exportBackup();
+      const file = await exportBackup(items, settings);
       setExportSuccess(`Exported successfully as ${file}`);
     } catch (err) {
       setErrorMessage('Failed to generate backup file.');

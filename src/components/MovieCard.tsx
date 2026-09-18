@@ -173,13 +173,13 @@ export const MovieCard: React.FC<MovieCardProps> = ({
             </a>
           </div>
 
-          {/* Quick Action Buttons: Watched & Drop */}
-          <div className="flex items-center justify-between gap-1 pt-0.5">
-            <div className="flex items-center gap-1">
+          {/* Quick Action Buttons: Watched, Watching, Drop & Match */}
+          <div className="flex flex-wrap items-center justify-between gap-1 pt-1 border-t border-zinc-800/40">
+            <div className="flex flex-wrap items-center gap-1 min-w-0">
               {onMarkWatched && (
                 <button
                   onClick={(e) => onMarkWatched(item, e)}
-                  className={`px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md text-[9px] sm:text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95 ${
+                  className={`px-1.5 py-0.5 sm:py-1 rounded-md text-[9px] sm:text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95 shrink-0 ${
                     isCompleted
                       ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/40'
                       : 'bg-zinc-800 hover:bg-emerald-600 hover:text-white text-zinc-300 border border-zinc-700'
@@ -194,7 +194,7 @@ export const MovieCard: React.FC<MovieCardProps> = ({
               {onAddToWatching && (
                 <button
                   onClick={(e) => onAddToWatching(item, e)}
-                  className={`px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md text-[9px] sm:text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95 ${
+                  className={`px-1.5 py-0.5 sm:py-1 rounded-md text-[9px] sm:text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95 shrink-0 ${
                     isWatching
                       ? 'bg-amber-500/30 text-amber-300 border border-amber-500/40'
                       : 'bg-zinc-800 hover:bg-amber-500 hover:text-black text-zinc-300 border border-zinc-700'
@@ -209,7 +209,7 @@ export const MovieCard: React.FC<MovieCardProps> = ({
               {onDrop && (
                 <button
                   onClick={(e) => onDrop(item, e)}
-                  className={`px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md text-[9px] sm:text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95 ${
+                  className={`px-1.5 py-0.5 sm:py-1 rounded-md text-[9px] sm:text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95 shrink-0 ${
                     isDropped
                       ? 'bg-red-900/30 text-red-300 border border-red-500/40'
                       : 'bg-zinc-800 hover:bg-red-800 hover:text-white text-zinc-300 border border-zinc-700'
@@ -225,7 +225,8 @@ export const MovieCard: React.FC<MovieCardProps> = ({
             {onChangeMatch && (
               <button
                 onClick={onChangeMatch}
-                className="text-[9px] sm:text-[10px] text-zinc-400 hover:text-white underline hover:no-underline transition-colors ml-auto"
+                className="text-[9px] sm:text-[10px] text-zinc-400 hover:text-white underline hover:no-underline transition-colors shrink-0 py-0.5 ml-auto"
+                title="Change TMDB Match"
               >
                 Match
               </button>

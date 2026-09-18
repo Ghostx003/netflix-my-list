@@ -5,14 +5,17 @@ import { createDuplicateKey } from './normalizer';
 /**
  * Creates and triggers download of a full application JSON snapshot
  */
-export async function exportBackup(): Promise<string> {
-  const items = await getAllLibraryItems();
-  const settings = await getSettings();
+export async function exportBackup(
+  customItems?: LibraryItem[],
+  customSettings?: AppSettings
+): Promise<string> {
+  const items = customItems && customItems.length > 0 ? customItems : await getAllLibraryItems();
+  const settings = customSettings || (await getSettings());
 
   const backup: BackupData = {
     version: 1,
     exportedAt: new Date().toISOString(),
-    items,
+    items: items.map(normalizeLibraryItem),
     settings,
   };
 

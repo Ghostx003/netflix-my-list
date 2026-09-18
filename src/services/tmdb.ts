@@ -501,6 +501,11 @@ export async function enrichLibraryItem(
   maxEpisodesLimit: number = 10,
   capEpisodes: boolean = false
 ): Promise<LibraryItem> {
+  // If the user manually selected or edited this match, NEVER overwrite it with automatic heuristics
+  if (item.isManualMatch && item.status === 'matched') {
+    return item;
+  }
+
   const effectiveKey = apiKey || DEFAULT_PUBLIC_TMDB_KEY;
   const slug = createDuplicateKey(item.originalTitle);
 
