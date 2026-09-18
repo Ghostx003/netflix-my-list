@@ -154,3 +154,157 @@ export function getPriorityLanguageBadge(item: { languages?: string[]; originalL
   return null;
 }
 
+/**
+ * Standardizes country names by mapping 2-letter ISO codes (US, CA, GB, JP, etc.)
+ * and regional naming variations (USA, United States of America, South Korea, etc.)
+ * to their primary full canonical English name.
+ */
+const COUNTRY_MAP: Record<string, string> = {
+  // North America
+  'us': 'United States',
+  'usa': 'United States',
+  'united states of america': 'United States',
+  'ca': 'Canada',
+  'can': 'Canada',
+  'mx': 'Mexico',
+  'mex': 'Mexico',
+
+  // Europe
+  'gb': 'United Kingdom',
+  'uk': 'United Kingdom',
+  'great britain': 'United Kingdom',
+  'fr': 'France',
+  'fra': 'France',
+  'de': 'Germany',
+  'deu': 'Germany',
+  'it': 'Italy',
+  'ita': 'Italy',
+  'es': 'Spain',
+  'esp': 'Spain',
+  'se': 'Sweden',
+  'swe': 'Sweden',
+  'ch': 'Switzerland',
+  'che': 'Switzerland',
+  'no': 'Norway',
+  'nor': 'Norway',
+  'dk': 'Denmark',
+  'dnk': 'Denmark',
+  'fi': 'Finland',
+  'fin': 'Finland',
+  'nl': 'Netherlands',
+  'nld': 'Netherlands',
+  'be': 'Belgium',
+  'bel': 'Belgium',
+  'ie': 'Ireland',
+  'irl': 'Ireland',
+  'pl': 'Poland',
+  'pol': 'Poland',
+  'cz': 'Czech Republic',
+  'cze': 'Czechia',
+  'czechia': 'Czech Republic',
+  'at': 'Austria',
+  'aut': 'Austria',
+  'pt': 'Portugal',
+  'prt': 'Portugal',
+  'ru': 'Russia',
+  'rus': 'Russia',
+  'russian federation': 'Russia',
+  'ua': 'Ukraine',
+  'ukr': 'Ukraine',
+  'tr': 'Turkey',
+  'tur': 'Turkey',
+  'türkiye': 'Turkey',
+  'gr': 'Greece',
+  'grc': 'Greece',
+  'hu': 'Hungary',
+  'hun': 'Hungary',
+  'ro': 'Romania',
+  'rou': 'Romania',
+  'bg': 'Bulgaria',
+  'bgr': 'Bulgaria',
+  'hr': 'Croatia',
+  'hrv': 'Croatia',
+
+  // Asia & Middle East
+  'in': 'India',
+  'ind': 'India',
+  'jp': 'Japan',
+  'jpn': 'Japan',
+  'kr': 'South Korea',
+  'kor': 'South Korea',
+  'korea': 'South Korea',
+  'republic of korea': 'South Korea',
+  'cn': 'China',
+  'chn': 'China',
+  'hk': 'Hong Kong',
+  'hkg': 'Hong Kong',
+  'tw': 'Taiwan',
+  'twn': 'Taiwan',
+  'th': 'Thailand',
+  'tha': 'Thailand',
+  'vn': 'Vietnam',
+  'vnm': 'Vietnam',
+  'id': 'Indonesia',
+  'idn': 'Indonesia',
+  'my': 'Malaysia',
+  'mys': 'Malaysia',
+  'sg': 'Singapore',
+  'sgp': 'Singapore',
+  'ph': 'Philippines',
+  'phl': 'Philippines',
+  'pk': 'Pakistan',
+  'pak': 'Pakistan',
+  'il': 'Israel',
+  'isr': 'Israel',
+  'ae': 'United Arab Emirates',
+  'are': 'United Arab Emirates',
+  'sa': 'Saudi Arabia',
+  'sau': 'Saudi Arabia',
+  'ir': 'Iran',
+  'irn': 'Iran',
+
+  // Oceania
+  'au': 'Australia',
+  'aus': 'Australia',
+  'nz': 'New Zealand',
+  'nzl': 'New Zealand',
+
+  // South America
+  'br': 'Brazil',
+  'bra': 'Brazil',
+  'ar': 'Argentina',
+  'arg': 'Argentina',
+  'cl': 'Chile',
+  'chl': 'Chile',
+  'co': 'Colombia',
+  'col': 'Colombia',
+
+  // Africa
+  'za': 'South Africa',
+  'zaf': 'South Africa',
+  'eg': 'Egypt',
+  'egy': 'Egypt',
+  'ng': 'Nigeria',
+  'nga': 'Nigeria',
+};
+
+export function normalizeCountryName(country: string): string {
+  if (!country) return '';
+  const trimmed = country.trim();
+  const lower = trimmed.toLowerCase();
+  if (COUNTRY_MAP[lower]) {
+    return COUNTRY_MAP[lower];
+  }
+  return trimmed;
+}
+
+export function normalizeCountriesList(countries?: string[]): string[] {
+  if (!countries || !Array.isArray(countries)) return [];
+  const set = new Set<string>();
+  for (const c of countries) {
+    const norm = normalizeCountryName(c);
+    if (norm) set.add(norm);
+  }
+  return Array.from(set);
+}
+

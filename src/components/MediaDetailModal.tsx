@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { X, Star, Clock, Calendar, Film, Tv, Play, ExternalLink, Sparkles, Layers, Video, ChevronDown, ChevronUp } from 'lucide-react';
 import { AppSettings, LibraryItem, EpisodeInfo } from '../types';
 import { formatRuntime, calculateSeriesRuntime } from '../services/analytics';
-import { getNetflixUrl } from '../services/normalizer';
+import { getNetflixUrl, normalizeCountryName } from '../services/normalizer';
 
 interface MediaDetailModalProps {
   item: LibraryItem | null;
@@ -247,7 +247,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                       {g}
                     </span>
                   ))}
-                  {item.countries?.map((c) => (
+                  {Array.from(new Set((item.countries || []).map((c) => normalizeCountryName(c)))).map((c) => (
                     <span
                       key={c}
                       className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-blue-950/40 text-blue-300 border border-blue-800/40"

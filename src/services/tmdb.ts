@@ -1,5 +1,5 @@
 import { EpisodeInfo, LibraryItem, MediaType, TrailerInfo } from '../types';
-import { createDuplicateKey } from './normalizer';
+import { createDuplicateKey, normalizeCountriesList } from './normalizer';
 import { getCachedMetadata, setCachedMetadata } from './db';
 import { SAMPLE_METADATA_MAP } from './tmdbSampleData';
 
@@ -119,9 +119,10 @@ export async function fetchOMDBMetadata(title: string, customKey?: string): Prom
       const genres = d.Genre && d.Genre !== 'N/A'
         ? d.Genre.split(',').map((g: string) => g.trim()).filter(Boolean)
         : [];
-      const countries = d.Country && d.Country !== 'N/A'
+      const rawCountries = d.Country && d.Country !== 'N/A'
         ? d.Country.split(',').map((c: string) => c.trim()).filter(Boolean)
         : [];
+      const countries = normalizeCountriesList(rawCountries);
       const languages = d.Language && d.Language !== 'N/A'
         ? d.Language.split(',').map((l: string) => l.trim()).filter(Boolean)
         : [];
@@ -392,7 +393,8 @@ export async function fetchFullDetails(
     const omdbData = await fetchOMDBMetadata(titleForRatings);
 
     if (mediaType === 'movie') {
-      const countries = (data.production_countries || []).map((c: any) => c.name || c.iso_3166_1).filter(Boolean);
+      const rawCountries = (data.production_countries || []).map((c: any) => c.name || c.iso_3166_1).filter(Boolean);
+      const countries = normalizeCountriesList(rawCountries.length > 0 ? rawCountries : (omdbData?.countries || []));
       const spokenLangs: string[] = (data.spoken_languages || []).map((l: any) => l.english_name || l.name || l.iso_639_1).concat(omdbData?.languages || []).filter(Boolean);
       const uniqueLangs: string[] = Array.from(new Set(spokenLangs));
       const origLang: string | undefined = data.original_language || undefined;
@@ -411,7 +413,7 @@ export async function fetchFullDetails(
         voteCount: data.vote_count,
         synopsis: data.overview || omdbData?.synopsis,
         genres: (data.genres || []).map((g: any) => g.name).concat(omdbData?.genres || []).filter((v: string, i: number, a: string[]) => a.indexOf(v) === i),
-        countries: countries.length > 0 ? countries : (omdbData?.countries || []),
+        countries,
         languages: uniqueLangs,
         originalLanguage: origLang,
         runtimeMinutes: data.runtime || omdbData?.runtimeMinutes || 0,
@@ -448,9 +450,10 @@ export async function fetchFullDetails(
         } catch {}
       }
 
-      const countries = (data.production_countries || []).map((c: any) => c.name || c.iso_3166_1)
+      const rawCountries = (data.production_countries || []).map((c: any) => c.name || c.iso_3166_1)
         .concat(data.origin_country || [])
         .filter(Boolean);
+      const countries = normalizeCountriesList(rawCountries.length > 0 ? rawCountries : (omdbData?.countries || []));
       const spokenLangs: string[] = (data.spoken_languages || []).map((l: any) => l.english_name || l.name || l.iso_639_1).concat(omdbData?.languages || []).filter(Boolean);
       const uniqueLangs: string[] = Array.from(new Set(spokenLangs));
       const origLang: string | undefined = data.original_language || undefined;
@@ -469,7 +472,7 @@ export async function fetchFullDetails(
         voteCount: data.vote_count,
         synopsis: data.overview || omdbData?.synopsis,
         genres: (data.genres || []).map((g: any) => g.name).concat(omdbData?.genres || []).filter((v: string, i: number, a: string[]) => a.indexOf(v) === i),
-        countries: countries.length > 0 ? countries : (omdbData?.countries || []),
+        countries,
         languages: uniqueLangs,
         originalLanguage: origLang,
         totalSeasons,

@@ -3,7 +3,7 @@ import { Film, Tv, Search, RefreshCw, AlertCircle, ArrowUpDown, Sliders, Globe, 
 import { AppSettings, LibraryItem } from '../types';
 import { MovieCard } from './MovieCard';
 import { TvSeriesCard } from './TvSeriesCard';
-import { itemHasLanguage } from '../services/normalizer';
+import { itemHasLanguage, normalizeCountryName, normalizeCountriesList } from '../services/normalizer';
 import { calculateSeriesRuntime } from '../services/analytics';
 
 interface MoviesSeriesViewProps {
@@ -72,10 +72,15 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
     return Array.from(set).sort();
   }, [items]);
 
-  // Dynamic available countries from library
+  // Dynamic available countries from library (canonicalized & merged)
   const allCountries = useMemo(() => {
     const set = new Set<string>();
-    items.forEach((item) => (item.countries || []).forEach((c) => set.add(c)));
+    items.forEach((item) => {
+      (item.countries || []).forEach((c) => {
+        const norm = normalizeCountryName(c);
+        if (norm) set.add(norm);
+      });
+    });
     return Array.from(set).sort();
   }, [items]);
 
@@ -188,11 +193,11 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
       });
     }
 
-    // 7. Multi-country filter
+    // 7. Multi-country filter (compares canonical names)
     if (selectedCountries.length > 0) {
       result = result.filter((x) => {
-        const countries = x.countries || [];
-        return selectedCountries.some((c) => countries.includes(c));
+        const itemCountries = (x.countries || []).map((c) => normalizeCountryName(c));
+        return selectedCountries.some((selected) => itemCountries.includes(selected));
       });
     }
 
