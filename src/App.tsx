@@ -248,6 +248,8 @@ export const App: React.FC = () => {
             onRescan={() => triggerBackgroundScan(items, settings)}
             isRescanning={isRescanning}
             onOpenSurpriseMe={() => setIsSurpriseMeOpen(true)}
+            onUpdateItem={handleUpdateItem}
+            onOpenDropModal={(item) => setItemToDrop(item)}
           />
         )}
 

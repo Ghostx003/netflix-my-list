@@ -94,6 +94,7 @@ export async function fetchOMDBMetadata(title: string, customKey?: string): Prom
   runtimeMinutes?: number;
   genres?: string[];
   countries?: string[];
+  languages?: string[];
 } | null> {
   const cacheKey = 'omdb_' + title.toLowerCase();
   const cached = await getCachedMetadata(cacheKey);
@@ -121,6 +122,9 @@ export async function fetchOMDBMetadata(title: string, customKey?: string): Prom
       const countries = d.Country && d.Country !== 'N/A'
         ? d.Country.split(',').map((c: string) => c.trim()).filter(Boolean)
         : [];
+      const languages = d.Language && d.Language !== 'N/A'
+        ? d.Language.split(',').map((l: string) => l.trim()).filter(Boolean)
+        : [];
 
       const result = {
         imdbRating: imdb,
@@ -132,6 +136,7 @@ export async function fetchOMDBMetadata(title: string, customKey?: string): Prom
         runtimeMinutes,
         genres,
         countries,
+        languages,
       };
       await setCachedMetadata(cacheKey, result);
       return result;
@@ -388,6 +393,10 @@ export async function fetchFullDetails(
 
     if (mediaType === 'movie') {
       const countries = (data.production_countries || []).map((c: any) => c.name || c.iso_3166_1).filter(Boolean);
+      const spokenLangs: string[] = (data.spoken_languages || []).map((l: any) => l.english_name || l.name || l.iso_639_1).concat(omdbData?.languages || []).filter(Boolean);
+      const uniqueLangs: string[] = Array.from(new Set(spokenLangs));
+      const origLang: string | undefined = data.original_language || undefined;
+
       const result: Partial<LibraryItem> = {
         externalId: data.id,
         externalTitle: data.title,
@@ -403,6 +412,8 @@ export async function fetchFullDetails(
         synopsis: data.overview || omdbData?.synopsis,
         genres: (data.genres || []).map((g: any) => g.name).concat(omdbData?.genres || []).filter((v: string, i: number, a: string[]) => a.indexOf(v) === i),
         countries: countries.length > 0 ? countries : (omdbData?.countries || []),
+        languages: uniqueLangs,
+        originalLanguage: origLang,
         runtimeMinutes: data.runtime || omdbData?.runtimeMinutes || 0,
         trailer,
         status: 'matched',
@@ -440,6 +451,9 @@ export async function fetchFullDetails(
       const countries = (data.production_countries || []).map((c: any) => c.name || c.iso_3166_1)
         .concat(data.origin_country || [])
         .filter(Boolean);
+      const spokenLangs: string[] = (data.spoken_languages || []).map((l: any) => l.english_name || l.name || l.iso_639_1).concat(omdbData?.languages || []).filter(Boolean);
+      const uniqueLangs: string[] = Array.from(new Set(spokenLangs));
+      const origLang: string | undefined = data.original_language || undefined;
 
       const result: Partial<LibraryItem> = {
         externalId: data.id,
@@ -456,6 +470,8 @@ export async function fetchFullDetails(
         synopsis: data.overview || omdbData?.synopsis,
         genres: (data.genres || []).map((g: any) => g.name).concat(omdbData?.genres || []).filter((v: string, i: number, a: string[]) => a.indexOf(v) === i),
         countries: countries.length > 0 ? countries : (omdbData?.countries || []),
+        languages: uniqueLangs,
+        originalLanguage: origLang,
         totalSeasons,
         totalEpisodes,
         averageEpisodeMinutes: defaultEpisodeRunTime,

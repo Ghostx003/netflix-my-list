@@ -117,7 +117,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
           <div className="flex flex-col sm:flex-row gap-6">
             {/* Poster thumbnail */}
             {item.posterPath && (
-              <div className="hidden sm:block flex-shrink-0 w-36 h-54 aspect-[2/3] rounded-xl overflow-hidden shadow-2xl border border-zinc-700/80 -mt-16 relative z-10 bg-zinc-800">
+              <div className="hidden sm:block flex-shrink-0 w-36 h-52 aspect-[2/3] rounded-xl overflow-hidden shadow-2xl border border-zinc-700/80 relative z-10 bg-zinc-800">
                 <img
                   src={item.posterPath}
                   alt={displayTitle}

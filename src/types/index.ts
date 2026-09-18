@@ -54,6 +54,8 @@ export interface LibraryItem {
   synopsis?: string;
   genres?: string[];
   countries?: string[];
+  languages?: string[]; // Spoken / available audio languages (e.g. ['hi', 'en', 'ja'])
+  originalLanguage?: string; // ISO 639-1 code (e.g. 'hi', 'en', 'ja', 'ko')
 
   // Movie specific
   runtimeMinutes?: number;

@@ -1,8 +1,8 @@
 import React from 'react';
-import { Star, Tv, Clock, Layers, Play } from 'lucide-react';
+import { Star, Tv, Clock, Layers, Play, CheckCircle2, UserX } from 'lucide-react';
 import { LibraryItem } from '../types';
 import { formatRuntime, calculateSeriesRuntime } from '../services/analytics';
-import { getNetflixUrl } from '../services/normalizer';
+import { getNetflixUrl, getPriorityLanguageBadge } from '../services/normalizer';
 
 interface TvSeriesCardProps {
   item: LibraryItem;
@@ -10,6 +10,8 @@ interface TvSeriesCardProps {
   capEpisodes?: boolean;
   onClick: () => void;
   onChangeMatch?: (e: React.MouseEvent) => void;
+  onDrop?: (item: LibraryItem, e: React.MouseEvent) => void;
+  onMarkWatched?: (item: LibraryItem, e: React.MouseEvent) => void;
 }
 
 export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
@@ -18,9 +20,14 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
   capEpisodes = false,
   onClick,
   onChangeMatch,
+  onDrop,
+  onMarkWatched,
 }) => {
   const breakdown = calculateSeriesRuntime(item, maxEpisodesLimit, capEpisodes);
   const netflixUrl = getNetflixUrl(item);
+  const langBadge = getPriorityLanguageBadge(item);
+  const isCompleted = item.isCompleted || item.viewingStatus === 'completed';
+  const isDropped = item.viewingStatus === 'dropped' || !!item.droppedReason;
 
   return (
     <div
@@ -78,9 +85,21 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
           ) : null}
         </div>
 
-        <div className="absolute top-2 left-2 bg-black/80 backdrop-blur-md px-2 py-0.5 rounded text-[11px] font-semibold text-zinc-300 border border-white/10 flex items-center gap-1 z-10">
-          <Layers className="w-3 h-3 text-[#E50914]" />
-          <span>{breakdown.totalEpisodes} eps</span>
+        {/* Top-left: Episodes count & Language badge */}
+        <div className="absolute top-2 left-2 flex flex-col gap-1 items-start z-10">
+          <div className="bg-black/80 backdrop-blur-md px-2 py-0.5 rounded text-[11px] font-semibold text-zinc-300 border border-white/10 flex items-center gap-1 shadow-sm">
+            <Layers className="w-3 h-3 text-[#E50914]" />
+            <span>{breakdown.totalEpisodes} eps</span>
+          </div>
+
+          {langBadge && (
+            <div
+              className={`px-2 py-0.5 rounded shadow-lg backdrop-blur-md border flex items-center justify-center ${langBadge.bgClass} ${langBadge.textClass}`}
+              title={`Available in ${langBadge.label}`}
+            >
+              <span>{langBadge.badge}</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -129,29 +148,65 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
           )}
         </div>
 
-        <div className="mt-3 pt-2 border-t border-zinc-800 flex items-center justify-between text-xs text-zinc-300">
-          <div className="flex items-center gap-1 font-mono text-zinc-400">
-            <Clock className="w-3.5 h-3.5 text-zinc-500" />
-            <span>{formatRuntime(breakdown.includedRuntimeMinutes)}</span>
-          </div>
+        {/* Action Row */}
+        <div className="mt-3 pt-2.5 border-t border-zinc-800/80 flex flex-col gap-2">
+          <div className="flex items-center justify-between text-xs text-zinc-300">
+            <div className="flex items-center gap-1 font-mono text-zinc-400">
+              <Clock className="w-3.5 h-3.5 text-zinc-500" />
+              <span>{formatRuntime(breakdown.includedRuntimeMinutes)}</span>
+            </div>
 
-          <div className="flex items-center gap-2">
             <a
               href={netflixUrl}
               target="_blank"
               rel="noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="px-2 py-0.5 rounded bg-[#E50914] hover:bg-red-700 text-white font-black text-[10px] flex items-center gap-1 shadow-sm transition-transform hover:scale-105"
-              title="Watch on Netflix"
+              className="px-2.5 py-1 rounded-lg bg-[#E50914] hover:bg-red-700 text-white font-black text-[11px] flex items-center gap-1 shadow-md shadow-red-600/30 transition-transform hover:scale-105"
+              title="Watch Series on Netflix"
             >
-              <Play className="w-2.5 h-2.5 fill-white" />
+              <Play className="w-3 h-3 fill-white" />
               <span>Netflix</span>
             </a>
+          </div>
+
+          {/* Quick Action Buttons: Watched & Drop */}
+          <div className="flex items-center justify-between gap-1.5 pt-1">
+            <div className="flex items-center gap-1">
+              {onMarkWatched && (
+                <button
+                  onClick={(e) => onMarkWatched(item, e)}
+                  className={`px-2 py-1 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all ${
+                    isCompleted
+                      ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/40'
+                      : 'bg-zinc-800 hover:bg-emerald-600 hover:text-white text-zinc-300 border border-zinc-700'
+                  }`}
+                  title={isCompleted ? 'Completed' : 'Mark as Watched'}
+                >
+                  <CheckCircle2 className="w-3 h-3" />
+                  <span>{isCompleted ? 'Watched' : 'Watched'}</span>
+                </button>
+              )}
+
+              {onDrop && (
+                <button
+                  onClick={(e) => onDrop(item, e)}
+                  className={`px-2 py-1 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all ${
+                    isDropped
+                      ? 'bg-red-900/30 text-red-300 border border-red-500/40'
+                      : 'bg-zinc-800 hover:bg-red-800 hover:text-white text-zinc-300 border border-zinc-700'
+                  }`}
+                  title={isDropped ? 'Dropped' : 'Drop Series'}
+                >
+                  <UserX className="w-3 h-3" />
+                  <span>Drop</span>
+                </button>
+              )}
+            </div>
 
             {onChangeMatch && (
               <button
                 onClick={onChangeMatch}
-                className="text-[11px] text-zinc-400 hover:text-white underline hover:no-underline transition-colors"
+                className="text-[10px] text-zinc-400 hover:text-white underline hover:no-underline transition-colors ml-auto"
               >
                 Match
               </button>

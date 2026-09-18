@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from 'react';
-import { Film, Tv, Search, RefreshCw, AlertCircle, ArrowUpDown, Sliders, Globe, Calendar, X, Sparkles } from 'lucide-react';
+import { Film, Tv, Search, RefreshCw, AlertCircle, ArrowUpDown, Sliders, Globe, Calendar, X, Sparkles, Languages } from 'lucide-react';
 import { AppSettings, LibraryItem } from '../types';
 import { MovieCard } from './MovieCard';
 import { TvSeriesCard } from './TvSeriesCard';
+import { itemHasLanguage } from '../services/normalizer';
 
 interface MoviesSeriesViewProps {
   items: LibraryItem[];
@@ -12,6 +13,8 @@ interface MoviesSeriesViewProps {
   onRescan: () => void;
   isRescanning: boolean;
   onOpenSurpriseMe?: () => void;
+  onUpdateItem?: (item: LibraryItem) => void;
+  onOpenDropModal?: (item: LibraryItem) => void;
 }
 
 type SortField = 'rottenTomatoes' | 'imdb' | 'rating' | 'runtime' | 'title' | 'year' | 'recently_added';
@@ -26,12 +29,20 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
   onRescan,
   isRescanning,
   onOpenSurpriseMe,
+  onUpdateItem,
+  onOpenDropModal,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'with_trailers'>('all');
   const [mediaTypeFilter, setMediaTypeFilter] = useState<MediaFilterType>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilterType>('all');
   
+  // Language filter: 'all' | 'hindi' | 'english' | 'japanese' | 'korean' | custom
+  const [languageFilter, setLanguageFilter] = useState<string>('all');
+
+  // Country search inside modal
+  const [countrySearchQuery, setCountrySearchQuery] = useState('');
+
   // Sorting
   const [sortBy, setSortBy] = useState<SortField>('recently_added');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -72,6 +83,7 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
     let count = 0;
     if (mediaTypeFilter !== 'all') count++;
     if (statusFilter !== 'all') count++;
+    if (languageFilter !== 'all') count++;
     if (selectedGenres.length > 0) count++;
     if (selectedCountries.length > 0) count++;
     if (minYear || maxYear) count++;
@@ -79,19 +91,54 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
     if (filterType !== 'all') count++;
     if (searchQuery.trim()) count++;
     return count;
-  }, [mediaTypeFilter, statusFilter, selectedGenres, selectedCountries, minYear, maxYear, minRating, filterType, searchQuery]);
+  }, [mediaTypeFilter, statusFilter, languageFilter, selectedGenres, selectedCountries, minYear, maxYear, minRating, filterType, searchQuery]);
 
   const clearAllFilters = () => {
     setMediaTypeFilter('all');
     setStatusFilter('all');
+    setLanguageFilter('all');
     setSelectedGenres([]);
     setSelectedCountries([]);
+    setCountrySearchQuery('');
     setMinYear('');
     setMaxYear('');
     setMinRating(0);
     setFilterType('all');
     setSearchQuery('');
   };
+
+  // Quick action: Mark watched directly from card
+  const handleQuickMarkWatched = (item: LibraryItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!onUpdateItem) return;
+    const isCurrentlyCompleted = item.isCompleted || item.viewingStatus === 'completed';
+    const updated: LibraryItem = {
+      ...item,
+      isCompleted: !isCurrentlyCompleted,
+      viewingStatus: !isCurrentlyCompleted ? 'completed' : 'unwatched',
+      completedAt: !isCurrentlyCompleted ? new Date().toISOString() : undefined,
+      updatedAt: new Date().toISOString(),
+    };
+    onUpdateItem(updated);
+  };
+
+  // Quick action: Drop directly from card
+  const handleQuickDrop = (item: LibraryItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onOpenDropModal) {
+      onOpenDropModal(item);
+    } else if (onUpdateItem) {
+      const updated: LibraryItem = {
+        ...item,
+        viewingStatus: 'dropped',
+        droppedReason: 'Dropped from catalog',
+        droppedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      onUpdateItem(updated);
+    }
+  };
+
   const sortedItems = useMemo(() => {
     let result = items;
 
@@ -108,7 +155,12 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
       });
     }
 
-    // 3. Search query
+    // 3. Language filter (Available in Hindi, English, Japanese, etc.)
+    if (languageFilter !== 'all') {
+      result = result.filter((x) => itemHasLanguage(x, languageFilter));
+    }
+
+    // 4. Search query
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result.filter(
@@ -118,12 +170,12 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
       );
     }
 
-    // 4. Quick filter types
+    // 5. Quick filter types
     if (filterType === 'with_trailers') {
       result = result.filter((x) => !!x.trailer);
     }
 
-    // 5. Multi-genre filter
+    // 6. Multi-genre filter
     if (selectedGenres.length > 0) {
       result = result.filter((x) => {
         const genres = x.genres || [];
@@ -135,7 +187,7 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
       });
     }
 
-    // 6. Multi-country filter
+    // 7. Multi-country filter
     if (selectedCountries.length > 0) {
       result = result.filter((x) => {
         const countries = x.countries || [];
@@ -143,7 +195,7 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
       });
     }
 
-    // 7. Year range
+    // 8. Year range
     if (minYear) {
       const y = parseInt(minYear, 10);
       if (!isNaN(y)) result = result.filter((x) => (x.releaseYear ? x.releaseYear >= y : true));
@@ -153,7 +205,7 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
       if (!isNaN(y)) result = result.filter((x) => (x.releaseYear ? x.releaseYear <= y : true));
     }
 
-    // 8. Min rating
+    // 9. Min rating
     if (minRating > 0) {
       result = result.filter((x) => {
         const r = x.imdbRating || x.rating || 0;
@@ -161,7 +213,7 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
       });
     }
 
-    // 9. Sorting
+    // 10. Sorting
     return [...result].sort((a, b) => {
       let comparison = 0;
       if (sortBy === 'rottenTomatoes') {
@@ -193,6 +245,7 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
     items,
     mediaTypeFilter,
     statusFilter,
+    languageFilter,
     searchQuery,
     filterType,
     selectedGenres,
@@ -361,22 +414,39 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
               <span>{minYear || maxYear ? `${minYear || 'Any'}–${maxYear || 'Any'}` : 'Year'}</span>
             </button>
 
-            {/* Rating presets */}
-            <select
-              value={minRating}
-              onChange={(e) => setMinRating(Number(e.target.value))}
-              className={`bg-zinc-900 border rounded-xl px-2.5 py-1.5 text-xs text-zinc-100 font-semibold focus:outline-none cursor-pointer ${
-                minRating > 0
-                  ? 'border-yellow-500/50 text-yellow-300'
-                  : 'border-white/10 text-zinc-300'
+            {/* Quick Filter: Available in Hindi */}
+            <button
+              onClick={() => setLanguageFilter((prev) => prev === 'hindi' ? 'all' : 'hindi')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                languageFilter === 'hindi'
+                  ? 'bg-amber-500 text-black border-amber-400 shadow-md shadow-amber-500/20'
+                  : 'bg-black/30 border-white/5 text-gray-300 hover:text-white hover:border-amber-500/40'
               }`}
+              title="Filter titles available in Hindi"
             >
-              <option value="0" className="bg-zinc-900 text-white font-medium">All Ratings</option>
-              <option value="6" className="bg-zinc-900 text-white font-medium">6.0+ Rating</option>
-              <option value="7" className="bg-zinc-900 text-white font-medium">7.0+ Rating</option>
-              <option value="7.5" className="bg-zinc-900 text-white font-medium">7.5+ Rating</option>
-              <option value="8" className="bg-zinc-900 text-white font-medium">8.0+ Rating</option>
-            </select>
+              <span className="font-black text-sm">हिं</span>
+              <span>Available in Hindi</span>
+            </button>
+
+            {/* Language Selector Dropdown */}
+            <div className="flex items-center gap-1 bg-zinc-900 border border-white/10 rounded-xl px-2 py-1 text-xs">
+              <Languages className="w-3.5 h-3.5 text-zinc-400" />
+              <select
+                value={languageFilter}
+                onChange={(e) => setLanguageFilter(e.target.value)}
+                className="bg-transparent text-white font-medium focus:outline-none cursor-pointer pr-1"
+                title="Filter by Audio / Spoken Language"
+              >
+                <option value="all" className="bg-zinc-900 text-white">All Languages</option>
+                <option value="hindi" className="bg-zinc-900 text-amber-400 font-bold">हिं Hindi (Top)</option>
+                <option value="english" className="bg-zinc-900 text-white">EN English</option>
+                <option value="japanese" className="bg-zinc-900 text-white">JAP Japanese</option>
+                <option value="korean" className="bg-zinc-900 text-white">KOR Korean</option>
+                <option value="spanish" className="bg-zinc-900 text-white">Spanish</option>
+                <option value="french" className="bg-zinc-900 text-white">French</option>
+                <option value="german" className="bg-zinc-900 text-white">German</option>
+              </select>
+            </div>
           </div>
 
           <div className="flex items-center gap-3">
@@ -433,6 +503,15 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
               </span>
             ))}
 
+            {languageFilter !== 'all' && (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[11px] font-medium">
+                <span>Language: {languageFilter === 'hindi' ? 'हिं Hindi' : languageFilter.toUpperCase()}</span>
+                <button onClick={() => setLanguageFilter('all')} className="hover:text-white">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
             {mediaTypeFilter !== 'all' && (
               <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/10 text-gray-300 text-[11px]">
                 <span>{mediaTypeFilter === 'tv' ? 'TV Shows' : 'Movies'}</span>
@@ -467,6 +546,8 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
                   e.stopPropagation();
                   onChangeMatch(item);
                 }}
+                onMarkWatched={handleQuickMarkWatched}
+                onDrop={handleQuickDrop}
               />
             ) : (
               <TvSeriesCard
@@ -479,6 +560,8 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
                   e.stopPropagation();
                   onChangeMatch(item);
                 }}
+                onMarkWatched={handleQuickMarkWatched}
+                onDrop={handleQuickDrop}
               />
             )
           )}
@@ -603,32 +686,59 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
               </button>
             </div>
 
+            {/* Search Country Input */}
+            <div className="relative mb-3">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-zinc-400" />
+              <input
+                type="text"
+                value={countrySearchQuery}
+                onChange={(e) => setCountrySearchQuery(e.target.value)}
+                placeholder="Search countries..."
+                className="w-full bg-black/40 border border-white/10 rounded-xl pl-9 pr-8 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500/60"
+              />
+              {countrySearchQuery && (
+                <button
+                  onClick={() => setCountrySearchQuery('')}
+                  className="absolute right-2.5 top-2 text-zinc-400 hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto p-1">
-              {allCountries.map((c) => {
-                const isChecked = selectedCountries.includes(c);
-                return (
-                  <label
-                    key={c}
-                    className={`flex items-center gap-2 py-1.5 px-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
-                      isChecked
-                        ? 'bg-blue-600/20 border-blue-500/40 text-white font-semibold'
-                        : 'bg-black/30 border-white/5 text-gray-400 hover:text-white'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={() => {
-                        setSelectedCountries((prev) =>
-                          isChecked ? prev.filter((x) => x !== c) : [...prev, c]
-                        );
-                      }}
-                      className="rounded bg-neutral-800 border-white/20 text-blue-600"
-                    />
-                    <span>{c}</span>
-                  </label>
-                );
-              })}
+              {allCountries
+                .filter((c) => c.toLowerCase().includes(countrySearchQuery.toLowerCase()))
+                .map((c) => {
+                  const isChecked = selectedCountries.includes(c);
+                  return (
+                    <label
+                      key={c}
+                      className={`flex items-center gap-2 py-1.5 px-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                        isChecked
+                          ? 'bg-blue-600/20 border-blue-500/40 text-white font-semibold'
+                          : 'bg-black/30 border-white/5 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {
+                          setSelectedCountries((prev) =>
+                            isChecked ? prev.filter((x) => x !== c) : [...prev, c]
+                          );
+                        }}
+                        className="rounded bg-neutral-800 border-white/20 text-blue-600"
+                      />
+                      <span>{c}</span>
+                    </label>
+                  );
+                })}
+              {allCountries.filter((c) => c.toLowerCase().includes(countrySearchQuery.toLowerCase())).length === 0 && (
+                <div className="col-span-2 text-center py-6 text-xs text-zinc-500">
+                  No countries match "{countrySearchQuery}"
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-between mt-5 pt-3 border-t border-white/10">
