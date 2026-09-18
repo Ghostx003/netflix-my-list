@@ -220,6 +220,22 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
     }
   };
 
+  // Quick action: Toggle still_watching from card
+  const handleQuickAddToWatching = (item: LibraryItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!onUpdateItem) return;
+    const isCurrentlyWatching = item.viewingStatus === 'still_watching';
+    const updated: LibraryItem = {
+      ...item,
+      viewingStatus: isCurrentlyWatching ? 'unwatched' : 'still_watching',
+      isCompleted: false,
+      droppedReason: undefined,
+      droppedAt: undefined,
+      updatedAt: new Date().toISOString(),
+    };
+    onUpdateItem(updated);
+  };
+
   const sortedItems = useMemo(() => {
     let result = items;
 
@@ -573,9 +589,11 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
                 <option value="english" className="bg-zinc-900 text-white">EN English</option>
                 <option value="japanese" className="bg-zinc-900 text-white">JAP Japanese</option>
                 <option value="korean" className="bg-zinc-900 text-white">KOR Korean</option>
+                <option value="chinese" className="bg-zinc-900 text-white">CHN Chinese</option>
                 <option value="spanish" className="bg-zinc-900 text-white">Spanish</option>
                 <option value="french" className="bg-zinc-900 text-white">French</option>
                 <option value="german" className="bg-zinc-900 text-white">German</option>
+                <option value="asian" className="bg-zinc-900 text-white">🌏 Asian (All)</option>
               </select>
             </div>
           </div>
@@ -689,6 +707,7 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
                   onChangeMatch(item);
                 }}
                 onMarkWatched={handleQuickMarkWatched}
+                onAddToWatching={handleQuickAddToWatching}
                 onDrop={handleQuickDrop}
               />
             ) : (
@@ -703,6 +722,7 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
                   onChangeMatch(item);
                 }}
                 onMarkWatched={handleQuickMarkWatched}
+                onAddToWatching={handleQuickAddToWatching}
                 onDrop={handleQuickDrop}
               />
             )

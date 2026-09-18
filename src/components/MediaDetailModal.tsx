@@ -285,6 +285,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                     { code: 'en', name: 'English', label: 'EN English', activeClass: 'bg-blue-600 text-white border-blue-400 font-extrabold shadow-md shadow-blue-500/20' },
                     { code: 'ko', name: 'Korean', label: 'KO Korean', activeClass: 'bg-purple-600 text-white border-purple-400 font-bold' },
                     { code: 'ja', name: 'Japanese', label: 'JA Japanese', activeClass: 'bg-rose-600 text-white border-rose-400 font-bold' },
+                    { code: 'zh', name: 'Chinese', label: 'ZH Chinese', activeClass: 'bg-teal-600 text-white border-teal-400 font-bold' },
                   ].map((lang) => {
                     const isSelected = itemHasLanguage(item, lang.name.toLowerCase());
                     return (

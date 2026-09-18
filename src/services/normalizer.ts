@@ -647,6 +647,22 @@ export function itemHasLanguage(
     return false;
   }
 
+  if (normTarget === 'zh' || normTarget === 'chinese' || normTarget === 'mandarin' || normTarget === 'cantonese') {
+    if (langs.some((l) => l === 'zh' || l === 'zho' || l === 'cmn' || l === 'yue' || l.includes('chinese') || l.includes('mandarin') || l.includes('cantonese'))) return true;
+    if (orig === 'zh' || orig === 'zho' || orig === 'cmn') return true;
+    return false;
+  }
+
+  // "Asian" aggregate filter — matches any East/Southeast Asian language:
+  // Chinese, Japanese, Korean, Thai, Taiwanese, Vietnamese, Taiwanese, Indonesian, etc.
+  if (normTarget === 'asian') {
+    const asianOrigCodes = ['zh', 'zho', 'ja', 'jpn', 'ko', 'kor', 'th', 'vi', 'id', 'ms', 'tl', 'cmn', 'yue'];
+    const asianLangKeywords = ['chinese', 'japanese', 'korean', 'thai', 'vietnamese', 'indonesian', 'malay', 'mandarin', 'cantonese', 'tagalog'];
+    if (asianOrigCodes.includes(orig)) return true;
+    if (langs.some((l) => asianOrigCodes.includes(l) || asianLangKeywords.some((k) => l.includes(k)))) return true;
+    return false;
+  }
+
   // Generic check
   if (langs.some((l) => l === normTarget || l.includes(normTarget))) return true;
   if (orig === normTarget) return true;
@@ -703,6 +719,16 @@ export function getPriorityLanguageBadge(item: {
       label: 'Korean',
       badge: 'KOR',
       bgClass: 'bg-purple-600/90 text-white border-purple-400/50',
+      textClass: 'font-bold text-[10px]',
+    };
+  }
+
+  if (itemHasLanguage(item, 'chinese')) {
+    return {
+      code: 'other',
+      label: 'Chinese',
+      badge: 'CHN',
+      bgClass: 'bg-teal-600/90 text-white border-teal-400/50',
       textClass: 'font-bold text-[10px]',
     };
   }

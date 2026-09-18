@@ -12,6 +12,7 @@ interface TvSeriesCardProps {
   onChangeMatch?: (e: React.MouseEvent) => void;
   onDrop?: (item: LibraryItem, e: React.MouseEvent) => void;
   onMarkWatched?: (item: LibraryItem, e: React.MouseEvent) => void;
+  onAddToWatching?: (item: LibraryItem, e: React.MouseEvent) => void;
 }
 
 export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
@@ -22,12 +23,15 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
   onChangeMatch,
   onDrop,
   onMarkWatched,
+  onAddToWatching,
 }) => {
   const breakdown = calculateSeriesRuntime(item, maxEpisodesLimit, capEpisodes);
   const netflixUrl = getNetflixUrl(item);
   const langBadge = getPriorityLanguageBadge(item);
   const isCompleted = item.isCompleted || item.viewingStatus === 'completed';
   const isDropped = item.viewingStatus === 'dropped' || !!item.droppedReason;
+  const isWatching = item.viewingStatus === 'still_watching';
+
 
   return (
     <div
@@ -184,6 +188,21 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
                 >
                   <CheckCircle2 className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                   <span>{isCompleted ? 'Watched' : 'Watched'}</span>
+                </button>
+              )}
+
+              {onAddToWatching && (
+                <button
+                  onClick={(e) => onAddToWatching(item, e)}
+                  className={`px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md text-[9px] sm:text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95 ${
+                    isWatching
+                      ? 'bg-amber-500/30 text-amber-300 border border-amber-500/40'
+                      : 'bg-zinc-800 hover:bg-amber-500 hover:text-black text-zinc-300 border border-zinc-700'
+                  }`}
+                  title={isWatching ? 'Currently Watching' : 'Add to Watching'}
+                >
+                  <Tv className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                  <span>{isWatching ? 'Watching' : 'Watching'}</span>
                 </button>
               )}
 
