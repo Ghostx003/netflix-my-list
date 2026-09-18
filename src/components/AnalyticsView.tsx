@@ -334,9 +334,9 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
           <div className="space-y-3 pt-2 text-xs">
             <div className="flex justify-between items-center py-1.5 border-b border-white/5">
-              <span className="text-gray-400">Included Episodes:</span>
+              <span className="text-gray-400">Total Series Episodes:</span>
               <span className="font-mono font-bold text-white text-sm">
-                {stats.tvIncludedEpisodes} eps ({settings.maxEpisodesPerSeries} ep cap)
+                {stats.tvIncludedEpisodes} eps
               </span>
             </div>
             <div className="flex justify-between items-center py-1.5 border-b border-white/5">

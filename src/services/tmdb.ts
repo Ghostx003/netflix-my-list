@@ -416,7 +416,7 @@ export async function fetchFullDetails(
       const episodeRunTimes: number[] = data.episode_run_time || [];
       const defaultEpisodeRunTime = episodeRunTimes.length > 0 ? episodeRunTimes[0] : (omdbData?.runtimeMinutes || 45);
 
-      for (const season of (data.seasons || []).slice(0, 5)) {
+      for (const season of (data.seasons || [])) {
         if (season.season_number === 0) continue;
         try {
           const sRes = await fetch(TMDB_BASE_URL + '/tv/' + id + '/season/' + season.season_number + '?api_key=' + effectiveKey);

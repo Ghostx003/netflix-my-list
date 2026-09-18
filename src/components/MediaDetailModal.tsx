@@ -19,7 +19,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   if (!item) return null;
 
   const isMovie = item.mediaType === 'movie';
-  const tvBreakdown = !isMovie ? calculateSeriesRuntime(item, settings.maxEpisodesPerSeries) : null;
+  const tvBreakdown = !isMovie ? calculateSeriesRuntime(item, settings.maxEpisodesPerSeries, settings.capSeriesEpisodes) : null;
   const displayTitle = item.externalTitle || item.originalTitle;
   const youtubeSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(displayTitle + ' official trailer')}`;
 
