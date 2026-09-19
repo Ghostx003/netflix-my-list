@@ -1083,14 +1083,40 @@ export async function enrichTitleWithTMDB(
 
   if (!detail) {
     try {
-      const detailUrl = `${TMDB_BASE_URL}/${endpointType}/${tmdbId}?api_key=${key}&append_to_response=credits,videos,external_ids`;
-      const res = await fetch(detailUrl);
+      let detailUrl = `${TMDB_BASE_URL}/${endpointType}/${tmdbId}?api_key=${key}&append_to_response=credits,videos,external_ids`;
+      let res = await fetch(detailUrl);
       if (res.ok) {
         detail = await res.json();
+      } else if (res.status === 404) {
+        // Watchmode sometimes tags mediaType as TV when TMDB has it as movie (or vice versa)
+        const altEndpoint = isMovie ? 'tv' : 'movie';
+        const altUrl = `${TMDB_BASE_URL}/${altEndpoint}/${tmdbId}?api_key=${key}&append_to_response=credits,videos,external_ids`;
+        const altRes = await fetch(altUrl);
+        if (altRes.ok) {
+          detail = await altRes.json();
+        } else if (titleItem.title) {
+          // Fallback: search by title
+          const sUrl = `${TMDB_BASE_URL}/search/${endpointType}?api_key=${key}&query=${encodeURIComponent(titleItem.title)}`;
+          const sRes = await fetch(sUrl);
+          if (sRes.ok) {
+            const sData = await sRes.json();
+            if (sData.results && sData.results.length > 0) {
+              const matchedId = sData.results[0].id;
+              const fUrl = `${TMDB_BASE_URL}/${endpointType}/${matchedId}?api_key=${key}&append_to_response=credits,videos,external_ids`;
+              const fRes = await fetch(fUrl);
+              if (fRes.ok) {
+                detail = await fRes.json();
+                tmdbId = matchedId;
+              }
+            }
+          }
+        }
+      }
+      if (detail) {
         await setCachedMetadata(detailCacheKey, detail);
       }
-    } catch (err) {
-      console.warn(`TMDB details fetch failed for ${titleItem.title} (${tmdbId}):`, err);
+    } catch {
+      // Ignore network errors during background enrichment
     }
   }
 

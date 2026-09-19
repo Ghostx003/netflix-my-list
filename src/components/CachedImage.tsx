@@ -38,23 +38,11 @@ export const CachedImage: React.FC<CachedImageProps> = ({
           return;
         }
 
-        // 2. Fetch as blob in background and cache if remote URL
-        if (src!.startsWith('http')) {
-          const res = await fetch(src!, { mode: 'cors' });
-          if (res.ok) {
-            const blob = await res.blob();
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              const base64data = reader.result as string;
-              if (base64data && !isCancelled) {
-                setCachedThumbnail(src!, base64data);
-              }
-            };
-            reader.readAsDataURL(blob);
-          }
-        }
+        // 2. We do NOT perform cross-origin AJAX fetch() for CDN images (e.g. image.tmdb.org)
+        // because TMDB does not return Access-Control-Allow-Origin headers, which causes browser CORS errors.
+        // Standard <img> tags load them directly without any CORS restrictions.
       } catch {
-        // Cross-origin restriction or offline — keep original imageSrc
+        // Ignore cache lookup errors
       }
     }
 

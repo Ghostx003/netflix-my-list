@@ -209,7 +209,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               initialTitles = await fetchInitialWatchmodeDiscovery({
                 watchmodeApiKey: settings.watchmodeApiKey,
                 tmdbApiKey: settings.tmdbApiKey,
-                limit: 50,
+                limit: 250,
               });
             } catch (e) {
               console.warn('Initial Watchmode discovery fetch failed:', e);
@@ -851,14 +851,11 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
           <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
             DISCOVERY
           </h1>
-          <p className="text-xs sm:text-sm text-zinc-400 mt-1 max-w-xl">
-            Complete Netflix India streaming catalogue with persistent IndexedDB caching, multi-API metadata enrichment, and instant local filters.
-            {lastSyncTime && (
-              <span className="block text-[11px] text-zinc-500 mt-0.5 font-mono">
-                Last Catalogue Sync: {lastSyncTime}
-              </span>
-            )}
-          </p>
+          {lastSyncTime && (
+            <p className="text-[11px] text-zinc-500 mt-1 font-mono">
+              Last Catalogue Sync: {lastSyncTime}
+            </p>
+          )}
         </div>
 
         {/* Sync, Analytics, Surprise Me & Filter Action Buttons */}
