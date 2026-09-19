@@ -20,6 +20,7 @@ import {
   ChevronRight,
   Film,
   Tv,
+  Star,
 } from 'lucide-react';
 import { AppSettings, DiscoveryTitle, LibraryItem } from '../types';
 import {
@@ -27,6 +28,7 @@ import {
   fetchInitialWatchmodeDiscovery,
   syncNetflixIndiaCatalog,
   getWatchmodeQuotaStatus,
+  deduplicateDiscoveryTitles,
   SEED_NETFLIX_INDIA_TITLES,
   SyncProgressCallback,
   WatchmodeStatusResponse,
@@ -148,6 +150,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   const [genreModalTab, setGenreModalTab] = useState<'include' | 'exclude'>('include');
   const [showCountryModal, setShowCountryModal] = useState(false);
   const [showYearModal, setShowYearModal] = useState(false);
+  const [showRatingModal, setShowRatingModal] = useState(false);
   const [countryModalTab, setCountryModalTab] = useState<'include' | 'exclude'>('include');
   const [countrySearchQuery, setCountrySearchQuery] = useState('');
 
@@ -271,18 +274,21 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               const liveTmdb = await fetchNetflixIndiaDiscovery({
                 page: 1,
                 apiKey: settings.tmdbApiKey,
-                pagesToFetch: 4,
+                pagesToFetch: 5,
               });
               initialTitles = liveTmdb.titles || [];
             }
 
-            if (!initialTitles || initialTitles.length === 0) {
-              initialTitles = SEED_NETFLIX_INDIA_TITLES;
-            }
+            // Merge curated verified Netflix India seed titles with initial fetched titles
+            // so rich genres (like Thriller, Crime, Drama) always have full catalogues
+            const combinedInitial = deduplicateDiscoveryTitles([
+              ...SEED_NETFLIX_INDIA_TITLES,
+              ...(initialTitles || []),
+            ]);
 
-            if (initialTitles.length > 0) {
-              setCatalog(initialTitles);
-              await saveDiscoveryTitles(initialTitles);
+            if (combinedInitial.length > 0) {
+              setCatalog(combinedInitial);
+              await saveDiscoveryTitles(combinedInitial);
             }
           }
         }
@@ -1460,6 +1466,19 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               <span>{minYear || maxYear ? `${minYear || 'Any'}–${maxYear || 'Any'}` : 'Year'}</span>
             </button>
 
+            {/* Rating Trigger */}
+            <button
+              onClick={() => setShowRatingModal(true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all shrink-0 ${
+                minRating > 0
+                  ? 'bg-amber-500/20 border-amber-400/50 text-amber-300'
+                  : 'bg-black/40 border-white/10 text-gray-300 hover:text-white'
+              }`}
+            >
+              <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+              <span>{minRating > 0 ? `Rating: ${minRating.toFixed(1)}+` : 'Rating'}</span>
+            </button>
+
             {/* Audio / Spoken Language Selector Dropdown */}
             <div className="flex items-center gap-1 bg-zinc-900 border border-white/10 rounded-xl px-2 py-1 text-xs shrink-0">
               <Languages className="w-3.5 h-3.5 text-zinc-400" />
@@ -1611,6 +1630,23 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-yellow-600/20 border border-yellow-500/30 text-yellow-300 text-[11px]">
                 <span>Year: {minYear || 'Any'}–{maxYear || 'Any'}</span>
                 <button onClick={() => { setMinYear(''); setMaxYear(''); }}>
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {minRating > 0 && (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-300 text-[11px]">
+                <span>⭐ Rating: ≥{minRating.toFixed(1)}</span>
+                <button
+                  onClick={() => {
+                    setMinRating(0);
+                    if (activePreset === 'highly_rated') {
+                      setActivePreset('all');
+                    }
+                  }}
+                  className="hover:text-white"
+                >
                   <X className="w-3 h-3" />
                 </button>
               </span>
@@ -2105,6 +2141,108 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               <button
                 onClick={() => setShowYearModal(false)}
                 className="px-4 py-2 rounded-xl text-xs font-bold bg-yellow-600 hover:bg-yellow-700 text-black"
+              >
+                Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rating Range & Preset Modal */}
+      {showRatingModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="relative w-full max-w-md bg-[#1c1c1e] border border-white/15 rounded-2xl p-6 shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  <Star className="w-4 h-4 fill-amber-400" />
+                </span>
+                <h3 className="text-lg font-bold text-white">Filter by Rating</h3>
+              </div>
+              <button
+                onClick={() => setShowRatingModal(false)}
+                className="p-1.5 rounded-full text-gray-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-400 mb-4 leading-relaxed">
+              Show only movies and TV series with an IMDb or TMDB rating at or above your selected score.
+            </p>
+
+            {/* Quick threshold presets */}
+            <div className="mb-5">
+              <label className="block text-xs font-semibold text-gray-300 mb-2">Quick Presets</label>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { label: 'Any', value: 0 },
+                  { label: '6.0+', value: 6.0 },
+                  { label: '6.5+', value: 6.5 },
+                  { label: '7.0+', value: 7.0 },
+                  { label: '7.5+', value: 7.5 },
+                  { label: '8.0+', value: 8.0 },
+                  { label: '8.5+', value: 8.5 },
+                  { label: '9.0+', value: 9.0 },
+                ].map((p) => {
+                  const isSelected = minRating === p.value;
+                  return (
+                    <button
+                      key={'rating_p_' + p.value}
+                      type="button"
+                      onClick={() => setMinRating(p.value)}
+                      className={`py-2 px-1 rounded-xl text-xs font-bold border transition-all text-center ${
+                        isSelected
+                          ? 'bg-amber-500 text-black border-amber-400 shadow-md shadow-amber-500/20 scale-[1.02]'
+                          : 'bg-black/40 border-white/10 text-gray-300 hover:text-white hover:border-white/20'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Slider control */}
+            <div className="mb-5 p-4 rounded-xl bg-black/40 border border-white/5 space-y-3">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-400 font-medium">Custom Minimum Rating:</span>
+                <span className="text-amber-400 font-black text-sm">
+                  {minRating > 0 ? `≥ ${minRating.toFixed(1)} / 10` : 'Any Rating'}
+                </span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="9.5"
+                step="0.5"
+                value={minRating}
+                onChange={(e) => setMinRating(parseFloat(e.target.value))}
+                className="w-full accent-amber-500 cursor-pointer"
+              />
+              <div className="flex justify-between text-[10px] text-gray-500 font-mono">
+                <span>Any (0)</span>
+                <span>5.0</span>
+                <span>7.0</span>
+                <span>8.0</span>
+                <span>9.5</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-3 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setMinRating(0)}
+                className="text-xs text-gray-400 hover:text-white underline"
+              >
+                Reset Rating
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowRatingModal(false)}
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-black shadow-lg shadow-amber-500/20"
               >
                 Apply
               </button>
