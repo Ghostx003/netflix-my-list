@@ -231,6 +231,8 @@ export interface BackupData {
   settings: AppSettings;
   metadataCache?: Array<{ cacheKey: string; data: any; timestamp: number }>;
   cachedThumbnails?: Record<string, string>; // base64 or cached image URLs
+  discoveryCatalog?: DiscoveryTitle[]; // Enriched Netflix India Discovery catalogue
+  discoveryMeta?: any; // Discovery last sync and catalog metadata
 }
 
 export interface AnalyticsStats {

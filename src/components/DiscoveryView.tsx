@@ -110,6 +110,10 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState<SyncProgressCallback | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [syncMode, setSyncMode] = useState<'all' | 'custom'>('custom');
+  const [syncMoviesCount, setSyncMoviesCount] = useState<number>(100);
+  const [syncTvShowsCount, setSyncTvShowsCount] = useState<number>(100);
 
   // UI pagination state
   const [visibleCount, setVisibleCount] = useState<number>(ITEMS_PER_BATCH);
@@ -258,16 +262,23 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   }, [settings.tmdbApiKey, settings.watchmodeApiKey]);
 
   // Handle manual "Sync Netflix India Catalogue"
-  const handleStartCatalogueSync = async () => {
+  const handleStartCatalogueSync = async (options?: { maxMovies?: number; maxTvShows?: number }) => {
     if (isSyncing) return;
     setIsSyncing(true);
     setSyncError(null);
+    setShowSyncModal(false);
 
     try {
       const res = await syncNetflixIndiaCatalog({
         watchmodeApiKey: settings.watchmodeApiKey,
         tmdbApiKey: settings.tmdbApiKey,
         existingTitles: catalog,
+        maxMovies: options?.maxMovies,
+        maxTvShows: options?.maxTvShows,
+        onBatchEnriched: (updatedTitles) => {
+          // Immediately update state so user sees titles rendered as each batch finishes enriching!
+          setCatalog([...updatedTitles]);
+        },
         onProgress: (prog) => {
           setSyncProgress(prog);
         },
@@ -854,14 +865,14 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
           {/* Sync Netflix India Catalogue Button */}
           <button
-            onClick={handleStartCatalogueSync}
+            onClick={() => setShowSyncModal(true)}
             disabled={isSyncing}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all shadow-lg ${
               isSyncing
                 ? 'bg-zinc-800 text-zinc-400 cursor-not-allowed border border-white/10'
                 : 'bg-[#E50914] hover:bg-red-700 text-white shadow-red-600/30 active:scale-95'
             }`}
-            title="Sync Netflix India streaming catalog from Watchmode and enrich with TMDB"
+            title="Configure and sync Netflix India streaming catalog from Watchmode and enrich with TMDB"
           >
             <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-red-400' : ''}`} />
             <span>{isSyncing ? 'Syncing...' : 'Sync Netflix India'}</span>
@@ -1003,6 +1014,171 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
             <span>New: {syncProgress.newTitlesAdded.toLocaleString()}</span>
             <span>Updated: {syncProgress.titlesUpdated.toLocaleString()}</span>
             <span>Deduplicated: {syncProgress.duplicatesRemoved.toLocaleString()}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Sync Configuration Modal */}
+      {showSyncModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="relative w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-5">
+            <button
+              onClick={() => setShowSyncModal(false)}
+              className="absolute top-4 right-4 p-1.5 rounded-full text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-xl bg-[#E50914]/20 text-[#E50914] border border-[#E50914]/30">
+                <RefreshCw className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Sync Netflix India Catalogue</h3>
+                <p className="text-xs text-zinc-400">
+                  Select how many movies and TV series to discover and enrich from Watchmode & TMDB.
+                </p>
+              </div>
+            </div>
+
+            {/* Mode selection tabs */}
+            <div className="grid grid-cols-2 gap-2 bg-black/40 p-1.5 rounded-xl border border-white/5 text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setSyncMode('custom')}
+                className={`py-2 rounded-lg transition-all ${
+                  syncMode === 'custom'
+                    ? 'bg-[#E50914] text-white shadow-md'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                Custom Counts
+              </button>
+              <button
+                type="button"
+                onClick={() => setSyncMode('all')}
+                className={`py-2 rounded-lg transition-all ${
+                  syncMode === 'all'
+                    ? 'bg-[#E50914] text-white shadow-md'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                Entire Catalogue (All 4,200+)
+              </button>
+            </div>
+
+            {syncMode === 'custom' ? (
+              <div className="space-y-4 bg-black/30 p-4 rounded-xl border border-white/5">
+                {/* Movies Count Slider & Input */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
+                    <span className="flex items-center gap-1.5">
+                      <Film className="w-3.5 h-3.5 text-[#E50914]" />
+                      <span>Number of Movies to Sync</span>
+                    </span>
+                    <input
+                      type="number"
+                      min={10}
+                      max={2500}
+                      value={syncMoviesCount}
+                      onChange={(e) => setSyncMoviesCount(Math.max(10, Math.min(2500, parseInt(e.target.value, 10) || 10)))}
+                      className="w-20 px-2 py-1 rounded-lg bg-zinc-800 border border-white/10 text-right text-xs font-mono font-bold text-white focus:outline-none focus:border-[#E50914]"
+                    />
+                  </div>
+                  <input
+                    type="range"
+                    min={10}
+                    max={1000}
+                    step={10}
+                    value={syncMoviesCount}
+                    onChange={(e) => setSyncMoviesCount(parseInt(e.target.value, 10))}
+                    className="w-full accent-[#E50914] cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[10px] text-zinc-500 font-mono">
+                    <span>10 movies</span>
+                    <span>100</span>
+                    <span>250</span>
+                    <span>500</span>
+                    <span>1000+</span>
+                  </div>
+                </div>
+
+                {/* TV Series Count Slider & Input */}
+                <div className="space-y-1.5 pt-2 border-t border-white/5">
+                  <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
+                    <span className="flex items-center gap-1.5">
+                      <Tv className="w-3.5 h-3.5 text-purple-400" />
+                      <span>Number of TV Series to Sync</span>
+                    </span>
+                    <input
+                      type="number"
+                      min={10}
+                      max={1500}
+                      value={syncTvShowsCount}
+                      onChange={(e) => setSyncTvShowsCount(Math.max(10, Math.min(1500, parseInt(e.target.value, 10) || 10)))}
+                      className="w-20 px-2 py-1 rounded-lg bg-zinc-800 border border-white/10 text-right text-xs font-mono font-bold text-white focus:outline-none focus:border-[#E50914]"
+                    />
+                  </div>
+                  <input
+                    type="range"
+                    min={10}
+                    max={1000}
+                    step={10}
+                    value={syncTvShowsCount}
+                    onChange={(e) => setSyncTvShowsCount(parseInt(e.target.value, 10))}
+                    className="w-full accent-purple-500 cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[10px] text-zinc-500 font-mono">
+                    <span>10 series</span>
+                    <span>100</span>
+                    <span>250</span>
+                    <span>500</span>
+                    <span>1000+</span>
+                  </div>
+                </div>
+
+                <div className="text-[11px] text-zinc-400 bg-zinc-950/60 p-2.5 rounded-lg border border-white/5">
+                  ⚡ Total to sync: <span className="font-bold text-white">{(syncMoviesCount + syncTvShowsCount).toLocaleString()} titles</span>. Titles will be displayed and saved immediately in batches as they are enriched.
+                </div>
+              </div>
+            ) : (
+              <div className="bg-black/30 p-4 rounded-xl border border-white/5 space-y-2 text-xs text-zinc-300">
+                <p>
+                  Will sync the entire Netflix India catalog across all available Watchmode pages (~4,200+ titles) and enrich posters/metadata progressively.
+                </p>
+                <p className="text-zinc-400 text-[11px]">
+                  Enriched titles will appear on screen live as each small batch completes.
+                </p>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowSyncModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (syncMode === 'custom') {
+                    handleStartCatalogueSync({
+                      maxMovies: syncMoviesCount,
+                      maxTvShows: syncTvShowsCount,
+                    });
+                  } else {
+                    handleStartCatalogueSync();
+                  }
+                }}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-[#E50914] hover:bg-red-700 text-white shadow-lg shadow-red-600/30 transition-all active:scale-95"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span>Start Sync</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

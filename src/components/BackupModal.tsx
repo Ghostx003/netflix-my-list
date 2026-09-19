@@ -73,10 +73,12 @@ export const BackupModal: React.FC<BackupModalProps> = ({
     try {
       if (mode === 'replace') {
         const res = await importBackupReplace(pendingBackup);
-        setImportSuccess(`Complete library replaced with ${res.count} titles.${pendingBackup.cachedThumbnails ? ' Cached thumbnails restored.' : ''}`);
+        const discMsg = res.discoveryCount ? ` and restored ${res.discoveryCount} Discovery titles` : '';
+        setImportSuccess(`Complete library replaced with ${res.count} titles${discMsg}.${pendingBackup.cachedThumbnails ? ' Cached thumbnails restored.' : ''}`);
       } else {
         const res = await importBackupMerge(pendingBackup);
-        setImportSuccess(`Merged successfully: +${res.addedCount} new, ${res.updatedCount} updated (${res.totalCount} total).${pendingBackup.cachedThumbnails ? ' Cached thumbnails restored.' : ''}`);
+        const discMsg = res.discoveryCount ? ` and restored ${res.discoveryCount} Discovery titles` : '';
+        setImportSuccess(`Merged successfully: +${res.addedCount} new, ${res.updatedCount} updated (${res.totalCount} total)${discMsg}.${pendingBackup.cachedThumbnails ? ' Cached thumbnails restored.' : ''}`);
       }
       setPendingBackup(null);
       await onRefreshLibrary();
@@ -178,7 +180,11 @@ export const BackupModal: React.FC<BackupModalProps> = ({
                   <span>Backup Ready to Apply</span>
                 </div>
                 <p className="text-xs text-zinc-300">
-                  Detected <span className="font-semibold text-white">{pendingBackup.items.length} items</span> from {pendingBackup.exportedAt ? new Date(pendingBackup.exportedAt).toLocaleDateString() : 'archive'}. Choose how you want to restore:
+                  Detected <span className="font-semibold text-white">{pendingBackup.items.length} items</span>
+                  {pendingBackup.discoveryCatalog?.length ? (
+                    <span> and <span className="font-semibold text-emerald-400">{pendingBackup.discoveryCatalog.length} enriched Discovery titles</span></span>
+                  ) : null}
+                  {pendingBackup.exportedAt ? ` from ${new Date(pendingBackup.exportedAt).toLocaleDateString()}` : ''}. Choose how you want to restore:
                 </p>
                 <div className="flex flex-wrap gap-2 pt-1">
                   <button

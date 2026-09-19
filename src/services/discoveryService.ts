@@ -1,6 +1,6 @@
 import { DiscoveryTitle, EpisodeInfo, TrailerInfo } from '../types';
 import { DEFAULT_PUBLIC_TMDB_KEY, fetchOMDBMetadata, selectBestTrailer } from './tmdb';
-import { getCachedMetadata, setCachedMetadata } from './db';
+import { getCachedMetadata, setCachedMetadata, saveDiscoveryTitles } from './db';
 import { normalizeCountriesList, normalizeTitle, createDuplicateKey, NETFLIX_HINDI_DUBBED_TITLES } from './normalizer';
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
@@ -935,7 +935,12 @@ export async function getWatchmodeQuotaStatus(apiKey?: string): Promise<Watchmod
 /**
  * Fetch a single page from Watchmode list-titles endpoint with exponential backoff & 429 handling
  */
-async function fetchWatchmodePage(page: number, limit: number, apiKey: string): Promise<{
+export async function fetchWatchmodePage(
+  page: number,
+  limit: number,
+  apiKey: string,
+  types?: 'movie' | 'tv_series'
+): Promise<{
   titles: any[];
   page: number;
   total_pages: number;
@@ -943,11 +948,12 @@ async function fetchWatchmodePage(page: number, limit: number, apiKey: string): 
 }> {
   let attempt = 0;
   const maxAttempts = 3;
+  const typeParam = types ? `&types=${encodeURIComponent(types)}` : '';
 
   while (attempt < maxAttempts) {
     attempt++;
     try {
-      const url = `${WATCHMODE_BASE_URL}/list-titles/?apiKey=${encodeURIComponent(apiKey)}&source_ids=203&regions=IN&limit=${limit}&page=${page}`;
+      const url = `${WATCHMODE_BASE_URL}/list-titles/?apiKey=${encodeURIComponent(apiKey)}&source_ids=203&regions=IN${typeParam}&limit=${limit}&page=${page}`;
       const res = await fetch(url);
 
       if (res.status === 429) {
@@ -1201,7 +1207,10 @@ export async function syncNetflixIndiaCatalog(options: {
   tmdbApiKey?: string;
   existingTitles: DiscoveryTitle[];
   onProgress: (p: SyncProgressCallback) => void;
-  maxPagesToSync?: number; // Optional cap, otherwise syncs all pages available
+  onBatchEnriched?: (batch: DiscoveryTitle[]) => void;
+  maxMovies?: number; // Optional limit for movies
+  maxTvShows?: number; // Optional limit for TV series
+  maxPagesToSync?: number; // Optional cap
 }): Promise<{
   allTitles: DiscoveryTitle[];
   newTitlesAdded: number;
@@ -1216,7 +1225,7 @@ export async function syncNetflixIndiaCatalog(options: {
     throw new Error('Watchmode API Key is required for streaming availability verification.');
   }
 
-  const { onProgress } = options;
+  const { onProgress, onBatchEnriched } = options;
   const existingMap = new Map<string, DiscoveryTitle>();
 
   // Index existing titles by primary identity hierarchy
@@ -1244,51 +1253,105 @@ export async function syncNetflixIndiaCatalog(options: {
   const rawDiscoveredList: DiscoveryTitle[] = [];
   const discoveredIds = new Set<string>();
 
-  const PAGE_LIMIT = 250;
-  let page = 1;
-  let totalPages = 1;
+  // Determine fetch strategy based on user requests:
+  // If user specified separate counts for movies or tv shows, query them specifically!
+  const hasSpecificCounts = options.maxMovies !== undefined || options.maxTvShows !== undefined;
 
-  // 1. Fetch Watchmode Paginated Catalog
-  while (page <= totalPages) {
-    if (options.maxPagesToSync && page > options.maxPagesToSync) break;
-
-    const data = await fetchWatchmodePage(page, PAGE_LIMIT, wmKey);
-    totalPages = data.total_pages || 1;
-
-    if (Array.isArray(data.titles)) {
-      for (const raw of data.titles) {
-        const titleItem = normalizeWatchmodeToDiscovery(raw);
-        rawDiscoveredList.push(titleItem);
-        discoveredIds.add(titleItem.id);
-        if (titleItem.imdbId) discoveredIds.add(`imdb_${titleItem.imdbId}`);
-        if (titleItem.tmdbId) discoveredIds.add(`tmdb_${titleItem.mediaType}_${titleItem.tmdbId}`);
-      }
+  if (hasSpecificCounts) {
+    const fetchTasks: Array<{ type: 'movie' | 'tv_series'; limit: number; label: string }> = [];
+    if (options.maxMovies !== undefined && options.maxMovies > 0) {
+      fetchTasks.push({ type: 'movie', limit: options.maxMovies, label: 'Movies' });
+    }
+    if (options.maxTvShows !== undefined && options.maxTvShows > 0) {
+      fetchTasks.push({ type: 'tv_series', limit: options.maxTvShows, label: 'TV Shows' });
     }
 
-    onProgress({
-      phase: 'fetching_watchmode',
-      currentPage: page,
-      totalPages,
-      titlesDiscovered: rawDiscoveredList.length,
-      metadataProcessed: 0,
-      totalToProcess: rawDiscoveredList.length,
-      duplicatesRemoved: 0,
-      newTitlesAdded: 0,
-      titlesUpdated: 0,
-      markedUnavailable: 0,
-      message: `Syncing Netflix India... Page ${page} / ${totalPages} (${rawDiscoveredList.length} titles discovered)`,
-    });
+    for (const task of fetchTasks) {
+      let fetchedForType = 0;
+      let page = 1;
+      let totalPagesForType = 1;
 
-    page++;
-    // Polite spacing between page requests to avoid hitting rate bursts
-    await sleep(250);
+      while (fetchedForType < task.limit && page <= totalPagesForType) {
+        const pageSize = Math.min(250, task.limit - fetchedForType);
+        const data = await fetchWatchmodePage(page, pageSize, wmKey, task.type);
+        totalPagesForType = data.total_pages || 1;
+
+        if (Array.isArray(data.titles)) {
+          for (const raw of data.titles) {
+            if (fetchedForType >= task.limit) break;
+            const titleItem = normalizeWatchmodeToDiscovery(raw);
+            rawDiscoveredList.push(titleItem);
+            discoveredIds.add(titleItem.id);
+            if (titleItem.imdbId) discoveredIds.add(`imdb_${titleItem.imdbId}`);
+            if (titleItem.tmdbId) discoveredIds.add(`tmdb_${titleItem.mediaType}_${titleItem.tmdbId}`);
+            fetchedForType++;
+          }
+        }
+
+        onProgress({
+          phase: 'fetching_watchmode',
+          currentPage: page,
+          totalPages: totalPagesForType,
+          titlesDiscovered: rawDiscoveredList.length,
+          metadataProcessed: 0,
+          totalToProcess: rawDiscoveredList.length,
+          duplicatesRemoved: 0,
+          newTitlesAdded: 0,
+          titlesUpdated: 0,
+          markedUnavailable: 0,
+          message: `Fetching Netflix India ${task.label}... ${fetchedForType} / ${task.limit}`,
+        });
+
+        page++;
+        await sleep(200);
+      }
+    }
+  } else {
+    // Standard full catalogue sync
+    const PAGE_LIMIT = 250;
+    let page = 1;
+    let totalPages = 1;
+
+    while (page <= totalPages) {
+      if (options.maxPagesToSync && page > options.maxPagesToSync) break;
+
+      const data = await fetchWatchmodePage(page, PAGE_LIMIT, wmKey);
+      totalPages = data.total_pages || 1;
+
+      if (Array.isArray(data.titles)) {
+        for (const raw of data.titles) {
+          const titleItem = normalizeWatchmodeToDiscovery(raw);
+          rawDiscoveredList.push(titleItem);
+          discoveredIds.add(titleItem.id);
+          if (titleItem.imdbId) discoveredIds.add(`imdb_${titleItem.imdbId}`);
+          if (titleItem.tmdbId) discoveredIds.add(`tmdb_${titleItem.mediaType}_${titleItem.tmdbId}`);
+        }
+      }
+
+      onProgress({
+        phase: 'fetching_watchmode',
+        currentPage: page,
+        totalPages,
+        titlesDiscovered: rawDiscoveredList.length,
+        metadataProcessed: 0,
+        totalToProcess: rawDiscoveredList.length,
+        duplicatesRemoved: 0,
+        newTitlesAdded: 0,
+        titlesUpdated: 0,
+        markedUnavailable: 0,
+        message: `Syncing Netflix India... Page ${page} / ${totalPages} (${rawDiscoveredList.length} titles discovered)`,
+      });
+
+      page++;
+      await sleep(250);
+    }
   }
 
   // 2. Deduplicate Discovered Titles
   onProgress({
     phase: 'deduplicating',
-    currentPage: totalPages,
-    totalPages,
+    currentPage: 1,
+    totalPages: 1,
     titlesDiscovered: rawDiscoveredList.length,
     metadataProcessed: 0,
     totalToProcess: rawDiscoveredList.length,
@@ -1309,9 +1372,15 @@ export async function syncNetflixIndiaCatalog(options: {
 
   const mergedTitlesMap = new Map<string, DiscoveryTitle>();
 
+  // Seed with all existing titles first if doing partial sync
+  if (hasSpecificCounts) {
+    for (const t of options.existingTitles) {
+      mergedTitlesMap.set(t.id, t);
+    }
+  }
+
   // Add all deduplicated newly discovered titles
   for (const item of deduplicatedDiscovered) {
-    // Check if item already exists locally
     let existing: DiscoveryTitle | undefined;
     if (item.watchmodeId && existingMap.has(`wm_${item.watchmodeId}`)) {
       existing = existingMap.get(`wm_${item.watchmodeId}`);
@@ -1327,11 +1396,9 @@ export async function syncNetflixIndiaCatalog(options: {
     }
 
     if (existing) {
-      // Merge new availability state with existing rich metadata
       const merged: DiscoveryTitle = {
         ...existing,
         ...item,
-        // Preserve already enriched fields if incoming item has empty ones
         posterPath: existing.posterPath || item.posterPath,
         backdropPath: existing.backdropPath || item.backdropPath,
         synopsis: existing.synopsis || item.synopsis,
@@ -1361,29 +1428,35 @@ export async function syncNetflixIndiaCatalog(options: {
     }
   }
 
-  // Check for titles that disappeared from Netflix India (Incremental soft delete / preserve history)
-  for (const oldItem of options.existingTitles) {
-    if (!mergedTitlesMap.has(oldItem.id)) {
-      // Check if it was matched under any alias
-      const wasDiscovered =
-        (oldItem.watchmodeId && discoveredIds.has(`wm_${oldItem.watchmodeId}`)) ||
-        (oldItem.imdbId && discoveredIds.has(`imdb_${oldItem.imdbId}`)) ||
-        (oldItem.tmdbId && discoveredIds.has(`tmdb_${oldItem.mediaType}_${oldItem.tmdbId}`));
+  // Only perform soft-delete when syncing full catalogue (not selective partial sync)
+  if (!hasSpecificCounts) {
+    for (const oldItem of options.existingTitles) {
+      if (!mergedTitlesMap.has(oldItem.id)) {
+        const wasDiscovered =
+          (oldItem.watchmodeId && discoveredIds.has(`wm_${oldItem.watchmodeId}`)) ||
+          (oldItem.imdbId && discoveredIds.has(`imdb_${oldItem.imdbId}`)) ||
+          (oldItem.tmdbId && discoveredIds.has(`tmdb_${oldItem.mediaType}_${oldItem.tmdbId}`));
 
-      if (!wasDiscovered) {
-        // Mark as No Longer Available, NEVER delete
-        mergedTitlesMap.set(oldItem.id, {
-          ...oldItem,
-          netflixIndiaAvailable: false,
-          availabilityState: 'no_longer_available',
-          catalogUpdatedAt: new Date().toISOString(),
-        });
-        markedUnavailable++;
+        if (!wasDiscovered) {
+          mergedTitlesMap.set(oldItem.id, {
+            ...oldItem,
+            netflixIndiaAvailable: false,
+            availabilityState: 'no_longer_available',
+            catalogUpdatedAt: new Date().toISOString(),
+          });
+          markedUnavailable++;
+        }
       }
     }
   }
 
   const allMergedTitles = Array.from(mergedTitlesMap.values());
+
+  // Save discovered/merged batch immediately so UI can display initial batch
+  await saveDiscoveryTitles(allMergedTitles);
+  if (onBatchEnriched) {
+    onBatchEnriched(allMergedTitles);
+  }
 
   // 4. Batch TMDB Metadata Enrichment with Concurrency Control
   // Only enrich titles that have missing posters or missing synopsis or missing genres
@@ -1397,23 +1470,31 @@ export async function syncNetflixIndiaCatalog(options: {
 
   for (let i = 0; i < toEnrich.length; i += CONCURRENCY) {
     const chunk = toEnrich.slice(i, i + CONCURRENCY);
-    await Promise.all(
+    const enrichedChunk = await Promise.all(
       chunk.map(async (titleItem) => {
         try {
           const enriched = await enrichTitleWithTMDB(titleItem, tmdbKey);
           mergedTitlesMap.set(enriched.id, enriched);
+          return enriched;
         } catch (err) {
           console.warn('Metadata enrichment error for', titleItem.title, err);
+          return titleItem;
         } finally {
           metadataProcessed++;
         }
       })
     );
 
+    // Save progressively to IndexedDB and update live UI immediately as each chunk finishes!
+    await saveDiscoveryTitles(enrichedChunk);
+    if (onBatchEnriched) {
+      onBatchEnriched(Array.from(mergedTitlesMap.values()));
+    }
+
     onProgress({
       phase: 'enriching_tmdb',
-      currentPage: totalPages,
-      totalPages,
+      currentPage: 1,
+      totalPages: 1,
       titlesDiscovered: deduplicatedDiscovered.length,
       metadataProcessed,
       totalToProcess: totalToEnrich,
@@ -1421,19 +1502,20 @@ export async function syncNetflixIndiaCatalog(options: {
       newTitlesAdded,
       titlesUpdated,
       markedUnavailable,
-      message: `Enriching TMDB metadata... ${metadataProcessed} / ${totalToEnrich} titles processed`,
+      message: `Enriching TMDB metadata... ${metadataProcessed} / ${totalToEnrich} titles processed (showing completed)`,
     });
 
     // Small delay to protect TMDB rate limit
-    await sleep(150);
+    await sleep(120);
   }
 
   const finalTitles = Array.from(mergedTitlesMap.values());
+  await saveDiscoveryTitles(finalTitles);
 
   onProgress({
     phase: 'completed',
-    currentPage: totalPages,
-    totalPages,
+    currentPage: 1,
+    totalPages: 1,
     titlesDiscovered: deduplicatedDiscovered.length,
     metadataProcessed,
     totalToProcess: totalToEnrich,

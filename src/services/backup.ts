@@ -10,6 +10,10 @@ import {
   restoreCachedMetadata,
   getAllCachedThumbnails,
   restoreCachedThumbnails,
+  getAllDiscoveryTitles,
+  saveDiscoveryTitles,
+  getDiscoveryCatalogMeta,
+  setDiscoveryCatalogMeta,
 } from './db';
 import { createDuplicateKey } from './normalizer';
 
@@ -26,6 +30,8 @@ export async function exportBackup(
 
   const metadataCache = await getAllCachedMetadata();
   const cachedThumbnails = includeCachedThumbnails ? await getAllCachedThumbnails() : undefined;
+  const discoveryCatalog = await getAllDiscoveryTitles();
+  const discoveryMeta = await getDiscoveryCatalogMeta();
 
   const backup: BackupData = {
     version: 2,
@@ -34,6 +40,8 @@ export async function exportBackup(
     settings,
     metadataCache,
     cachedThumbnails,
+    discoveryCatalog: discoveryCatalog && discoveryCatalog.length > 0 ? discoveryCatalog : undefined,
+    discoveryMeta: discoveryMeta || undefined,
   };
 
   const jsonString = JSON.stringify(backup, null, 2);
@@ -78,6 +86,8 @@ export function validateBackup(parsed: any): { valid: boolean; error?: string; d
       settings,
       metadataCache: parsed.metadataCache,
       cachedThumbnails: parsed.cachedThumbnails,
+      discoveryCatalog: Array.isArray(parsed.discoveryCatalog) ? parsed.discoveryCatalog : undefined,
+      discoveryMeta: parsed.discoveryMeta,
     },
   };
 }
@@ -85,7 +95,7 @@ export function validateBackup(parsed: any): { valid: boolean; error?: string; d
 /**
  * Imports a validated backup by replacing the entire database
  */
-export async function importBackupReplace(backup: BackupData): Promise<{ count: number }> {
+export async function importBackupReplace(backup: BackupData): Promise<{ count: number; discoveryCount?: number }> {
   await clearLibrary();
   await saveLibraryItems(backup.items);
   if (backup.settings) {
@@ -97,7 +107,16 @@ export async function importBackupReplace(backup: BackupData): Promise<{ count: 
   if (backup.cachedThumbnails && typeof backup.cachedThumbnails === 'object') {
     await restoreCachedThumbnails(backup.cachedThumbnails);
   }
-  return { count: backup.items.length };
+  if (backup.discoveryCatalog && Array.isArray(backup.discoveryCatalog)) {
+    await saveDiscoveryTitles(backup.discoveryCatalog);
+  }
+  if (backup.discoveryMeta) {
+    await setDiscoveryCatalogMeta(backup.discoveryMeta);
+  }
+  return {
+    count: backup.items.length,
+    discoveryCount: backup.discoveryCatalog?.length,
+  };
 }
 
 /**
@@ -107,6 +126,7 @@ export async function importBackupMerge(backup: BackupData): Promise<{
   addedCount: number;
   updatedCount: number;
   totalCount: number;
+  discoveryCount?: number;
 }> {
   const existing = await getAllLibraryItems();
   const existingMap = new Map<string, LibraryItem>();
@@ -184,10 +204,17 @@ export async function importBackupMerge(backup: BackupData): Promise<{
   if (backup.cachedThumbnails && typeof backup.cachedThumbnails === 'object') {
     await restoreCachedThumbnails(backup.cachedThumbnails);
   }
+  if (backup.discoveryCatalog && Array.isArray(backup.discoveryCatalog)) {
+    await saveDiscoveryTitles(backup.discoveryCatalog);
+  }
+  if (backup.discoveryMeta) {
+    await setDiscoveryCatalogMeta(backup.discoveryMeta);
+  }
 
   return {
     addedCount,
     updatedCount,
     totalCount: mergedList.length,
+    discoveryCount: backup.discoveryCatalog?.length,
   };
 }
