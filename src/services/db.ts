@@ -1,12 +1,13 @@
 import { openDB, IDBPDatabase } from 'idb';
-import { AppSettings, LibraryItem } from '../types';
+import { AppSettings, LibraryItem, DiscoveryTitle } from '../types';
 
 const DB_NAME = 'NetflixWatchlistDB';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  tmdbApiKey: '',
+  tmdbApiKey: 'ec3ae1f9fde58cd94e4297c4cb3b77de',
   omdbApiKey: '',
+  watchmodeApiKey: 'rrr2KWqilxrgo1CObODcAeOcsxa7QkYF2yLec9zK',
   capSeriesEpisodes: false, // Default: uncapped!
   maxEpisodesPerSeries: 10,
   playbackSpeed: 2.0, // Default home usage speed
@@ -39,6 +40,17 @@ function getDB() {
         }
         if (!db.objectStoreNames.contains('thumbnail_cache')) {
           db.createObjectStore('thumbnail_cache', { keyPath: 'url' });
+        }
+        if (!db.objectStoreNames.contains('discovery_catalog')) {
+          const discoveryStore = db.createObjectStore('discovery_catalog', { keyPath: 'id' });
+          discoveryStore.createIndex('watchmodeId', 'watchmodeId', { unique: false });
+          discoveryStore.createIndex('tmdbId', 'tmdbId', { unique: false });
+          discoveryStore.createIndex('imdbId', 'imdbId', { unique: false });
+          discoveryStore.createIndex('availabilityState', 'availabilityState', { unique: false });
+          discoveryStore.createIndex('mediaType', 'mediaType', { unique: false });
+        }
+        if (!db.objectStoreNames.contains('discovery_meta')) {
+          db.createObjectStore('discovery_meta', { keyPath: 'key' });
         }
       },
     });
@@ -281,5 +293,76 @@ export async function restoreCachedThumbnails(thumbnails: Record<string, string>
     await tx.done;
   } catch (err) {
     console.warn('Failed restoring thumbnail cache:', err);
+  }
+}
+
+// Discovery Catalog Operations (Watchmode + TMDB unified persistence)
+export async function getAllDiscoveryTitles(): Promise<DiscoveryTitle[]> {
+  try {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains('discovery_catalog')) return [];
+    return await db.getAll('discovery_catalog');
+  } catch (err) {
+    console.error('Failed to get discovery titles from IDB:', err);
+    return [];
+  }
+}
+
+export async function saveDiscoveryTitles(titles: DiscoveryTitle[]): Promise<void> {
+  if (!titles || titles.length === 0) return;
+  try {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains('discovery_catalog')) return;
+    const tx = db.transaction('discovery_catalog', 'readwrite');
+    for (const title of titles) {
+      if (title && title.id) {
+        await tx.store.put(title);
+      }
+    }
+    await tx.done;
+  } catch (err) {
+    console.error('Failed to save discovery titles to IDB:', err);
+  }
+}
+
+export async function updateDiscoveryTitle(title: DiscoveryTitle): Promise<void> {
+  if (!title || !title.id) return;
+  try {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains('discovery_catalog')) return;
+    await db.put('discovery_catalog', title);
+  } catch (err) {
+    console.error('Failed to update discovery title in IDB:', err);
+  }
+}
+
+export async function getDiscoveryCatalogMeta(): Promise<{
+  lastSync?: string;
+  totalAvailable?: number;
+  totalTitles?: number;
+  watchmodeQuota?: number;
+  watchmodeQuotaUsed?: number;
+} | null> {
+  try {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains('discovery_meta')) return null;
+    const res = await db.get('discovery_meta', 'catalog_sync_meta');
+    return res ? res.data : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function setDiscoveryCatalogMeta(data: any): Promise<void> {
+  try {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains('discovery_meta')) return;
+    await db.put('discovery_meta', {
+      key: 'catalog_sync_meta',
+      data,
+      updatedAt: Date.now(),
+    });
+  } catch (err) {
+    console.warn('Failed to set discovery catalog meta:', err);
   }
 }

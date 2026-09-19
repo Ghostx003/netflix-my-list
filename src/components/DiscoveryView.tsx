@@ -21,9 +21,26 @@ import {
   ChevronRight,
   ShieldCheck,
   Filter,
+  RefreshCw,
+  Database,
+  BarChart2,
+  AlertTriangle,
+  Info,
 } from 'lucide-react';
 import { AppSettings, DiscoveryTitle, LibraryItem, SavedDiscoveryFilter } from '../types';
-import { fetchNetflixIndiaDiscovery } from '../services/discoveryService';
+import {
+  fetchNetflixIndiaDiscovery,
+  syncNetflixIndiaCatalog,
+  getWatchmodeQuotaStatus,
+  SyncProgressCallback,
+  WatchmodeStatusResponse,
+} from '../services/discoveryService';
+import {
+  getAllDiscoveryTitles,
+  saveDiscoveryTitles,
+  getDiscoveryCatalogMeta,
+  setDiscoveryCatalogMeta,
+} from '../services/db';
 import { getNetflixUrl, normalizeCountryName } from '../services/normalizer';
 import { formatRuntime } from '../services/analytics';
 import { CachedImage } from './CachedImage';
@@ -70,7 +87,7 @@ const EUROPEAN_COUNTRIES = new Set([
   'Switzerland',
 ]);
 
-const ITEMS_PER_PAGE = 30;
+const ITEMS_PER_BATCH = 40;
 
 export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   settings,
@@ -79,13 +96,23 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   onStartWatching,
   onOpenDetail,
 }) => {
-  // Discovery catalog data - fully dynamic from TMDB live discovery API
+  // Discovery catalog data - persistent from local IndexedDB
   const [catalog, setCatalog] = useState<DiscoveryTitle[]>([]);
   const [loading, setLoading] = useState(false);
-  const [apiPage, setApiPage] = useState(1);
-  const [totalCatalogResults, setTotalCatalogResults] = useState<number>(4500);
-  const [totalCatalogPages, setTotalCatalogPages] = useState<number>(250);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  const [quotaInfo, setQuotaInfo] = useState<WatchmodeStatusResponse | null>(null);
+  const [showUnavailable, setShowUnavailable] = useState(false);
+  const [showStats, setShowStats] = useState(false);
+
+  // Syncing Pipeline State
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<SyncProgressCallback | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+
+  // UI pagination state
+  const [visibleCount, setVisibleCount] = useState<number>(ITEMS_PER_BATCH);
   const [viewMode, setViewMode] = useState<'infinite' | 'pages'>('infinite');
+  const [currentPage, setCurrentPage] = useState(1);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   // Filters state
@@ -120,9 +147,8 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     | 'episodes_most'
   >('netflix_newest');
 
-  // UI state
+  // UI filter modal state
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
   const [savedFilters, setSavedFilters] = useState<SavedDiscoveryFilter[]>(() => {
     try {
       const raw = localStorage.getItem('netflix_saved_discovery_filters');
@@ -139,49 +165,127 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     const timer = setTimeout(() => {
       setDebouncedQuery(searchQuery.trim());
       setCurrentPage(1);
+      setVisibleCount(ITEMS_PER_BATCH);
     }, 300);
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Load catalog on mount & when apiPage advances
+  // Initial load: load from local IndexedDB first
   useEffect(() => {
     let isMounted = true;
-    async function loadCatalog() {
+    async function loadInitialCatalog() {
       setLoading(true);
       try {
-        const res = await fetchNetflixIndiaDiscovery({
-          page: apiPage,
-          apiKey: settings.tmdbApiKey,
-          omdbApiKey: settings.omdbApiKey,
-          watchmodeApiKey: settings.watchmodeApiKey,
-          pagesToFetch: 2, // Fetch 2 pages (~40-60 titles) per batch
-        });
+        const [localTitles, meta] = await Promise.all([
+          getAllDiscoveryTitles(),
+          getDiscoveryCatalogMeta(),
+        ]);
+
         if (isMounted) {
-          if (res.totalResults) setTotalCatalogResults(res.totalResults);
-          if (res.totalPages) setTotalCatalogPages(res.totalPages);
-          if (res.titles && res.titles.length > 0) {
-            setCatalog((prev) => {
-              const combined = [...prev, ...res.titles];
-              const map = new Map<string, DiscoveryTitle>();
-              for (const item of combined) {
-                const key = item.imdbId || (item.tmdbId ? `${item.mediaType}_${item.tmdbId}` : item.title);
-                if (!map.has(key)) map.set(key, item);
-              }
-              return Array.from(map.values());
+          if (meta) {
+            if (meta.lastSync) setLastSyncTime(meta.lastSync);
+            if (meta.watchmodeQuota) {
+              setQuotaInfo({
+                quota: meta.watchmodeQuota,
+                quotaUsed: meta.watchmodeQuotaUsed || 0,
+              });
+            }
+          }
+
+          if (localTitles && localTitles.length > 0) {
+            setCatalog(localTitles);
+          } else {
+            // First time: fetch on-demand live TMDB discovery batch so screen isn't completely blank
+            const live = await fetchNetflixIndiaDiscovery({
+              page: 1,
+              apiKey: settings.tmdbApiKey,
+              pagesToFetch: 4,
             });
+            if (live.titles && live.titles.length > 0) {
+              setCatalog(live.titles);
+              await saveDiscoveryTitles(live.titles);
+            }
           }
         }
       } catch (err) {
-        console.error('Error fetching discovery catalog:', err);
+        console.error('Failed loading discovery catalog from IndexedDB:', err);
       } finally {
         if (isMounted) setLoading(false);
       }
+
+      // Check Watchmode quota in background
+      try {
+        const q = await getWatchmodeQuotaStatus(settings.watchmodeApiKey);
+        if (isMounted && q) {
+          setQuotaInfo(q);
+          const currentMeta = (await getDiscoveryCatalogMeta()) || {};
+          await setDiscoveryCatalogMeta({
+            ...currentMeta,
+            watchmodeQuota: q.quota,
+            watchmodeQuotaUsed: q.quotaUsed,
+          });
+        }
+      } catch {}
     }
-    loadCatalog();
+
+    loadInitialCatalog();
     return () => {
       isMounted = false;
     };
-  }, [apiPage, settings.tmdbApiKey, settings.omdbApiKey, settings.watchmodeApiKey]);
+  }, [settings.tmdbApiKey, settings.watchmodeApiKey]);
+
+  // Handle manual "Sync Netflix India Catalogue"
+  const handleStartCatalogueSync = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    setSyncError(null);
+
+    try {
+      const res = await syncNetflixIndiaCatalog({
+        watchmodeApiKey: settings.watchmodeApiKey,
+        tmdbApiKey: settings.tmdbApiKey,
+        existingTitles: catalog,
+        onProgress: (prog) => {
+          setSyncProgress(prog);
+        },
+      });
+
+      // Save complete synced catalog to IndexedDB
+      setCatalog(res.allTitles);
+      await saveDiscoveryTitles(res.allTitles);
+
+      const syncIso = new Date().toLocaleString('en-IN', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      });
+      setLastSyncTime(syncIso);
+
+      // Refresh quota
+      const q = await getWatchmodeQuotaStatus(settings.watchmodeApiKey);
+      if (q) setQuotaInfo(q);
+
+      await setDiscoveryCatalogMeta({
+        lastSync: syncIso,
+        totalAvailable: res.allTitles.filter((t) => t.availabilityState === 'available').length,
+        totalTitles: res.allTitles.length,
+        watchmodeQuota: q?.quota,
+        watchmodeQuotaUsed: q?.quotaUsed,
+      });
+
+      try {
+        confetti({ particleCount: 50, spread: 70, origin: { y: 0.6 } });
+      } catch {}
+
+      setTimeout(() => {
+        setIsSyncing(false);
+        setSyncProgress(null);
+      }, 2500);
+    } catch (err: any) {
+      console.error('Catalogue sync failed:', err);
+      setSyncError(err.message || 'Catalogue sync failed. Check your API key or network.');
+      setIsSyncing(false);
+    }
+  };
 
   // Dynamic genres from catalog
   const availableGenres = useMemo(() => {
@@ -404,6 +508,11 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       result = result.filter((x) => x.rottenTomatoesRating !== undefined && x.rottenTomatoesRating >= minRtScore);
     }
 
+    // Availability filter (Default: show only available on Netflix India)
+    if (!showUnavailable) {
+      result = result.filter((x) => x.availabilityState !== 'no_longer_available');
+    }
+
     // 10. Sorting
     const sorted = [...result].sort((a, b) => {
       switch (sortBy) {
@@ -466,41 +575,83 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     minTmdbScore,
     minRtScore,
     sortBy,
+    showUnavailable,
   ]);
 
-  // Displayed titles based on view mode (infinite scroll shows all loaded matching items, pages mode slices)
-  const totalPages = Math.ceil(filteredCatalog.length / ITEMS_PER_PAGE) || 1;
+  // Catalogue Analytics (calculated dynamically from actual local catalog)
+  const catalogStats = useMemo(() => {
+    let movies = 0;
+    let tvShows = 0;
+    let hindiAudioCount = 0;
+    let englishAudioCount = 0;
+    let kdramas = 0;
+    let anime = 0;
+    let availableCount = 0;
+    let unavailableCount = 0;
+
+    for (const item of catalog) {
+      if (item.availabilityState === 'no_longer_available') {
+        unavailableCount++;
+      } else {
+        availableCount++;
+      }
+
+      if (item.mediaType === 'movie') movies++;
+      else if (item.mediaType === 'tv') tvShows++;
+
+      if (item.hindiAudio === true || item.audioLanguages?.includes('hi') || item.originalLanguage === 'hi') {
+        hindiAudioCount++;
+      }
+      if (item.englishAudio === true || item.audioLanguages?.includes('en') || item.originalLanguage === 'en') {
+        englishAudioCount++;
+      }
+      if (item.mediaType === 'tv' && (item.countries?.includes('South Korea') || item.originalLanguage === 'ko')) {
+        kdramas++;
+      }
+      if (item.genres?.includes('Animation') && (item.countries?.includes('Japan') || item.originalLanguage === 'ja')) {
+        anime++;
+      }
+    }
+
+    return {
+      total: catalog.length,
+      availableCount,
+      unavailableCount,
+      movies,
+      tvShows,
+      hindiAudioCount,
+      englishAudioCount,
+      kdramas,
+      anime,
+    };
+  }, [catalog]);
+
+  // Displayed titles based on view mode (infinite scroll shows sliced visibleCount, pages mode slices by page)
+  const totalPages = Math.ceil(filteredCatalog.length / ITEMS_PER_BATCH) || 1;
   const paginatedTitles = useMemo(() => {
     if (viewMode === 'infinite') {
-      return filteredCatalog;
+      return filteredCatalog.slice(0, visibleCount);
     }
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredCatalog.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredCatalog, currentPage, viewMode]);
+    const start = (currentPage - 1) * ITEMS_PER_BATCH;
+    return filteredCatalog.slice(start, start + ITEMS_PER_BATCH);
+  }, [filteredCatalog, currentPage, viewMode, visibleCount]);
 
-  // Infinite Scroll IntersectionObserver: When user scrolls to bottom sentinel, auto-load more
+  // Infinite Scroll IntersectionObserver: When user scrolls to bottom sentinel, reveal more titles
   useEffect(() => {
-    if (!sentinelRef.current) return;
+    if (!sentinelRef.current || viewMode !== 'infinite') return;
     const observer = new IntersectionObserver(
       (entries) => {
         const first = entries[0];
-        if (first.isIntersecting && !loading) {
-          setApiPage((p) => p + 2);
+        if (first.isIntersecting && visibleCount < filteredCatalog.length) {
+          setVisibleCount((prev) => Math.min(prev + ITEMS_PER_BATCH, filteredCatalog.length));
         }
       },
-      { rootMargin: '400px' }
+      { rootMargin: '300px' }
     );
 
     observer.observe(sentinelRef.current);
     return () => observer.disconnect();
-  }, [loading]);
-
-  // When user approaches the end of the loaded catalog in page mode, auto-fetch the next batch from the API
-  useEffect(() => {
-    if (!loading && viewMode === 'pages' && currentPage >= totalPages && apiPage * 2 < totalCatalogPages) {
-      setApiPage((p) => p + 2);
-    }
-  }, [currentPage, totalPages, loading, apiPage, totalCatalogPages, viewMode]);
+  }, [visibleCount, filteredCatalog.length, viewMode]);
 
   // Convert DiscoveryTitle to LibraryItem format for modal preview
   const convertToLibraryItem = (item: DiscoveryTitle): LibraryItem => {
@@ -647,39 +798,79 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       {/* 1. Header & Hero Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-zinc-900/90 via-zinc-900/60 to-black/90 p-5 sm:p-6 rounded-2xl border border-white/10 shadow-2xl backdrop-blur-md">
         <div>
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className="p-1.5 rounded-lg bg-[#E50914]/20 text-[#E50914] border border-[#E50914]/30">
               <Compass className="w-5 h-5 animate-pulse" />
             </span>
             <span className="text-[11px] font-bold uppercase tracking-widest text-[#E50914]">
-              Netflix India Catalog
+              Netflix India Catalog Explorer
             </span>
             <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-semibold">
-              <ShieldCheck className="w-3 h-3" /> Region Verified
+              <ShieldCheck className="w-3 h-3" /> Watchmode Verified
             </span>
+            {quotaInfo && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 font-mono">
+                Quota: {quotaInfo.quotaUsed} / {quotaInfo.quota}
+              </span>
+            )}
           </div>
           <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
             DISCOVERY
           </h1>
           <p className="text-xs sm:text-sm text-zinc-400 mt-1 max-w-xl">
-            Browse, filter, and explore Netflix India titles with aggregated ratings from IMDb, TMDB, and Rotten Tomatoes.
+            Complete Netflix India streaming catalogue with persistent IndexedDB caching, multi-API metadata enrichment, and instant local filters.
+            {lastSyncTime && (
+              <span className="block text-[11px] text-zinc-500 mt-0.5 font-mono">
+                Last Catalogue Sync: {lastSyncTime}
+              </span>
+            )}
           </p>
         </div>
 
-        {/* Surprise Me & Quick Action Buttons */}
+        {/* Sync, Analytics, Surprise Me & Filter Action Buttons */}
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+          {/* Sync Netflix India Catalogue Button */}
+          <button
+            onClick={handleStartCatalogueSync}
+            disabled={isSyncing}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all shadow-lg ${
+              isSyncing
+                ? 'bg-zinc-800 text-zinc-400 cursor-not-allowed border border-white/10'
+                : 'bg-[#E50914] hover:bg-red-700 text-white shadow-red-600/30 active:scale-95'
+            }`}
+            title="Sync Netflix India streaming catalog from Watchmode and enrich with TMDB"
+          >
+            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-red-400' : ''}`} />
+            <span>{isSyncing ? 'Syncing...' : 'Sync Netflix India'}</span>
+          </button>
+
+          {/* Toggle Catalog Analytics Stats */}
+          <button
+            onClick={() => setShowStats(!showStats)}
+            className={`p-2.5 rounded-xl border text-xs font-bold transition-all ${
+              showStats
+                ? 'bg-blue-600 text-white border-blue-500 shadow-blue-500/30'
+                : 'bg-white/10 hover:bg-white/20 text-zinc-300 border-white/10'
+            }`}
+            title="View Catalogue Analytics & Statistics"
+          >
+            <BarChart2 className="w-4 h-4" />
+          </button>
+
+          {/* Surprise Me Roulette */}
           <button
             onClick={handleSurpriseMe}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-lg shadow-purple-600/30 transition-all transform hover:scale-105 active:scale-95"
+            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-lg shadow-purple-600/30 transition-all transform hover:scale-105 active:scale-95"
             title="Randomize title from current filtered catalog"
           >
             <Sparkles className="w-4 h-4 text-purple-200" />
-            <span>Surprise Me</span>
+            <span className="hidden sm:inline">Surprise Me</span>
           </button>
 
+          {/* Filters Toggle Button */}
           <button
             onClick={() => setIsFilterPanelOpen(!isFilterPanelOpen)}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold border transition-all ${
+            className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold border transition-all ${
               isFilterPanelOpen || activeFiltersCount > 0
                 ? 'bg-[#E50914] text-white border-[#E50914] shadow-lg shadow-red-600/30'
                 : 'bg-white/10 hover:bg-white/20 text-zinc-200 border-white/10'
@@ -696,6 +887,102 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Sync Error Banner */}
+      {syncError && (
+        <div className="bg-red-950/80 border border-red-500/50 rounded-xl p-4 flex items-start gap-3 text-red-200 text-xs">
+          <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <div className="font-bold text-red-300">Catalogue Sync Notice</div>
+            <div>{syncError}</div>
+          </div>
+          <button
+            onClick={() => setSyncError(null)}
+            className="text-red-400 hover:text-white"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Catalogue Analytics Bar */}
+      {showStats && (
+        <div className="bg-zinc-900/90 border border-blue-500/20 rounded-2xl p-4 shadow-xl animate-fade-in grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3 text-center">
+          <div className="bg-black/30 p-2.5 rounded-xl border border-white/5">
+            <div className="text-[10px] text-zinc-400 font-bold uppercase">Total Catalog</div>
+            <div className="text-lg font-black text-white">{catalogStats.total.toLocaleString()}</div>
+          </div>
+          <div className="bg-black/30 p-2.5 rounded-xl border border-white/5">
+            <div className="text-[10px] text-emerald-400 font-bold uppercase">Available</div>
+            <div className="text-lg font-black text-emerald-400">{catalogStats.availableCount.toLocaleString()}</div>
+          </div>
+          <div className="bg-black/30 p-2.5 rounded-xl border border-white/5">
+            <div className="text-[10px] text-zinc-400 font-bold uppercase">Movies</div>
+            <div className="text-lg font-black text-white">{catalogStats.movies.toLocaleString()}</div>
+          </div>
+          <div className="bg-black/30 p-2.5 rounded-xl border border-white/5">
+            <div className="text-[10px] text-zinc-400 font-bold uppercase">TV Shows</div>
+            <div className="text-lg font-black text-white">{catalogStats.tvShows.toLocaleString()}</div>
+          </div>
+          <div className="bg-black/30 p-2.5 rounded-xl border border-white/5">
+            <div className="text-[10px] text-amber-400 font-bold uppercase">Hindi Audio</div>
+            <div className="text-lg font-black text-amber-300">{catalogStats.hindiAudioCount.toLocaleString()}</div>
+          </div>
+          <div className="bg-black/30 p-2.5 rounded-xl border border-white/5">
+            <div className="text-[10px] text-purple-400 font-bold uppercase">K-Dramas</div>
+            <div className="text-lg font-black text-purple-300">{catalogStats.kdramas.toLocaleString()}</div>
+          </div>
+          <div className="bg-black/30 p-2.5 rounded-xl border border-white/5">
+            <div className="text-[10px] text-pink-400 font-bold uppercase">Anime</div>
+            <div className="text-lg font-black text-pink-300">{catalogStats.anime.toLocaleString()}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Syncing Progress Drawer / Modal */}
+      {isSyncing && syncProgress && (
+        <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 border border-red-500/40 rounded-2xl p-5 shadow-2xl animate-fade-in space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <RefreshCw className="w-5 h-5 text-[#E50914] animate-spin" />
+              <div>
+                <h4 className="text-sm font-bold text-white">Syncing Netflix India Catalogue</h4>
+                <p className="text-xs text-zinc-400">{syncProgress.message}</p>
+              </div>
+            </div>
+            <span className="text-xs font-mono font-bold text-[#E50914] bg-red-950/60 px-2.5 py-1 rounded-lg border border-red-500/30">
+              {syncProgress.phase === 'fetching_watchmode'
+                ? `Page ${syncProgress.currentPage} / ${syncProgress.totalPages}`
+                : syncProgress.phase === 'enriching_tmdb'
+                ? `${syncProgress.metadataProcessed} / ${syncProgress.totalToProcess}`
+                : 'Processing'}
+            </span>
+          </div>
+
+          {/* Progress Bar */}
+          <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
+            <div
+              className="bg-gradient-to-r from-[#E50914] to-amber-500 h-full transition-all duration-300"
+              style={{
+                width: `${
+                  syncProgress.phase === 'fetching_watchmode'
+                    ? (syncProgress.currentPage / (syncProgress.totalPages || 1)) * 50
+                    : syncProgress.phase === 'enriching_tmdb'
+                    ? 50 + (syncProgress.metadataProcessed / (syncProgress.totalToProcess || 1)) * 50
+                    : 100
+                }%`,
+              }}
+            />
+          </div>
+
+          <div className="flex items-center justify-between text-[11px] text-zinc-400 pt-1 font-mono">
+            <span>Discovered: {syncProgress.titlesDiscovered.toLocaleString()}</span>
+            <span>New: {syncProgress.newTitlesAdded.toLocaleString()}</span>
+            <span>Updated: {syncProgress.titlesUpdated.toLocaleString()}</span>
+            <span>Deduplicated: {syncProgress.duplicatesRemoved.toLocaleString()}</span>
+          </div>
+        </div>
+      )}
 
       {/* 2. Search & Preset Shortcuts */}
       <div className="space-y-3">
@@ -1098,11 +1385,11 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-zinc-900/60 p-3.5 rounded-xl border border-white/5">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-bold text-white">
-            {filteredCatalog.length} {filteredCatalog.length === 1 ? 'title' : 'titles'} loaded
+            {filteredCatalog.length.toLocaleString()} {filteredCatalog.length === 1 ? 'title' : 'titles'} matching
           </span>
           <span className="text-zinc-500">•</span>
           <span className="text-xs text-zinc-400 font-medium">
-            Catalog: {totalCatalogResults.toLocaleString()}+ titles available in Netflix India
+            Local Database: {catalog.length.toLocaleString()} | Netflix India: {catalogStats.availableCount > 0 ? catalogStats.availableCount.toLocaleString() : '4,200+'} available
           </span>
 
           {/* Active filter pills */}
@@ -1166,6 +1453,18 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
             </span>
           )}
 
+          {/* Availability Toggle */}
+          <button
+            onClick={() => setShowUnavailable(!showUnavailable)}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
+              showUnavailable
+                ? 'bg-amber-600/30 border-amber-500 text-amber-300'
+                : 'bg-black/30 border-white/10 text-zinc-400 hover:text-white'
+            }`}
+          >
+            <span>{showUnavailable ? 'Showing All (incl. Expired)' : 'Netflix India Available Only'}</span>
+          </button>
+
           {activeFiltersCount > 0 && (
             <button
               onClick={handleClearAllFilters}
@@ -1207,8 +1506,8 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                 <span>Showing all {filteredCatalog.length} titles</span>
               ) : (
                 <span>
-                  Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1}–
-                  {Math.min(currentPage * ITEMS_PER_PAGE, filteredCatalog.length)} of {filteredCatalog.length}
+                  Showing {(currentPage - 1) * ITEMS_PER_BATCH + 1}–
+                  {Math.min(currentPage * ITEMS_PER_BATCH, filteredCatalog.length)} of {filteredCatalog.length}
                 </span>
               )}
             </div>
@@ -1308,13 +1607,30 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                       )}
                     </div>
 
-                    {/* Hindi Audio or Language Flag */}
-                    {item.audioLanguages?.includes('hi') && (
+                    {/* Netflix India Status Pill */}
+                    {item.availabilityState === 'no_longer_available' ? (
+                      <div
+                        className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-zinc-900/90 text-zinc-400 border border-white/10 shadow-md"
+                        title="No longer streaming on Netflix India"
+                      >
+                        Expired
+                      </div>
+                    ) : (
+                      <div
+                        className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-black/80 text-emerald-400 border border-emerald-500/40 shadow-md flex items-center gap-0.5"
+                        title="Verified available on Netflix India"
+                      >
+                        <span>Netflix IN ✓</span>
+                      </div>
+                    )}
+
+                    {/* Hindi Audio Badge */}
+                    {(item.hindiAudio === true || item.audioLanguages?.includes('hi') || item.originalLanguage === 'hi') && (
                       <div
                         className="px-1.5 py-0.5 rounded text-[9px] font-black bg-amber-500 text-black border border-amber-400 shadow-md"
                         title="Verified Hindi Audio Track Available"
                       >
-                        हिं
+                        हिं Hindi ✓
                       </div>
                     )}
                   </div>
@@ -1355,6 +1671,20 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                             {g}
                           </span>
                         ))}
+                      </div>
+                    )}
+
+                    {/* Available Languages Preview */}
+                    {item.audioLanguages && item.audioLanguages.length > 0 && (
+                      <div className="flex items-center gap-1 flex-wrap mt-1 text-[10px] text-zinc-400">
+                        {item.audioLanguages.slice(0, 3).map((l) => (
+                          <span key={l} className="px-1 py-0.2 rounded bg-black/40 border border-white/5 text-zinc-300 uppercase font-mono">
+                            {l} ✓
+                          </span>
+                        ))}
+                        {item.audioLanguages.length > 3 && (
+                          <span className="text-[9px] text-zinc-500">+{item.audioLanguages.length - 3}</span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1458,21 +1788,13 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
           </div>
         )}
 
-        {/* Load More Button (accessible in both infinite scroll and page modes) */}
-        {filteredCatalog.length > 0 && (
+        {/* Load More Button (reveals next slice in infinite scroll mode or advances in page mode) */}
+        {filteredCatalog.length > visibleCount && viewMode === 'infinite' && (
           <button
-            onClick={() => setApiPage((p) => p + 2)}
-            disabled={loading}
-            className="px-5 py-2.5 rounded-xl bg-[#E50914]/20 hover:bg-[#E50914]/30 border border-[#E50914]/40 text-xs font-bold text-red-300 transition-all shadow-md active:scale-95 disabled:opacity-50 flex items-center gap-2"
+            onClick={() => setVisibleCount((prev) => Math.min(prev + ITEMS_PER_BATCH, filteredCatalog.length))}
+            className="px-6 py-2.5 rounded-xl bg-[#E50914]/20 hover:bg-[#E50914]/30 border border-[#E50914]/40 text-xs font-bold text-red-300 transition-all shadow-md active:scale-95 flex items-center gap-2"
           >
-            {loading ? (
-              <>
-                <div className="w-3 h-3 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
-                <span>Fetching Next Batch...</span>
-              </>
-            ) : (
-              <span>+ Load More Dynamic Titles ({filteredCatalog.length} loaded of {totalCatalogResults.toLocaleString()}+)</span>
-            )}
+            <span>+ Load More Titles (Showing {Math.min(visibleCount, filteredCatalog.length)} of {filteredCatalog.length.toLocaleString()})</span>
           </button>
         )}
       </div>

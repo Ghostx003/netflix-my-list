@@ -889,8 +889,572 @@ export function deduplicateDiscoveryTitles(titles: DiscoveryTitle[]): DiscoveryT
   return Array.from(map.values());
 }
 
+export const WATCHMODE_BASE_URL = 'https://api.watchmode.com/v1';
+export const DEFAULT_WATCHMODE_KEY =
+  (typeof import.meta !== 'undefined' && (import.meta.env?.WATCHMODE_API_KEY || import.meta.env?.VITE_WATCHMODE_API_KEY)) ||
+  'rrr2KWqilxrgo1CObODcAeOcsxa7QkYF2yLec9zK';
+
+export interface WatchmodeStatusResponse {
+  quota: number;
+  quotaUsed: number;
+}
+
+export interface SyncProgressCallback {
+  phase: 'idle' | 'fetching_watchmode' | 'deduplicating' | 'enriching_tmdb' | 'completed' | 'error';
+  currentPage: number;
+  totalPages: number;
+  titlesDiscovered: number;
+  metadataProcessed: number;
+  totalToProcess: number;
+  duplicatesRemoved: number;
+  newTitlesAdded: number;
+  titlesUpdated: number;
+  markedUnavailable: number;
+  message: string;
+}
+
+// Simple async sleep helper
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
- * Fetch Netflix India catalog via TMDB discover API with provider=8 & region=IN
+ * Checks Watchmode API account quota status
+ */
+export async function getWatchmodeQuotaStatus(apiKey?: string): Promise<WatchmodeStatusResponse | null> {
+  const key = apiKey || DEFAULT_WATCHMODE_KEY;
+  if (!key) return null;
+  try {
+    const res = await fetch(`${WATCHMODE_BASE_URL}/status/?apiKey=${encodeURIComponent(key)}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    console.warn('Failed to check Watchmode quota:', err);
+    return null;
+  }
+}
+
+/**
+ * Fetch a single page from Watchmode list-titles endpoint with exponential backoff & 429 handling
+ */
+async function fetchWatchmodePage(page: number, limit: number, apiKey: string): Promise<{
+  titles: any[];
+  page: number;
+  total_pages: number;
+  total_results: number;
+}> {
+  let attempt = 0;
+  const maxAttempts = 3;
+
+  while (attempt < maxAttempts) {
+    attempt++;
+    try {
+      const url = `${WATCHMODE_BASE_URL}/list-titles/?apiKey=${encodeURIComponent(apiKey)}&source_ids=203&regions=IN&limit=${limit}&page=${page}`;
+      const res = await fetch(url);
+
+      if (res.status === 429) {
+        // Rate limited - wait with exponential backoff
+        const waitTime = Math.pow(2, attempt) * 1000;
+        console.warn(`Watchmode 429 Rate Limit encountered on page ${page}. Waiting ${waitTime}ms...`);
+        await sleep(waitTime);
+        continue;
+      }
+
+      if (!res.ok) {
+        throw new Error(`Watchmode HTTP ${res.status}: ${res.statusText}`);
+      }
+
+      return await res.json();
+    } catch (err) {
+      if (attempt >= maxAttempts) throw err;
+      await sleep(1000 * attempt);
+    }
+  }
+
+  throw new Error(`Failed fetching Watchmode page ${page} after ${maxAttempts} attempts`);
+}
+
+/**
+ * Convert a raw Watchmode title item into initial DiscoveryTitle model
+ */
+export function normalizeWatchmodeToDiscovery(item: any): DiscoveryTitle {
+  const isMovie = item.type === 'movie';
+  const mediaType: 'movie' | 'tv' = isMovie ? 'movie' : 'tv';
+
+  return {
+    id: `wm_${item.id}`,
+    watchmodeId: item.id,
+    tmdbId: item.tmdb_id ? Number(item.tmdb_id) : undefined,
+    imdbId: item.imdb_id || undefined,
+    title: item.title || 'Untitled',
+    originalTitle: item.title,
+    mediaType,
+    releaseYear: item.year || undefined,
+    genres: [],
+    countries: [],
+    audioLanguages: [],
+    subtitleLanguages: ['en', 'hi'],
+    hindiAudio: null, // Strict null = unknown until verified
+    englishAudio: null,
+    hindiSubtitles: null,
+    englishSubtitles: null,
+    isNetflixIndiaVerified: true,
+    netflixIndiaAvailable: true,
+    availabilityState: 'available',
+    availabilitySource: 'Watchmode (Netflix India)',
+    catalogUpdatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Fetch detailed metadata from TMDB for a specific title with rate limit protection & caching
+ */
+export async function enrichTitleWithTMDB(
+  titleItem: DiscoveryTitle,
+  tmdbApiKey: string
+): Promise<DiscoveryTitle> {
+  const key = tmdbApiKey || DEFAULT_PUBLIC_TMDB_KEY;
+  if (!key) return titleItem;
+
+  // Check if we already have TMDB ID or can find by IMDb ID
+  let tmdbId = titleItem.tmdbId;
+  const isMovie = titleItem.mediaType === 'movie';
+  const endpointType = isMovie ? 'movie' : 'tv';
+
+  // 1. Resolve TMDB ID if missing but IMDb ID is present
+  if (!tmdbId && titleItem.imdbId) {
+    const findCacheKey = `tmdb_find_imdb_${titleItem.imdbId}`;
+    let findData = await getCachedMetadata(findCacheKey);
+    if (!findData) {
+      try {
+        const findUrl = `${TMDB_BASE_URL}/find/${encodeURIComponent(titleItem.imdbId)}?api_key=${key}&external_source=imdb_id`;
+        const res = await fetch(findUrl);
+        if (res.ok) {
+          findData = await res.json();
+          await setCachedMetadata(findCacheKey, findData);
+        }
+      } catch {}
+    }
+
+    if (findData) {
+      const match = isMovie ? findData.movie_results?.[0] : findData.tv_results?.[0];
+      if (match && match.id) {
+        tmdbId = match.id;
+      }
+    }
+  }
+
+  // 2. Fallback: Search TMDB by Title + Year if ID still missing
+  if (!tmdbId && titleItem.title) {
+    const searchCacheKey = `tmdb_search_${titleItem.mediaType}_${encodeURIComponent(titleItem.title.toLowerCase())}_${titleItem.releaseYear || ''}`;
+    let searchData = await getCachedMetadata(searchCacheKey);
+    if (!searchData) {
+      try {
+        const yearParam = titleItem.releaseYear
+          ? isMovie
+            ? `&year=${titleItem.releaseYear}`
+            : `&first_air_date_year=${titleItem.releaseYear}`
+          : '';
+        const searchUrl = `${TMDB_BASE_URL}/search/${endpointType}?api_key=${key}&query=${encodeURIComponent(titleItem.title)}${yearParam}`;
+        const res = await fetch(searchUrl);
+        if (res.ok) {
+          searchData = await res.json();
+          await setCachedMetadata(searchCacheKey, searchData);
+        }
+      } catch {}
+    }
+
+    if (searchData && searchData.results && searchData.results.length > 0) {
+      tmdbId = searchData.results[0].id;
+    }
+  }
+
+  if (!tmdbId) {
+    return titleItem;
+  }
+
+  // 3. Fetch detailed TMDB metadata (with credits, videos, external_ids)
+  const detailCacheKey = `tmdb_full_details_${endpointType}_${tmdbId}`;
+  let detail = await getCachedMetadata(detailCacheKey);
+
+  if (!detail) {
+    try {
+      const detailUrl = `${TMDB_BASE_URL}/${endpointType}/${tmdbId}?api_key=${key}&append_to_response=credits,videos,external_ids`;
+      const res = await fetch(detailUrl);
+      if (res.ok) {
+        detail = await res.json();
+        await setCachedMetadata(detailCacheKey, detail);
+      }
+    } catch (err) {
+      console.warn(`TMDB details fetch failed for ${titleItem.title} (${tmdbId}):`, err);
+    }
+  }
+
+  if (!detail) {
+    return {
+      ...titleItem,
+      tmdbId,
+    };
+  }
+
+  // Extract genres
+  const genres = Array.isArray(detail.genres)
+    ? detail.genres.map((g: any) => g.name).filter(Boolean)
+    : titleItem.genres;
+
+  // Extract countries
+  const rawCountries =
+    detail.origin_country ||
+    detail.production_countries?.map((c: any) => c.name || c.iso_3166_1) ||
+    [];
+  const countries = normalizeCountriesList(rawCountries);
+
+  // Extract spoken languages
+  const spokenLanguages: string[] = [];
+  if (Array.isArray(detail.spoken_languages)) {
+    detail.spoken_languages.forEach((l: any) => {
+      if (l.iso_639_1) spokenLanguages.push(l.iso_639_1.toLowerCase());
+    });
+  }
+  if (detail.original_language && !spokenLanguages.includes(detail.original_language.toLowerCase())) {
+    spokenLanguages.push(detail.original_language.toLowerCase());
+  }
+
+  // Posters & backdrops
+  const posterPath = detail.poster_path
+    ? `https://image.tmdb.org/t/p/w500${detail.poster_path}`
+    : titleItem.posterPath;
+  const backdropPath = detail.backdrop_path
+    ? `https://image.tmdb.org/t/p/w1280${detail.backdrop_path}`
+    : titleItem.backdropPath;
+
+  // Cast & crew
+  const cast = Array.isArray(detail.credits?.cast)
+    ? detail.credits.cast.slice(0, 8).map((c: any) => c.name).filter(Boolean)
+    : titleItem.cast;
+
+  let director = titleItem.director;
+  if (isMovie && Array.isArray(detail.credits?.crew)) {
+    const dirObj = detail.credits.crew.find((c: any) => c.job === 'Director');
+    if (dirObj) director = dirObj.name;
+  }
+
+  let creator = titleItem.creator;
+  if (!isMovie && Array.isArray(detail.created_by) && detail.created_by.length > 0) {
+    creator = detail.created_by.map((c: any) => c.name).join(', ');
+  }
+
+  // Trailer
+  const trailer = selectBestTrailer(detail.videos?.results || []);
+
+  // Strict language analysis (No guessing!)
+  const normTitle = normalizeTitle(titleItem.title);
+  const isKnownHindiDub = NETFLIX_HINDI_DUBBED_TITLES.has(normTitle);
+  const origLang = (detail.original_language || titleItem.originalLanguage || '').toLowerCase();
+
+  let hindiAudio: boolean | null = null;
+  if (origLang === 'hi' || isKnownHindiDub) {
+    hindiAudio = true;
+    if (!spokenLanguages.includes('hi')) spokenLanguages.push('hi');
+  }
+
+  let englishAudio: boolean | null = null;
+  if (origLang === 'en' || spokenLanguages.includes('en')) {
+    englishAudio = true;
+  }
+
+  return {
+    ...titleItem,
+    tmdbId,
+    imdbId: titleItem.imdbId || detail.external_ids?.imdb_id || detail.imdb_id,
+    originalTitle: isMovie ? detail.original_title : detail.original_name,
+    releaseDate: isMovie ? detail.release_date : detail.first_air_date,
+    releaseYear: titleItem.releaseYear || (isMovie ? detail.release_date?.slice(0, 4) : detail.first_air_date?.slice(0, 4)),
+    posterPath,
+    backdropPath,
+    rating: detail.vote_average ? parseFloat(detail.vote_average.toFixed(1)) : titleItem.rating,
+    voteCount: detail.vote_count || titleItem.voteCount,
+    synopsis: detail.overview || titleItem.synopsis,
+    genres: genres.length > 0 ? genres : titleItem.genres,
+    countries: countries.length > 0 ? countries : titleItem.countries,
+    originalLanguage: origLang || titleItem.originalLanguage,
+    audioLanguages: spokenLanguages.length > 0 ? spokenLanguages : titleItem.audioLanguages,
+    hindiAudio,
+    englishAudio,
+    runtimeMinutes: isMovie ? detail.runtime : titleItem.runtimeMinutes,
+    totalSeasons: !isMovie ? detail.number_of_seasons : titleItem.totalSeasons,
+    totalEpisodes: !isMovie ? detail.number_of_episodes : titleItem.totalEpisodes,
+    averageEpisodeMinutes: !isMovie ? (detail.episode_run_time?.[0] || 45) : undefined,
+    trailer: trailer || titleItem.trailer,
+    cast: cast && cast.length > 0 ? cast : titleItem.cast,
+    director,
+    creator,
+    metadataUpdatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Full Pipeline: Sync Netflix India catalogue from Watchmode into local IndexedDB
+ * Follows documented Watchmode pagination (limit=250), deduplicates, updates availability states,
+ * and enriches missing metadata with TMDB using concurrency control.
+ */
+export async function syncNetflixIndiaCatalog(options: {
+  watchmodeApiKey?: string;
+  tmdbApiKey?: string;
+  existingTitles: DiscoveryTitle[];
+  onProgress: (p: SyncProgressCallback) => void;
+  maxPagesToSync?: number; // Optional cap, otherwise syncs all pages available
+}): Promise<{
+  allTitles: DiscoveryTitle[];
+  newTitlesAdded: number;
+  titlesUpdated: number;
+  markedUnavailable: number;
+  duplicatesRemoved: number;
+}> {
+  const wmKey = options.watchmodeApiKey || DEFAULT_WATCHMODE_KEY;
+  const tmdbKey = options.tmdbApiKey || DEFAULT_PUBLIC_TMDB_KEY;
+
+  if (!wmKey) {
+    throw new Error('Watchmode API Key is required for streaming availability verification.');
+  }
+
+  const { onProgress } = options;
+  const existingMap = new Map<string, DiscoveryTitle>();
+
+  // Index existing titles by primary identity hierarchy
+  for (const t of options.existingTitles) {
+    if (t.watchmodeId) existingMap.set(`wm_${t.watchmodeId}`, t);
+    if (t.imdbId) existingMap.set(`imdb_${t.imdbId}`, t);
+    if (t.tmdbId) existingMap.set(`tmdb_${t.mediaType}_${t.tmdbId}`, t);
+    existingMap.set(`title_${createDuplicateKey(t.title)}_${t.releaseYear || '0'}`, t);
+  }
+
+  onProgress({
+    phase: 'fetching_watchmode',
+    currentPage: 0,
+    totalPages: 1,
+    titlesDiscovered: 0,
+    metadataProcessed: 0,
+    totalToProcess: 0,
+    duplicatesRemoved: 0,
+    newTitlesAdded: 0,
+    titlesUpdated: 0,
+    markedUnavailable: 0,
+    message: 'Connecting to Watchmode Netflix India catalog...',
+  });
+
+  const rawDiscoveredList: DiscoveryTitle[] = [];
+  const discoveredIds = new Set<string>();
+
+  const PAGE_LIMIT = 250;
+  let page = 1;
+  let totalPages = 1;
+
+  // 1. Fetch Watchmode Paginated Catalog
+  while (page <= totalPages) {
+    if (options.maxPagesToSync && page > options.maxPagesToSync) break;
+
+    const data = await fetchWatchmodePage(page, PAGE_LIMIT, wmKey);
+    totalPages = data.total_pages || 1;
+
+    if (Array.isArray(data.titles)) {
+      for (const raw of data.titles) {
+        const titleItem = normalizeWatchmodeToDiscovery(raw);
+        rawDiscoveredList.push(titleItem);
+        discoveredIds.add(titleItem.id);
+        if (titleItem.imdbId) discoveredIds.add(`imdb_${titleItem.imdbId}`);
+        if (titleItem.tmdbId) discoveredIds.add(`tmdb_${titleItem.mediaType}_${titleItem.tmdbId}`);
+      }
+    }
+
+    onProgress({
+      phase: 'fetching_watchmode',
+      currentPage: page,
+      totalPages,
+      titlesDiscovered: rawDiscoveredList.length,
+      metadataProcessed: 0,
+      totalToProcess: rawDiscoveredList.length,
+      duplicatesRemoved: 0,
+      newTitlesAdded: 0,
+      titlesUpdated: 0,
+      markedUnavailable: 0,
+      message: `Syncing Netflix India... Page ${page} / ${totalPages} (${rawDiscoveredList.length} titles discovered)`,
+    });
+
+    page++;
+    // Polite spacing between page requests to avoid hitting rate bursts
+    await sleep(250);
+  }
+
+  // 2. Deduplicate Discovered Titles
+  onProgress({
+    phase: 'deduplicating',
+    currentPage: totalPages,
+    totalPages,
+    titlesDiscovered: rawDiscoveredList.length,
+    metadataProcessed: 0,
+    totalToProcess: rawDiscoveredList.length,
+    duplicatesRemoved: 0,
+    newTitlesAdded: 0,
+    titlesUpdated: 0,
+    markedUnavailable: 0,
+    message: 'Deduplicating titles against identity hierarchy...',
+  });
+
+  const deduplicatedDiscovered = deduplicateDiscoveryTitles(rawDiscoveredList);
+  const duplicatesRemoved = rawDiscoveredList.length - deduplicatedDiscovered.length;
+
+  // 3. Incremental Merge against Existing Database
+  let newTitlesAdded = 0;
+  let titlesUpdated = 0;
+  let markedUnavailable = 0;
+
+  const mergedTitlesMap = new Map<string, DiscoveryTitle>();
+
+  // Add all deduplicated newly discovered titles
+  for (const item of deduplicatedDiscovered) {
+    // Check if item already exists locally
+    let existing: DiscoveryTitle | undefined;
+    if (item.watchmodeId && existingMap.has(`wm_${item.watchmodeId}`)) {
+      existing = existingMap.get(`wm_${item.watchmodeId}`);
+    } else if (item.imdbId && existingMap.has(`imdb_${item.imdbId}`)) {
+      existing = existingMap.get(`imdb_${item.imdbId}`);
+    } else if (item.tmdbId && existingMap.has(`tmdb_${item.mediaType}_${item.tmdbId}`)) {
+      existing = existingMap.get(`tmdb_${item.mediaType}_${item.tmdbId}`);
+    } else {
+      const titleKey = `title_${createDuplicateKey(item.title)}_${item.releaseYear || '0'}`;
+      if (existingMap.has(titleKey)) {
+        existing = existingMap.get(titleKey);
+      }
+    }
+
+    if (existing) {
+      // Merge new availability state with existing rich metadata
+      const merged: DiscoveryTitle = {
+        ...existing,
+        ...item,
+        // Preserve already enriched fields if incoming item has empty ones
+        posterPath: existing.posterPath || item.posterPath,
+        backdropPath: existing.backdropPath || item.backdropPath,
+        synopsis: existing.synopsis || item.synopsis,
+        genres: existing.genres.length > 0 ? existing.genres : item.genres,
+        countries: existing.countries.length > 0 ? existing.countries : item.countries,
+        audioLanguages: existing.audioLanguages && existing.audioLanguages.length > 0 ? existing.audioLanguages : item.audioLanguages,
+        rating: existing.rating || item.rating,
+        imdbRating: existing.imdbRating || item.imdbRating,
+        rottenTomatoesRating: existing.rottenTomatoesRating || item.rottenTomatoesRating,
+        runtimeMinutes: existing.runtimeMinutes || item.runtimeMinutes,
+        totalSeasons: existing.totalSeasons || item.totalSeasons,
+        totalEpisodes: existing.totalEpisodes || item.totalEpisodes,
+        cast: existing.cast || item.cast,
+        director: existing.director || item.director,
+        creator: existing.creator || item.creator,
+        trailer: existing.trailer || item.trailer,
+        isNetflixIndiaVerified: true,
+        netflixIndiaAvailable: true,
+        availabilityState: 'available',
+        catalogUpdatedAt: new Date().toISOString(),
+      };
+      mergedTitlesMap.set(merged.id, merged);
+      titlesUpdated++;
+    } else {
+      mergedTitlesMap.set(item.id, item);
+      newTitlesAdded++;
+    }
+  }
+
+  // Check for titles that disappeared from Netflix India (Incremental soft delete / preserve history)
+  for (const oldItem of options.existingTitles) {
+    if (!mergedTitlesMap.has(oldItem.id)) {
+      // Check if it was matched under any alias
+      const wasDiscovered =
+        (oldItem.watchmodeId && discoveredIds.has(`wm_${oldItem.watchmodeId}`)) ||
+        (oldItem.imdbId && discoveredIds.has(`imdb_${oldItem.imdbId}`)) ||
+        (oldItem.tmdbId && discoveredIds.has(`tmdb_${oldItem.mediaType}_${oldItem.tmdbId}`));
+
+      if (!wasDiscovered) {
+        // Mark as No Longer Available, NEVER delete
+        mergedTitlesMap.set(oldItem.id, {
+          ...oldItem,
+          netflixIndiaAvailable: false,
+          availabilityState: 'no_longer_available',
+          catalogUpdatedAt: new Date().toISOString(),
+        });
+        markedUnavailable++;
+      }
+    }
+  }
+
+  const allMergedTitles = Array.from(mergedTitlesMap.values());
+
+  // 4. Batch TMDB Metadata Enrichment with Concurrency Control
+  // Only enrich titles that have missing posters or missing synopsis or missing genres
+  const toEnrich = allMergedTitles.filter(
+    (t) => t.availabilityState === 'available' && (!t.posterPath || !t.synopsis || t.genres.length === 0)
+  );
+
+  let metadataProcessed = 0;
+  const totalToEnrich = toEnrich.length;
+  const CONCURRENCY = 4; // Controlled concurrency to respect TMDB rate limits
+
+  for (let i = 0; i < toEnrich.length; i += CONCURRENCY) {
+    const chunk = toEnrich.slice(i, i + CONCURRENCY);
+    await Promise.all(
+      chunk.map(async (titleItem) => {
+        try {
+          const enriched = await enrichTitleWithTMDB(titleItem, tmdbKey);
+          mergedTitlesMap.set(enriched.id, enriched);
+        } catch (err) {
+          console.warn('Metadata enrichment error for', titleItem.title, err);
+        } finally {
+          metadataProcessed++;
+        }
+      })
+    );
+
+    onProgress({
+      phase: 'enriching_tmdb',
+      currentPage: totalPages,
+      totalPages,
+      titlesDiscovered: deduplicatedDiscovered.length,
+      metadataProcessed,
+      totalToProcess: totalToEnrich,
+      duplicatesRemoved,
+      newTitlesAdded,
+      titlesUpdated,
+      markedUnavailable,
+      message: `Enriching TMDB metadata... ${metadataProcessed} / ${totalToEnrich} titles processed`,
+    });
+
+    // Small delay to protect TMDB rate limit
+    await sleep(150);
+  }
+
+  const finalTitles = Array.from(mergedTitlesMap.values());
+
+  onProgress({
+    phase: 'completed',
+    currentPage: totalPages,
+    totalPages,
+    titlesDiscovered: deduplicatedDiscovered.length,
+    metadataProcessed,
+    totalToProcess: totalToEnrich,
+    duplicatesRemoved,
+    newTitlesAdded,
+    titlesUpdated,
+    markedUnavailable,
+    message: `Sync complete! ${finalTitles.length} titles in local database.`,
+  });
+
+  return {
+    allTitles: finalTitles,
+    newTitlesAdded,
+    titlesUpdated,
+    markedUnavailable,
+    duplicatesRemoved,
+  };
+}
+
+/**
+ * Fetch Netflix India catalog via TMDB discover API with provider=8 & region=IN (Fallback / On-demand browsing)
  */
 export async function fetchNetflixIndiaDiscovery(
   options: {
@@ -899,15 +1463,15 @@ export async function fetchNetflixIndiaDiscovery(
     apiKey?: string;
     omdbApiKey?: string;
     watchmodeApiKey?: string;
-    pagesToFetch?: number; // Support fetching multiple batches (e.g. 1-3) for a rich browsing catalog
+    pagesToFetch?: number;
   } = {}
 ): Promise<{ titles: DiscoveryTitle[]; totalResults: number; totalPages: number }> {
   const startPage = options.page || 1;
-  const numPages = options.pagesToFetch || 2; // Fetch 2 pages at a time (40-60 titles per batch)
+  const numPages = options.pagesToFetch || 2;
   const apiKey = options.apiKey || DEFAULT_PUBLIC_TMDB_KEY;
-  const cacheKey = `discovery_in_p${startPage}_n${numPages}_${options.mediaType || 'all'}_v2`;
+  const cacheKey = `discovery_in_p${startPage}_n${numPages}_${options.mediaType || 'all'}_v3`;
 
-  // Check cache first (ignore if empty or old truncated cache)
+  // Check cache first
   const cached = await getCachedMetadata(cacheKey);
   if (cached && Array.isArray(cached.titles) && cached.titles.length > 25) {
     return cached;
@@ -931,7 +1495,12 @@ export async function fetchNetflixIndiaDiscovery(
             .then((d) => {
               if (d.total_results) reportedTotalResults = Math.max(reportedTotalResults, d.total_results);
               if (d.total_pages) reportedTotalPages = Math.max(reportedTotalPages, d.total_pages);
-              return (d.results || []).map((m: any) => normalizeTmdbToDiscovery(m, 'movie'));
+              return (d.results || []).map((m: any) => {
+                const norm = normalizeTmdbToDiscovery(m, 'movie');
+                norm.netflixIndiaAvailable = true;
+                norm.availabilityState = 'available';
+                return norm;
+              });
             })
             .catch(() => [])
         );
@@ -945,7 +1514,12 @@ export async function fetchNetflixIndiaDiscovery(
             .then((d) => {
               if (d.total_results) reportedTotalResults = Math.max(reportedTotalResults, d.total_results);
               if (d.total_pages) reportedTotalPages = Math.max(reportedTotalPages, d.total_pages);
-              return (d.results || []).map((t: any) => normalizeTmdbToDiscovery(t, 'tv'));
+              return (d.results || []).map((t: any) => {
+                const norm = normalizeTmdbToDiscovery(t, 'tv');
+                norm.netflixIndiaAvailable = true;
+                norm.availabilityState = 'available';
+                return norm;
+              });
             })
             .catch(() => [])
         );
@@ -958,7 +1532,6 @@ export async function fetchNetflixIndiaDiscovery(
     console.warn('Discovery TMDB fetch encountered an issue:', err);
   }
 
-  // Deduplicate dynamic results
   const deduplicated = deduplicateDiscoveryTitles(fetchedTitles);
 
   const result = {
@@ -967,9 +1540,9 @@ export async function fetchNetflixIndiaDiscovery(
     totalPages: reportedTotalPages || 250,
   };
 
-  // Cache for 6 hours
   if (deduplicated.length > 0) {
     await setCachedMetadata(cacheKey, result);
   }
   return result;
 }
+

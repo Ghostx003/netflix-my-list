@@ -138,7 +138,8 @@ export interface TrailerInfo {
 }
 
 export interface DiscoveryTitle {
-  id: string;
+  id: string; // Unified internal ID
+  watchmodeId?: number;
   tmdbId?: number;
   imdbId?: string;
   netflixId?: string;
@@ -160,6 +161,11 @@ export interface DiscoveryTitle {
   originalLanguage?: string;
   audioLanguages?: string[];
   subtitleLanguages?: string[];
+  // Strict language fields (true, false, or null if unknown)
+  hindiAudio?: boolean | null;
+  englishAudio?: boolean | null;
+  hindiSubtitles?: boolean | null;
+  englishSubtitles?: boolean | null;
   runtimeMinutes?: number;
   totalSeasons?: number;
   totalEpisodes?: number;
@@ -169,8 +175,14 @@ export interface DiscoveryTitle {
   cast?: string[];
   director?: string;
   creator?: string;
+  // Netflix India availability
   isNetflixIndiaVerified: boolean;
+  netflixIndiaAvailable?: boolean;
+  availabilityState?: 'available' | 'no_longer_available' | 'unknown';
   availabilitySource?: string;
+  sourceUrl?: string;
+  metadataUpdatedAt?: string;
+  catalogUpdatedAt?: string;
 }
 
 export interface SavedDiscoveryFilter {

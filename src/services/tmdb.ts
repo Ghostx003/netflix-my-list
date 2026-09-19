@@ -4,7 +4,9 @@ import { getCachedMetadata, setCachedMetadata } from './db';
 import { SAMPLE_METADATA_MAP } from './tmdbSampleData';
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
-export const DEFAULT_PUBLIC_TMDB_KEY = '1cf50e6248dc270629e802686245c2c8';
+export const DEFAULT_PUBLIC_TMDB_KEY =
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_TMDB_API_KEY) ||
+  'ec3ae1f9fde58cd94e4297c4cb3b77de';
 const OMDB_KEY = 'trilogy';
 
 export interface TMDBMatchCandidate {
