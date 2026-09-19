@@ -2,32 +2,26 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   Compass,
   Search,
-  SlidersHorizontal,
   RotateCcw,
   Sparkles,
-  Plus,
+  ArrowUpDown,
+  Sliders,
+  Globe,
+  Calendar,
+  Languages,
+  Ban,
   Check,
-  Play,
-  Film,
-  Tv,
-  Star,
-  Layers,
-  ChevronDown,
-  ChevronUp,
   X,
-  BookmarkPlus,
-  ExternalLink,
-  ChevronLeft,
-  ChevronRight,
   ShieldCheck,
-  Filter,
   RefreshCw,
-  Database,
   BarChart2,
   AlertTriangle,
-  Info,
+  ChevronLeft,
+  ChevronRight,
+  Film,
+  Tv,
 } from 'lucide-react';
-import { AppSettings, DiscoveryTitle, LibraryItem, SavedDiscoveryFilter } from '../types';
+import { AppSettings, DiscoveryTitle, LibraryItem } from '../types';
 import {
   fetchNetflixIndiaDiscovery,
   fetchInitialWatchmodeDiscovery,
@@ -43,9 +37,14 @@ import {
   getDiscoveryCatalogMeta,
   setDiscoveryCatalogMeta,
 } from '../services/db';
-import { getNetflixUrl, normalizeCountryName } from '../services/normalizer';
-import { formatRuntime } from '../services/analytics';
-import { CachedImage } from './CachedImage';
+import { normalizeCountryName } from '../services/normalizer';
+import { DiscoveryCard } from './DiscoveryCard';
+import {
+  DiscoveryFilterState,
+  parseInitialDiscoveryFilters,
+  syncDiscoveryFiltersToUrlAndStorage,
+  clearDiscoveryFiltersFromUrlAndStorage,
+} from '../services/discoveryFilterUrlSync';
 import confetti from 'canvas-confetti';
 
 interface DiscoveryViewProps {
@@ -103,7 +102,6 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   const [loading, setLoading] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [quotaInfo, setQuotaInfo] = useState<WatchmodeStatusResponse | null>(null);
-  const [showUnavailable, setShowUnavailable] = useState(false);
   const [showStats, setShowStats] = useState(false);
 
   // Syncing Pipeline State
@@ -115,56 +113,38 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   const [syncMoviesCount, setSyncMoviesCount] = useState<number>(100);
   const [syncTvShowsCount, setSyncTvShowsCount] = useState<number>(100);
 
+  // Initial filter state from URL or localStorage
+  const initialFilters = useMemo(() => parseInitialDiscoveryFilters(), []);
+
   // UI pagination state
   const [visibleCount, setVisibleCount] = useState<number>(ITEMS_PER_BATCH);
   const [viewMode, setViewMode] = useState<'infinite' | 'pages'>('infinite');
   const [currentPage, setCurrentPage] = useState(1);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  // Filters state
-  const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [activePreset, setActivePreset] = useState<PresetType>('all');
-  const [contentType, setContentType] = useState<ContentType>('all');
-  const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
-  const [genreMatchMode, setGenreMatchMode] = useState<'any' | 'all'>('any');
-  const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
-  const [selectedLanguage, setSelectedLanguage] = useState<string>('all');
-  const [audioFilter, setAudioFilter] = useState<string>('all');
-  const [minYear, setMinYear] = useState<string>('');
-  const [maxYear, setMaxYear] = useState<string>('');
-  const [minImdbRating, setMinImdbRating] = useState<number>(0);
-  const [minTmdbScore, setMinTmdbScore] = useState<number>(0);
-  const [minRtScore, setMinRtScore] = useState<number>(0);
-  const [sortBy, setSortBy] = useState<
-    | 'netflix_newest'
-    | 'year_desc'
-    | 'year_asc'
-    | 'imdb_desc'
-    | 'imdb_asc'
-    | 'tmdb_desc'
-    | 'tmdb_asc'
-    | 'rt_desc'
-    | 'alpha_asc'
-    | 'alpha_desc'
-    | 'runtime_shortest'
-    | 'runtime_longest'
-    | 'episodes_fewest'
-    | 'episodes_most'
-  >('netflix_newest');
+  // Synchronized Filters State
+  const [searchQuery, setSearchQuery] = useState(initialFilters.searchQuery);
+  const [debouncedQuery, setDebouncedQuery] = useState(initialFilters.searchQuery);
+  const [contentType, setContentType] = useState<'all' | 'movie' | 'tv'>(initialFilters.mediaType);
+  const [activePreset, setActivePreset] = useState<PresetType>(initialFilters.preset as PresetType);
+  const [sortBy, setSortBy] = useState(initialFilters.sortBy);
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(initialFilters.sortOrder);
+  const [selectedGenres, setSelectedGenres] = useState<string[]>(initialFilters.selectedGenres);
+  const [genreMatchMode, setGenreMatchMode] = useState<'any' | 'all'>(initialFilters.genreMatchMode);
+  const [selectedCountries, setSelectedCountries] = useState<string[]>(initialFilters.selectedCountries);
+  const [excludedCountries, setExcludedCountries] = useState<string[]>(initialFilters.excludedCountries);
+  const [selectedLanguage, setSelectedLanguage] = useState<string>(initialFilters.language);
+  const [audioFilter, setAudioFilter] = useState<string>(initialFilters.audioFilter);
+  const [minYear, setMinYear] = useState<string>(initialFilters.minYear);
+  const [maxYear, setMaxYear] = useState<string>(initialFilters.maxYear);
+  const [minRating, setMinRating] = useState<number>(initialFilters.minRating);
 
-  // UI filter modal state
-  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
-  const [savedFilters, setSavedFilters] = useState<SavedDiscoveryFilter[]>(() => {
-    try {
-      const raw = localStorage.getItem('netflix_saved_discovery_filters');
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [filterSaveName, setFilterSaveName] = useState('');
-  const [showSaveInput, setShowSaveInput] = useState(false);
+  // Modal dialog states matching MoviesSeriesView
+  const [showGenreModal, setShowGenreModal] = useState(false);
+  const [showCountryModal, setShowCountryModal] = useState(false);
+  const [showYearModal, setShowYearModal] = useState(false);
+  const [countryModalTab, setCountryModalTab] = useState<'include' | 'exclude'>('include');
+  const [countrySearchQuery, setCountrySearchQuery] = useState('');
 
   // Debounce search query
   useEffect(() => {
@@ -175,6 +155,67 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     }, 300);
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  // Synchronize Discovery filters to URL parameters and LocalStorage
+  useEffect(() => {
+    const filterState: DiscoveryFilterState = {
+      searchQuery,
+      mediaType: contentType,
+      preset: activePreset,
+      sortBy: sortBy as any,
+      sortOrder,
+      selectedGenres,
+      genreMatchMode,
+      selectedCountries,
+      excludedCountries,
+      language: selectedLanguage,
+      audioFilter,
+      minYear,
+      maxYear,
+      minRating,
+    };
+    syncDiscoveryFiltersToUrlAndStorage(filterState);
+  }, [
+    searchQuery,
+    contentType,
+    activePreset,
+    sortBy,
+    sortOrder,
+    selectedGenres,
+    genreMatchMode,
+    selectedCountries,
+    excludedCountries,
+    selectedLanguage,
+    audioFilter,
+    minYear,
+    maxYear,
+    minRating,
+  ]);
+
+  // Handle browser back/forward buttons
+  useEffect(() => {
+    const handlePopState = () => {
+      const parsed = parseInitialDiscoveryFilters();
+      setSearchQuery(parsed.searchQuery);
+      setDebouncedQuery(parsed.searchQuery);
+      setContentType(parsed.mediaType);
+      setActivePreset(parsed.preset as PresetType);
+      setSortBy(parsed.sortBy as any);
+      setSortOrder(parsed.sortOrder);
+      setSelectedGenres(parsed.selectedGenres);
+      setGenreMatchMode(parsed.genreMatchMode);
+      setSelectedCountries(parsed.selectedCountries);
+      setExcludedCountries(parsed.excludedCountries);
+      setSelectedLanguage(parsed.language);
+      setAudioFilter(parsed.audioFilter);
+      setMinYear(parsed.minYear);
+      setMaxYear(parsed.maxYear);
+      setMinRating(parsed.minRating);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Initial load: load from local IndexedDB first
   useEffect(() => {
@@ -359,57 +400,57 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       setSelectedCountries([]);
       setSelectedGenres([]);
       setAudioFilter('all');
-      setMinImdbRating(0);
+      setMinRating(0);
       setSortBy('netflix_newest');
     } else if (preset === 'hollywood') {
       setContentType('all');
       setSelectedCountries(['United States']);
       setSelectedGenres([]);
       setAudioFilter('all');
-      setMinImdbRating(0);
+      setMinRating(0);
     } else if (preset === 'bollywood') {
       setContentType('all');
       setSelectedCountries(['India']);
       setSelectedGenres([]);
       setAudioFilter('all');
-      setMinImdbRating(0);
+      setMinRating(0);
     } else if (preset === 'kdramas') {
       setContentType('tv');
       setSelectedCountries(['South Korea']);
       setSelectedGenres([]);
       setAudioFilter('all');
-      setMinImdbRating(0);
+      setMinRating(0);
     } else if (preset === 'anime') {
       setContentType('all');
       setSelectedCountries(['Japan']);
       setSelectedGenres(['Animation']);
       setAudioFilter('all');
-      setMinImdbRating(0);
+      setMinRating(0);
     } else if (preset === 'european') {
       setContentType('all');
       setSelectedCountries(Array.from(EUROPEAN_COUNTRIES));
       setSelectedGenres([]);
       setAudioFilter('all');
-      setMinImdbRating(0);
+      setMinRating(0);
     } else if (preset === 'hindi_dubbed') {
       setContentType('all');
       setSelectedCountries([]);
       setSelectedGenres([]);
       setAudioFilter('hi');
-      setMinImdbRating(0);
+      setMinRating(0);
     } else if (preset === 'highly_rated') {
       setContentType('all');
       setSelectedCountries([]);
       setSelectedGenres([]);
       setAudioFilter('all');
-      setMinImdbRating(8.0);
+      setMinRating(8.0);
       setSortBy('imdb_desc');
     } else if (preset === 'recently_added') {
       setContentType('all');
       setSelectedCountries([]);
       setSelectedGenres([]);
       setAudioFilter('all');
-      setMinImdbRating(0);
+      setMinRating(0);
       setSortBy('netflix_newest');
     }
   };
@@ -423,15 +464,17 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     setSelectedGenres([]);
     setGenreMatchMode('any');
     setSelectedCountries([]);
+    setExcludedCountries([]);
+    setCountrySearchQuery('');
     setSelectedLanguage('all');
     setAudioFilter('all');
     setMinYear('');
     setMaxYear('');
-    setMinImdbRating(0);
-    setMinTmdbScore(0);
-    setMinRtScore(0);
+    setMinRating(0);
     setSortBy('netflix_newest');
+    setSortOrder('desc');
     setCurrentPage(1);
+    clearDiscoveryFiltersFromUrlAndStorage();
   };
 
   // Check if title is already in user's library
@@ -467,7 +510,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       result = result.filter((x) => x.mediaType === contentType);
     }
 
-    // 2. Search query (Title, alternate/original title, genre, country, language)
+    // 2. Search query (Title, alternate/original title, genre, country, language, cast, director)
     if (debouncedQuery) {
       const q = debouncedQuery.toLowerCase();
       result = result.filter((x) => {
@@ -485,10 +528,18 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     if (activePreset === 'european') {
       result = result.filter((x) => (x.countries || []).some((c) => EUROPEAN_COUNTRIES.has(normalizeCountryName(c))));
     } else if (selectedCountries.length > 0) {
-      // 4. Country filter
+      // 4. Country include filter
       result = result.filter((x) => {
         const normalizedItemCountries = (x.countries || []).map(normalizeCountryName);
         return selectedCountries.some((c) => normalizedItemCountries.includes(c));
+      });
+    }
+
+    // 4b. Country exclude filter
+    if (excludedCountries.length > 0) {
+      result = result.filter((x) => {
+        const normalizedItemCountries = (x.countries || []).map(normalizeCountryName);
+        return !excludedCountries.some((c) => normalizedItemCountries.includes(c));
       });
     }
 
@@ -501,16 +552,46 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       }
     }
 
-    // 6. Original Language filter
+    // 6. Original Language / Spoken Language filter
     if (selectedLanguage !== 'all') {
-      result = result.filter((x) => (x.originalLanguage || '').toLowerCase() === selectedLanguage.toLowerCase());
+      if (selectedLanguage === 'hindi') {
+        result = result.filter((x) =>
+          x.originalLanguage === 'hi' ||
+          x.hindiAudio === true ||
+          (x.audioLanguages || []).includes('hi')
+        );
+      } else if (selectedLanguage === 'english') {
+        result = result.filter((x) =>
+          x.originalLanguage === 'en' ||
+          x.englishAudio === true ||
+          (x.audioLanguages || []).includes('en')
+        );
+      } else if (selectedLanguage === 'asian') {
+        const asianLangs = ['ja', 'ko', 'zh', 'hi', 'te', 'ta', 'th', 'id', 'tl', 'vi'];
+        result = result.filter((x) =>
+          asianLangs.includes((x.originalLanguage || '').toLowerCase())
+        );
+      } else if (selectedLanguage === 'japanese') {
+        result = result.filter((x) => (x.originalLanguage || '').toLowerCase() === 'ja');
+      } else if (selectedLanguage === 'korean') {
+        result = result.filter((x) => (x.originalLanguage || '').toLowerCase() === 'ko');
+      } else if (selectedLanguage === 'chinese') {
+        result = result.filter((x) => (x.originalLanguage || '').toLowerCase() === 'zh');
+      } else if (selectedLanguage === 'spanish') {
+        result = result.filter((x) => (x.originalLanguage || '').toLowerCase() === 'es');
+      } else if (selectedLanguage === 'french') {
+        result = result.filter((x) => (x.originalLanguage || '').toLowerCase() === 'fr');
+      } else if (selectedLanguage === 'german') {
+        result = result.filter((x) => (x.originalLanguage || '').toLowerCase() === 'de');
+      } else {
+        result = result.filter((x) => (x.originalLanguage || '').toLowerCase() === selectedLanguage.toLowerCase());
+      }
     }
 
     // 7. Audio Language (Strict check)
     if (audioFilter !== 'all') {
       result = result.filter((x) => {
         if (!x.audioLanguages || x.audioLanguages.length === 0) {
-          // If original language matches, audio is guaranteed in that language
           return (x.originalLanguage || '').toLowerCase() === audioFilter.toLowerCase();
         }
         return x.audioLanguages.map((l) => l.toLowerCase()).includes(audioFilter.toLowerCase());
@@ -531,85 +612,74 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       }
     }
 
-    // 9. Ratings filters
-    if (minImdbRating > 0) {
-      result = result.filter((x) => x.imdbRating !== undefined && x.imdbRating >= minImdbRating);
-    }
-    if (minTmdbScore > 0) {
-      result = result.filter((x) => x.rating !== undefined && x.rating >= minTmdbScore);
-    }
-    if (minRtScore > 0) {
-      result = result.filter((x) => x.rottenTomatoesRating !== undefined && x.rottenTomatoesRating >= minRtScore);
-    }
-
-    // Availability filter (Default: show only available on Netflix India)
-    if (!showUnavailable) {
-      result = result.filter((x) => x.availabilityState !== 'no_longer_available');
+    // 9. Min rating filter (IMDb, TMDB, or RT)
+    if (minRating > 0) {
+      result = result.filter((x) => {
+        const score = x.rottenTomatoesRating !== undefined
+          ? x.rottenTomatoesRating / 10
+          : (x.imdbRating || x.rating || 0);
+        return score >= minRating;
+      });
     }
 
     // 10. Sorting
-    const sorted = [...result].sort((a, b) => {
-      switch (sortBy) {
-        case 'netflix_newest': {
-          const dateA = a.netflixAddedDate || a.releaseDate || '0';
-          const dateB = b.netflixAddedDate || b.releaseDate || '0';
-          return dateB.localeCompare(dateA);
-        }
-        case 'year_desc':
-          return (b.releaseYear || 0) - (a.releaseYear || 0);
-        case 'year_asc':
-          return (a.releaseYear || 0) - (b.releaseYear || 0);
-        case 'imdb_desc':
-          return (b.imdbRating || 0) - (a.imdbRating || 0);
-        case 'imdb_asc':
-          return (a.imdbRating || 0) - (b.imdbRating || 0);
-        case 'tmdb_desc':
-          return (b.rating || 0) - (a.rating || 0);
-        case 'tmdb_asc':
-          return (a.rating || 0) - (b.rating || 0);
-        case 'rt_desc':
-          return (b.rottenTomatoesRating || 0) - (a.rottenTomatoesRating || 0);
-        case 'alpha_asc':
-          return a.title.localeCompare(b.title);
-        case 'alpha_desc':
-          return b.title.localeCompare(a.title);
-        case 'runtime_shortest': {
-          const rtA = a.mediaType === 'movie' ? a.runtimeMinutes || 999 : (a.totalEpisodes || 1) * (a.averageEpisodeMinutes || 45);
-          const rtB = b.mediaType === 'movie' ? b.runtimeMinutes || 999 : (b.totalEpisodes || 1) * (b.averageEpisodeMinutes || 45);
-          return rtA - rtB;
-        }
-        case 'runtime_longest': {
-          const rtA = a.mediaType === 'movie' ? a.runtimeMinutes || 0 : (a.totalEpisodes || 1) * (a.averageEpisodeMinutes || 45);
-          const rtB = b.mediaType === 'movie' ? b.runtimeMinutes || 0 : (b.totalEpisodes || 1) * (b.averageEpisodeMinutes || 45);
-          return rtB - rtA;
-        }
-        case 'episodes_fewest':
-          return (a.totalEpisodes || 0) - (b.totalEpisodes || 0);
-        case 'episodes_most':
-          return (b.totalEpisodes || 0) - (a.totalEpisodes || 0);
-        default:
-          return 0;
-      }
-    });
+    return [...result].sort((a, b) => {
+      let comparison = 0;
 
-    return sorted;
+      if (sortBy === 'netflix_newest' || sortBy === 'recently_added') {
+        const dateA = a.netflixAddedDate || a.releaseDate || '0';
+        const dateB = b.netflixAddedDate || b.releaseDate || '0';
+        comparison = dateB.localeCompare(dateA);
+      } else if (sortBy === 'year_desc') {
+        comparison = (b.releaseYear || 0) - (a.releaseYear || 0);
+      } else if (sortBy === 'year_asc') {
+        comparison = (a.releaseYear || 0) - (b.releaseYear || 0);
+      } else if (sortBy === 'imdb_desc') {
+        comparison = (b.imdbRating || 0) - (a.imdbRating || 0);
+      } else if (sortBy === 'imdb_asc') {
+        comparison = (a.imdbRating || 0) - (b.imdbRating || 0);
+      } else if (sortBy === 'tmdb_desc') {
+        comparison = (b.rating || 0) - (a.rating || 0);
+      } else if (sortBy === 'tmdb_asc') {
+        comparison = (a.rating || 0) - (b.rating || 0);
+      } else if (sortBy === 'rt_desc') {
+        comparison = (b.rottenTomatoesRating || 0) - (a.rottenTomatoesRating || 0);
+      } else if (sortBy === 'alpha_asc') {
+        comparison = a.title.localeCompare(b.title);
+      } else if (sortBy === 'alpha_desc') {
+        comparison = b.title.localeCompare(a.title);
+      } else if (sortBy === 'runtime_shortest') {
+        const rtA = a.mediaType === 'movie' ? a.runtimeMinutes || 999 : (a.totalEpisodes || 1) * (a.averageEpisodeMinutes || 45);
+        const rtB = b.mediaType === 'movie' ? b.runtimeMinutes || 999 : (b.totalEpisodes || 1) * (b.averageEpisodeMinutes || 45);
+        comparison = rtA - rtB;
+      } else if (sortBy === 'runtime_longest') {
+        const rtA = a.mediaType === 'movie' ? a.runtimeMinutes || 0 : (a.totalEpisodes || 1) * (a.averageEpisodeMinutes || 45);
+        const rtB = b.mediaType === 'movie' ? b.runtimeMinutes || 0 : (b.totalEpisodes || 1) * (b.averageEpisodeMinutes || 45);
+        comparison = rtB - rtA;
+      } else if (sortBy === 'episodes_fewest') {
+        comparison = (a.totalEpisodes || 0) - (b.totalEpisodes || 0);
+      } else if (sortBy === 'episodes_most') {
+        comparison = (b.totalEpisodes || 0) - (a.totalEpisodes || 0);
+      }
+
+      return sortOrder === 'asc' ? -comparison : comparison;
+    });
   }, [
     catalog,
     contentType,
     debouncedQuery,
     activePreset,
     selectedCountries,
+    excludedCountries,
     selectedGenres,
     genreMatchMode,
     selectedLanguage,
     audioFilter,
     minYear,
     maxYear,
-    minImdbRating,
-    minTmdbScore,
-    minRtScore,
+    minRating,
     sortBy,
-    showUnavailable,
+    sortOrder,
   ]);
 
   // Catalogue Analytics (calculated dynamically from actual local catalog)
@@ -736,67 +806,6 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     onOpenDetail(convertToLibraryItem(randomItem));
   };
 
-  // Save current filter configuration
-  const handleSaveFilter = () => {
-    if (!filterSaveName.trim()) return;
-    const newFilter: SavedDiscoveryFilter = {
-      id: 'filt_' + Date.now(),
-      name: filterSaveName.trim(),
-      createdAt: new Date().toISOString(),
-      state: {
-        contentType,
-        preset: activePreset,
-        searchQuery,
-        selectedGenres,
-        genreMatchMode,
-        selectedCountries,
-        selectedLanguages: selectedLanguage !== 'all' ? [selectedLanguage] : [],
-        audioLanguage: audioFilter,
-        minYear,
-        maxYear,
-        minImdb: minImdbRating,
-        minTmdb: minTmdbScore,
-        minRottenTomatoes: minRtScore,
-        sortBy,
-        sortOrder: 'desc',
-      },
-    };
-    const updated = [newFilter, ...savedFilters];
-    setSavedFilters(updated);
-    try {
-      localStorage.setItem('netflix_saved_discovery_filters', JSON.stringify(updated));
-    } catch {}
-    setFilterSaveName('');
-    setShowSaveInput(false);
-  };
-
-  const handleApplySavedFilter = (saved: SavedDiscoveryFilter) => {
-    setContentType(saved.state.contentType);
-    setActivePreset(saved.state.preset as PresetType);
-    setSearchQuery(saved.state.searchQuery || '');
-    setSelectedGenres(saved.state.selectedGenres || []);
-    setGenreMatchMode(saved.state.genreMatchMode || 'any');
-    setSelectedCountries(saved.state.selectedCountries || []);
-    setSelectedLanguage(saved.state.selectedLanguages?.[0] || 'all');
-    setAudioFilter(saved.state.audioLanguage || 'all');
-    setMinYear(saved.state.minYear || '');
-    setMaxYear(saved.state.maxYear || '');
-    setMinImdbRating(saved.state.minImdb || 0);
-    setMinTmdbScore(saved.state.minTmdb || 0);
-    setMinRtScore(saved.state.minRottenTomatoes || 0);
-    if (saved.state.sortBy) setSortBy(saved.state.sortBy as any);
-    setCurrentPage(1);
-  };
-
-  const handleDeleteSavedFilter = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const updated = savedFilters.filter((x) => x.id !== id);
-    setSavedFilters(updated);
-    try {
-      localStorage.setItem('netflix_saved_discovery_filters', JSON.stringify(updated));
-    } catch {}
-  };
-
   // Active filters count
   const activeFiltersCount = useMemo(() => {
     let count = 0;
@@ -804,12 +813,11 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     if (activePreset !== 'all') count++;
     if (selectedGenres.length > 0) count++;
     if (selectedCountries.length > 0) count++;
+    if (excludedCountries.length > 0) count++;
     if (selectedLanguage !== 'all') count++;
     if (audioFilter !== 'all') count++;
     if (minYear || maxYear) count++;
-    if (minImdbRating > 0) count++;
-    if (minTmdbScore > 0) count++;
-    if (minRtScore > 0) count++;
+    if (minRating > 0) count++;
     if (debouncedQuery) count++;
     return count;
   }, [
@@ -817,13 +825,12 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     activePreset,
     selectedGenres,
     selectedCountries,
+    excludedCountries,
     selectedLanguage,
     audioFilter,
     minYear,
     maxYear,
-    minImdbRating,
-    minTmdbScore,
-    minRtScore,
+    minRating,
     debouncedQuery,
   ]);
 
@@ -896,25 +903,6 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
           >
             <Sparkles className="w-4 h-4 text-purple-200" />
             <span className="hidden sm:inline">Surprise Me</span>
-          </button>
-
-          {/* Filters Toggle Button */}
-          <button
-            onClick={() => setIsFilterPanelOpen(!isFilterPanelOpen)}
-            className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold border transition-all ${
-              isFilterPanelOpen || activeFiltersCount > 0
-                ? 'bg-[#E50914] text-white border-[#E50914] shadow-lg shadow-red-600/30'
-                : 'bg-white/10 hover:bg-white/20 text-zinc-200 border-white/10'
-            }`}
-          >
-            <SlidersHorizontal className="w-4 h-4" />
-            <span>Filters</span>
-            {activeFiltersCount > 0 && (
-              <span className="ml-0.5 px-1.5 py-0.2 bg-black/50 text-white rounded-full text-[10px] font-mono">
-                {activeFiltersCount}
-              </span>
-            )}
-            {isFilterPanelOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </button>
         </div>
       </div>
@@ -1180,540 +1168,303 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
         </div>
       )}
 
-      {/* 2. Search & Preset Shortcuts */}
-      <div className="space-y-3">
-        {/* Search Bar */}
-        <div className="relative">
-          <Search className="w-5 h-5 text-zinc-400 absolute left-4 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search Netflix India by title, genre, actor, director, or country..."
-            className="w-full pl-11 pr-10 py-3 bg-zinc-900/90 border border-white/10 rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-[#E50914] transition-all shadow-inner"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white p-1"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-
-        {/* Discovery Presets */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-          {(
-            [
-              { id: 'all', label: 'All Catalog' },
-              { id: 'hollywood', label: '🎬 Hollywood' },
-              { id: 'bollywood', label: '🇮🇳 Bollywood' },
-              { id: 'kdramas', label: '🇰🇷 K-Dramas' },
-              { id: 'anime', label: '⚔️ Anime' },
-              { id: 'european', label: '🏰 European' },
-              { id: 'hindi_dubbed', label: 'हिं Hindi Dubbed' },
-              { id: 'highly_rated', label: '⭐ Highly Rated (8.0+)' },
-              { id: 'recently_added', label: '✨ Recently Added' },
-            ] as const
-          ).map((preset) => (
-            <button
-              key={preset.id}
-              onClick={() => handleApplyPreset(preset.id)}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap border ${
-                activePreset === preset.id
-                  ? 'bg-[#E50914] text-white border-[#E50914] shadow-md shadow-red-600/30'
-                  : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-white/5 hover:border-white/15'
-              }`}
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 3. Comprehensive Filter Toolbar (Collapsible) */}
-      {isFilterPanelOpen && (
-        <div className="bg-zinc-900/95 border border-white/10 rounded-2xl p-5 space-y-5 shadow-2xl backdrop-blur-md animate-in slide-in-from-top-2 duration-200">
-          <div className="flex items-center justify-between border-b border-white/10 pb-3">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Filter className="w-4 h-4 text-[#E50914]" />
-              <span>Advanced Discovery Filters</span>
-            </h3>
-
-            <div className="flex items-center gap-2">
+      {/* 2. Filter & Sort Toolbar (Matches Movies/Series layout exactly) */}
+      <div className="bg-[#1c1c1e] p-3 sm:p-4 rounded-2xl border border-white/10 space-y-2.5 sm:space-y-3 shadow-md">
+        {/* Row 1: Search & Controls Row */}
+        <div className="flex flex-col gap-2.5">
+          <div className="relative w-full">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-3" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search Netflix India catalog by title, cast, director, country..."
+              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 pl-10 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#E50914]"
+            />
+            {searchQuery && (
               <button
-                onClick={() => setShowSaveInput(!showSaveInput)}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-white/10 hover:bg-white/20 text-zinc-200 border border-white/10 transition-colors"
-                title="Save current filter preset"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-2.5 text-gray-400 hover:text-white"
               >
-                <BookmarkPlus className="w-3.5 h-3.5 text-amber-400" />
-                <span>Save Preset</span>
+                <X className="w-4 h-4" />
               </button>
-
-              {activeFiltersCount > 0 && (
-                <button
-                  onClick={handleClearAllFilters}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 transition-colors"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Clear All</span>
-                </button>
-              )}
-            </div>
+            )}
           </div>
 
-          {/* Save Filter Form */}
-          {showSaveInput && (
-            <div className="flex items-center gap-2 bg-black/40 p-3 rounded-xl border border-white/10">
-              <input
-                type="text"
-                value={filterSaveName}
-                onChange={(e) => setFilterSaveName(e.target.value)}
-                placeholder="Preset Name (e.g. 'My K-Drama Thriller')..."
-                className="flex-1 bg-black/60 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-[#E50914]"
-              />
+          {/* Primary Filter Grid / Row */}
+          <div className="grid grid-cols-2 md:flex md:flex-wrap items-center gap-2">
+            {/* Type selector */}
+            <select
+              value={contentType}
+              onChange={(e) => setContentType(e.target.value as 'all' | 'movie' | 'tv')}
+              className="w-full md:w-auto bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-[#E50914] cursor-pointer"
+            >
+              <option value="all" className="bg-zinc-900 text-white">All Types</option>
+              <option value="movie" className="bg-zinc-900 text-white">Movies Only</option>
+              <option value="tv" className="bg-zinc-900 text-white">TV Shows Only</option>
+            </select>
+
+            {/* Sort Dropdown */}
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="w-full md:w-auto bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#E50914] font-medium cursor-pointer"
+            >
+              <option value="netflix_newest" className="bg-zinc-900 text-white">Recently Added</option>
+              <option value="runtime_shortest" className="bg-zinc-900 text-white">⏱️ Runtime</option>
+              <option value="rt_desc" className="bg-zinc-900 text-white">🍅 Rotten Tomatoes</option>
+              <option value="imdb_desc" className="bg-zinc-900 text-white">⭐ IMDb Rating</option>
+              <option value="alpha_asc" className="bg-zinc-900 text-white">Alphabetical (A - Z)</option>
+              <option value="year_desc" className="bg-zinc-900 text-white">Release Year</option>
+              <option value="tmdb_desc" className="bg-zinc-900 text-white">TMDB Score</option>
+            </select>
+
+            {/* Sort Order Toggle */}
+            <button
+              onClick={() => setSortOrder((o) => (o === 'asc' ? 'desc' : 'asc'))}
+              className={`w-full md:w-auto flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition-colors ${
+                sortOrder === 'desc'
+                  ? 'bg-red-600/20 border-red-500/50 text-red-400 hover:bg-red-600/30'
+                  : 'bg-blue-600/20 border-blue-500/50 text-blue-400 hover:bg-blue-600/30'
+              }`}
+              title={`Order: ${sortOrder === 'desc' ? 'Descending' : 'Ascending'}`}
+            >
+              <ArrowUpDown className="w-3.5 h-3.5" />
+              <span>{sortOrder === 'desc' ? 'DESC (High → Low)' : 'ASC (Low → High)'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Row 2: Category, Country, Year, Hindi & Language filters */}
+        <div className="pt-2 border-t border-white/5 space-y-2">
+          {/* Preset Quick Buttons */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+            {(
+              [
+                { id: 'all', label: 'All' },
+                { id: 'hollywood', label: '🎬 Hollywood' },
+                { id: 'bollywood', label: '🇮🇳 Bollywood' },
+                { id: 'kdramas', label: '🇰🇷 K-Dramas' },
+                { id: 'anime', label: '⚔️ Anime' },
+                { id: 'european', label: '🏰 European' },
+                { id: 'highly_rated', label: '⭐ Highly Rated (8.0+)' },
+              ] as const
+            ).map((preset) => (
               <button
-                onClick={handleSaveFilter}
-                disabled={!filterSaveName.trim()}
-                className="px-3 py-1.5 rounded-lg bg-[#E50914] text-white text-xs font-bold disabled:opacity-50"
+                key={preset.id}
+                onClick={() => handleApplyPreset(preset.id)}
+                className={`px-3 py-1 rounded-xl text-xs font-bold transition-all whitespace-nowrap border ${
+                  activePreset === preset.id
+                    ? 'bg-[#E50914] text-white border-[#E50914] shadow-md shadow-red-600/30'
+                    : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-white/5 hover:border-white/15'
+                }`}
               >
-                Save
+                {preset.label}
               </button>
-            </div>
-          )}
+            ))}
+          </div>
 
-          {/* Saved Filters Chips */}
-          {savedFilters.length > 0 && (
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[11px] text-zinc-400 font-semibold mr-1">Saved Presets:</span>
-              {savedFilters.map((sf) => (
-                <div
-                  key={sf.id}
-                  onClick={() => handleApplySavedFilter(sf)}
-                  className="group flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 text-xs cursor-pointer"
-                >
-                  <span>{sf.name}</span>
-                  <button
-                    onClick={(e) => handleDeleteSavedFilter(sf.id, e)}
-                    className="opacity-60 hover:opacity-100 hover:text-red-400"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+            {/* Quick Filter: Hindi Dub */}
+            <button
+              onClick={() => setSelectedLanguage((prev) => (prev === 'hindi' ? 'all' : 'hindi'))}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all shrink-0 ${
+                selectedLanguage === 'hindi'
+                  ? 'bg-amber-500 text-black border-amber-400 shadow-md shadow-amber-500/20'
+                  : 'bg-black/40 border-white/10 text-gray-300 hover:text-white hover:border-amber-500/40'
+              }`}
+              title="Filter titles available with Hindi Audio"
+            >
+              <span className="font-black text-sm">हिं</span>
+              <span>Hindi Dub</span>
+            </button>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {/* Content Type Filter */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-zinc-300">Content Type</label>
-              <div className="grid grid-cols-3 gap-1 bg-black/40 p-1 rounded-xl border border-white/5">
-                {(['all', 'movie', 'tv'] as const).map((type) => (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => {
-                      setContentType(type);
-                      setCurrentPage(1);
-                    }}
-                    className={`py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${
-                      contentType === type
-                        ? 'bg-[#E50914] text-white shadow-md'
-                        : 'text-zinc-400 hover:text-white'
-                    }`}
-                  >
-                    {type === 'all' ? 'All' : type === 'movie' ? 'Movies' : 'TV Shows'}
-                  </button>
-                ))}
-              </div>
-            </div>
+            {/* Categories Multi-select Trigger */}
+            <button
+              onClick={() => setShowGenreModal(true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all shrink-0 ${
+                selectedGenres.length > 0
+                  ? 'bg-red-600/20 border-red-500/50 text-red-300'
+                  : 'bg-black/40 border-white/10 text-gray-300 hover:text-white'
+              }`}
+            >
+              <Sliders className="w-3.5 h-3.5" />
+              <span>Categories</span>
+              {selectedGenres.length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-red-500/30 text-[10px] font-bold">
+                  {selectedGenres.length}
+                </span>
+              )}
+            </button>
 
-            {/* Audio Language Filter */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-zinc-300">Audio Language</label>
-              <select
-                value={audioFilter}
-                onChange={(e) => {
-                  setAudioFilter(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#E50914]"
-              >
-                <option value="all">Any Audio Language</option>
-                <option value="hi">हिं Hindi Audio</option>
-                <option value="en">English Audio</option>
-                <option value="ko">Korean Audio</option>
-                <option value="ja">Japanese Audio</option>
-                <option value="es">Spanish Audio</option>
-                <option value="fr">French Audio</option>
-                <option value="de">German Audio</option>
-                <option value="te">Telugu Audio</option>
-                <option value="ta">Tamil Audio</option>
-              </select>
-            </div>
+            {/* Country Trigger (Includes & Excludes) */}
+            <button
+              onClick={() => setShowCountryModal(true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all shrink-0 ${
+                selectedCountries.length > 0 || excludedCountries.length > 0
+                  ? selectedCountries.length > 0
+                    ? 'bg-blue-600/20 border-blue-500/50 text-blue-300'
+                    : 'bg-red-600/20 border-red-500/50 text-red-300'
+                  : 'bg-black/40 border-white/10 text-gray-300 hover:text-white'
+              }`}
+            >
+              <Globe className="w-3.5 h-3.5" />
+              <span>Country</span>
+              {selectedCountries.length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-blue-500/30 text-blue-200 text-[10px] font-bold">
+                  +{selectedCountries.length}
+                </span>
+              )}
+              {excludedCountries.length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-red-500/30 text-red-200 text-[10px] font-bold">
+                  -{excludedCountries.length}
+                </span>
+              )}
+            </button>
 
-            {/* Original Language Filter */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-zinc-300">Original Language</label>
+            {/* Year Range Trigger */}
+            <button
+              onClick={() => setShowYearModal(true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all shrink-0 ${
+                minYear || maxYear
+                  ? 'bg-yellow-600/20 border-yellow-500/50 text-yellow-300'
+                  : 'bg-black/40 border-white/10 text-gray-300 hover:text-white'
+              }`}
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span>{minYear || maxYear ? `${minYear || 'Any'}–${maxYear || 'Any'}` : 'Year'}</span>
+            </button>
+
+            {/* Audio / Spoken Language Selector Dropdown */}
+            <div className="flex items-center gap-1 bg-zinc-900 border border-white/10 rounded-xl px-2 py-1 text-xs shrink-0">
+              <Languages className="w-3.5 h-3.5 text-zinc-400" />
               <select
                 value={selectedLanguage}
-                onChange={(e) => {
-                  setSelectedLanguage(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#E50914]"
+                onChange={(e) => setSelectedLanguage(e.target.value)}
+                className="bg-transparent text-white font-medium focus:outline-none cursor-pointer pr-1"
+                title="Filter by Audio / Language"
               >
-                <option value="all">Any Original Language</option>
-                {availableOriginalLanguages.map((lang) => (
-                  <option key={lang} value={lang}>
-                    {lang.toUpperCase()}
-                  </option>
-                ))}
+                <option value="all" className="bg-zinc-900 text-white">All Languages</option>
+                <option value="hindi" className="bg-zinc-900 text-amber-400 font-bold">हिं Hindi</option>
+                <option value="english" className="bg-zinc-900 text-white">EN English</option>
+                <option value="japanese" className="bg-zinc-900 text-white">JAP Japanese</option>
+                <option value="korean" className="bg-zinc-900 text-white">KOR Korean</option>
+                <option value="chinese" className="bg-zinc-900 text-white">CHN Chinese</option>
+                <option value="spanish" className="bg-zinc-900 text-white">Spanish</option>
+                <option value="french" className="bg-zinc-900 text-white">French</option>
+                <option value="german" className="bg-zinc-900 text-white">German</option>
+                <option value="asian" className="bg-zinc-900 text-white">🌏 Asian (All)</option>
               </select>
             </div>
+          </div>
 
-            {/* Sort Options */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-zinc-300">Sort By</label>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
-                className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#E50914]"
+          {/* Counts & Clear status row */}
+          <div className="flex items-center justify-between text-xs pt-1 text-gray-400">
+            <span className="font-medium">
+              Showing <span className="text-white font-bold">{filteredCatalog.length}</span> of {catalog.length} titles
+            </span>
+
+            {activeFiltersCount > 0 && (
+              <button
+                onClick={handleClearAllFilters}
+                className="text-red-400 hover:text-red-300 font-semibold underline"
               >
-                <option value="netflix_newest">Newest Addition</option>
-                <option value="year_desc">Release Year (Newest → Oldest)</option>
-                <option value="year_asc">Release Year (Oldest → Newest)</option>
-                <option value="imdb_desc">IMDb Rating (High → Low)</option>
-                <option value="imdb_asc">IMDb Rating (Low → High)</option>
-                <option value="tmdb_desc">TMDB Score (High → Low)</option>
-                <option value="tmdb_asc">TMDB Score (Low → High)</option>
-                <option value="rt_desc">Rotten Tomatoes (High → Low)</option>
-                <option value="alpha_asc">Alphabetical (A → Z)</option>
-                <option value="alpha_desc">Alphabetical (Z → A)</option>
-                <option value="runtime_shortest">Runtime (Shortest → Longest)</option>
-                <option value="runtime_longest">Runtime (Longest → Shortest)</option>
-                <option value="episodes_fewest">Episode Count (Fewest)</option>
-                <option value="episodes_most">Episode Count (Most)</option>
-              </select>
-            </div>
-
-            {/* Release Year Range */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-zinc-300">Release Year Range</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  placeholder="Min (e.g. 2015)"
-                  value={minYear}
-                  onChange={(e) => {
-                    setMinYear(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#E50914]"
-                />
-                <span className="text-zinc-500">—</span>
-                <input
-                  type="number"
-                  placeholder="Max (e.g. 2026)"
-                  value={maxYear}
-                  onChange={(e) => {
-                    setMaxYear(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-[#E50914]"
-                />
-              </div>
-            </div>
-
-            {/* Minimum IMDb Rating */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-zinc-300">Minimum IMDb</label>
-                <span className="text-xs font-mono font-bold text-amber-400">
-                  {minImdbRating > 0 ? `${minImdbRating.toFixed(1)}+` : 'Any'}
-                </span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={9.0}
-                step={0.5}
-                value={minImdbRating}
-                onChange={(e) => {
-                  setMinImdbRating(parseFloat(e.target.value));
-                  setCurrentPage(1);
-                }}
-                className="w-full accent-amber-500 cursor-pointer"
-              />
-            </div>
-
-            {/* Minimum TMDB Score */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-zinc-300">Minimum TMDB</label>
-                <span className="text-xs font-mono font-bold text-amber-400">
-                  {minTmdbScore > 0 ? `${minTmdbScore.toFixed(1)}+` : 'Any'}
-                </span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={9.0}
-                step={0.5}
-                value={minTmdbScore}
-                onChange={(e) => {
-                  setMinTmdbScore(parseFloat(e.target.value));
-                  setCurrentPage(1);
-                }}
-                className="w-full accent-[#E50914] cursor-pointer"
-              />
-            </div>
-
-            {/* Minimum Rotten Tomatoes */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-zinc-300">Minimum Rotten Tomatoes</label>
-                <span className="text-xs font-mono font-bold text-red-400">
-                  {minRtScore > 0 ? `${minRtScore}%+` : 'Any'}
-                </span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={95}
-                step={5}
-                value={minRtScore}
-                onChange={(e) => {
-                  setMinRtScore(parseInt(e.target.value, 10));
-                  setCurrentPage(1);
-                }}
-                className="w-full accent-red-600 cursor-pointer"
-              />
-            </div>
+                Clear Filters ({activeFiltersCount})
+              </button>
+            )}
           </div>
+        </div>
 
-          {/* Genres Multi-Select */}
-          <div className="space-y-2 pt-2 border-t border-white/5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-zinc-300">Genres & Categories</label>
-              <div className="flex items-center gap-1 text-[11px]">
-                <span className="text-zinc-500">Match:</span>
+        {/* Row 3: Active Filter Chips */}
+        {activeFiltersCount > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-white/5">
+            {selectedGenres.map((g) => (
+              <span
+                key={g}
+                className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-red-600/20 border border-red-500/30 text-red-300 text-[11px]"
+              >
+                <span>{g}</span>
                 <button
-                  type="button"
-                  onClick={() => setGenreMatchMode('any')}
-                  className={`px-2 py-0.5 rounded font-semibold ${
-                    genreMatchMode === 'any' ? 'bg-[#E50914] text-white' : 'text-zinc-400 hover:text-white'
-                  }`}
+                  onClick={() => setSelectedGenres((prev) => prev.filter((x) => x !== g))}
+                  className="hover:text-white"
                 >
-                  ANY
+                  <X className="w-3 h-3" />
                 </button>
+              </span>
+            ))}
+
+            {selectedCountries.map((c) => (
+              <span
+                key={'inc_' + c}
+                className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-600/20 border border-blue-500/30 text-blue-300 text-[11px]"
+              >
+                <span>🌍 {c}</span>
                 <button
-                  type="button"
-                  onClick={() => setGenreMatchMode('all')}
-                  className={`px-2 py-0.5 rounded font-semibold ${
-                    genreMatchMode === 'all' ? 'bg-[#E50914] text-white' : 'text-zinc-400 hover:text-white'
-                  }`}
+                  onClick={() => setSelectedCountries((prev) => prev.filter((x) => x !== c))}
+                  className="hover:text-white"
                 >
-                  ALL
+                  <X className="w-3 h-3" />
                 </button>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
-              {availableGenres.map((genre) => {
-                const isSelected = selectedGenres.includes(genre);
-                return (
-                  <button
-                    key={genre}
-                    type="button"
-                    onClick={() => {
-                      setSelectedGenres((prev) =>
-                        isSelected ? prev.filter((g) => g !== genre) : [...prev, genre]
-                      );
-                      setCurrentPage(1);
-                    }}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
-                      isSelected
-                        ? 'bg-red-600/30 border-red-500 text-red-300 font-bold'
-                        : 'bg-black/30 border-white/5 text-zinc-400 hover:text-white hover:bg-white/5'
-                    }`}
-                  >
-                    {genre}
-                  </button>
-                );
-              })}
-            </div>
+              </span>
+            ))}
+
+            {excludedCountries.map((c) => (
+              <span
+                key={'exc_' + c}
+                className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-red-600/20 border border-red-500/30 text-red-300 text-[11px]"
+              >
+                <span>🚫 Exclude: {c}</span>
+                <button
+                  onClick={() => setExcludedCountries((prev) => prev.filter((x) => x !== c))}
+                  className="hover:text-white"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+
+            {selectedLanguage !== 'all' && (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[11px] font-medium">
+                <span>Language: {selectedLanguage === 'hindi' ? 'हिं Hindi' : selectedLanguage.toUpperCase()}</span>
+                <button onClick={() => setSelectedLanguage('all')} className="hover:text-white">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {contentType !== 'all' && (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/10 text-gray-300 text-[11px]">
+                <span>{contentType === 'tv' ? 'TV Shows' : 'Movies'}</span>
+                <button onClick={() => setContentType('all')}>
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {activePreset !== 'all' && (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-red-600/20 border border-red-500/30 text-red-300 text-[11px]">
+                <span>Preset: {activePreset}</span>
+                <button onClick={() => setActivePreset('all')}>
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {(minYear || maxYear) && (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-yellow-600/20 border border-yellow-500/30 text-yellow-300 text-[11px]">
+                <span>Year: {minYear || 'Any'}–{maxYear || 'Any'}</span>
+                <button onClick={() => { setMinYear(''); setMaxYear(''); }}>
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
           </div>
-
-          {/* Countries Multi-Select */}
-          <div className="space-y-2 pt-2 border-t border-white/5">
-            <label className="text-xs font-bold text-zinc-300">Production Countries</label>
-            <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
-              {availableCountries.map((country) => {
-                const isSelected = selectedCountries.includes(country);
-                return (
-                  <button
-                    key={country}
-                    type="button"
-                    onClick={() => {
-                      setSelectedCountries((prev) =>
-                        isSelected ? prev.filter((c) => c !== country) : [...prev, country]
-                      );
-                      setCurrentPage(1);
-                    }}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
-                      isSelected
-                        ? 'bg-blue-600/30 border-blue-500 text-blue-300 font-bold'
-                        : 'bg-black/30 border-white/5 text-zinc-400 hover:text-white hover:bg-white/5'
-                    }`}
-                  >
-                    {country}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 4. Active Filter Summary Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-zinc-900/60 p-3.5 rounded-xl border border-white/5">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-bold text-white">
-            {filteredCatalog.length.toLocaleString()} {filteredCatalog.length === 1 ? 'title' : 'titles'} matching
-          </span>
-          <span className="text-zinc-500">•</span>
-          <span className="text-xs text-zinc-400 font-medium">
-            Local Database: {catalog.length.toLocaleString()} | Netflix India: {catalogStats.availableCount > 0 ? catalogStats.availableCount.toLocaleString() : '4,200+'} available
-          </span>
-
-          {/* Active filter pills */}
-          {contentType !== 'all' && (
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/10 text-zinc-200 text-xs">
-              {contentType === 'movie' ? 'Movies' : 'TV Shows'}
-              <button onClick={() => setContentType('all')}>
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          )}
-
-          {activePreset !== 'all' && (
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#E50914]/20 border border-[#E50914]/30 text-red-300 text-xs font-bold capitalize">
-              {activePreset.replace('_', ' ')}
-              <button onClick={() => handleApplyPreset('all')}>
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          )}
-
-          {audioFilter !== 'all' && (
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-bold">
-              {audioFilter === 'hi' ? 'हिं Hindi Audio' : `${audioFilter.toUpperCase()} Audio`}
-              <button onClick={() => setAudioFilter('all')}>
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          )}
-
-          {selectedGenres.map((g) => (
-            <span
-              key={g}
-              className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-600/20 border border-red-500/30 text-red-300 text-xs"
-            >
-              {g}
-              <button onClick={() => setSelectedGenres((prev) => prev.filter((x) => x !== g))}>
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          ))}
-
-          {selectedCountries.map((c) => (
-            <span
-              key={c}
-              className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-600/20 border border-blue-500/30 text-blue-300 text-xs"
-            >
-              {c}
-              <button onClick={() => setSelectedCountries((prev) => prev.filter((x) => x !== c))}>
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          ))}
-
-          {minImdbRating > 0 && (
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 text-xs font-bold">
-              IMDb {minImdbRating.toFixed(1)}+
-              <button onClick={() => setMinImdbRating(0)}>
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          )}
-
-          {/* Availability Toggle */}
-          <button
-            onClick={() => setShowUnavailable(!showUnavailable)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
-              showUnavailable
-                ? 'bg-amber-600/30 border-amber-500 text-amber-300'
-                : 'bg-black/30 border-white/10 text-zinc-400 hover:text-white'
-            }`}
-          >
-            <span>{showUnavailable ? 'Showing All (incl. Expired)' : 'Netflix India Available Only'}</span>
-          </button>
-
-          {activeFiltersCount > 0 && (
-            <button
-              onClick={handleClearAllFilters}
-              className="text-xs text-[#E50914] hover:underline font-semibold ml-1"
-            >
-              Clear All
-            </button>
-          )}
-        </div>
-
-        {/* Pagination / Infinite Scroll View Mode Toggle & Summary */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center bg-black/40 rounded-lg p-0.5 border border-white/5 text-[11px]">
-            <button
-              onClick={() => setViewMode('infinite')}
-              className={`px-2.5 py-1 rounded-md font-medium transition-all ${
-                viewMode === 'infinite'
-                  ? 'bg-zinc-800 text-white shadow-sm'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              Infinite Scroll
-            </button>
-            <button
-              onClick={() => setViewMode('pages')}
-              className={`px-2.5 py-1 rounded-md font-medium transition-all ${
-                viewMode === 'pages'
-                  ? 'bg-zinc-800 text-white shadow-sm'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              Pages
-            </button>
-          </div>
-
-          {filteredCatalog.length > 0 && (
-            <div className="text-xs text-zinc-400 whitespace-nowrap">
-              {viewMode === 'infinite' ? (
-                <span>Showing all {filteredCatalog.length} titles</span>
-              ) : (
-                <span>
-                  Showing {(currentPage - 1) * ITEMS_PER_BATCH + 1}–
-                  {Math.min(currentPage * ITEMS_PER_BATCH, filteredCatalog.length)} of {filteredCatalog.length}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
-      {/* 5. Main Title Card Grid */}
+      {/* 3. Main Title Card Grid using DiscoveryCard */}
       {loading && catalog.length === 0 ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-4">
           {Array.from({ length: 18 }).map((_, idx) => (
             <div
               key={idx}
@@ -1729,226 +1480,17 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
           ))}
         </div>
       ) : filteredCatalog.length > 0 ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
-          {paginatedTitles.map((item) => {
-            const alreadyInLibrary = isInLibrary(item);
-            const netflixUrl = getNetflixUrl({
-              videoId: item.netflixId,
-              originalTitle: item.title,
-              externalTitle: item.title,
-            });
-
-            return (
-              <div
-                key={item.id}
-                onClick={() => onOpenDetail(convertToLibraryItem(item))}
-                className="group relative bg-[#181818] hover:bg-[#222222] rounded-xl overflow-hidden border border-white/5 hover:border-red-600/40 transition-all duration-300 shadow-lg hover:shadow-2xl hover:-translate-y-1.5 cursor-pointer flex flex-col justify-between"
-              >
-                {/* Poster Area */}
-                <div className="relative aspect-[2/3] w-full overflow-hidden bg-neutral-900">
-                  <CachedImage
-                    src={item.posterPath}
-                    alt={item.title}
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                    fallbackIcon={
-                      <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center text-zinc-500 bg-gradient-to-b from-neutral-800 to-neutral-950">
-                        {item.mediaType === 'movie' ? (
-                          <Film className="w-10 h-10 mb-2 text-zinc-600" />
-                        ) : (
-                          <Tv className="w-10 h-10 mb-2 text-zinc-600" />
-                        )}
-                        <span className="text-xs line-clamp-2 font-medium">{item.title}</span>
-                      </div>
-                    }
-                  />
-
-                  {/* Hover Play Button Overlay */}
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <div className="w-11 h-11 rounded-full bg-[#E50914] text-white flex items-center justify-center shadow-xl shadow-red-600/50 transform scale-75 group-hover:scale-100 transition-transform">
-                      <Play className="w-5 h-5 fill-white ml-0.5" />
-                    </div>
-                  </div>
-
-                  {/* Top-Right: Ratings (Rotten Tomatoes, IMDb, TMDB) */}
-                  <div className="absolute top-1.5 sm:top-2 right-1.5 sm:right-2 flex flex-col gap-1 items-end z-10">
-                    {item.rottenTomatoesRating !== undefined && (
-                      <div
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shadow-md backdrop-blur-md border ${
-                          item.rottenTomatoesRating >= 60
-                            ? 'bg-red-950/80 border-red-500/40 text-red-400'
-                            : 'bg-green-950/80 border-green-500/40 text-green-400'
-                        }`}
-                        title="Rotten Tomatoes Score"
-                      >
-                        <span>🍅 {item.rottenTomatoesRating}%</span>
-                      </div>
-                    )}
-
-                    {item.imdbRating ? (
-                      <div
-                        className="bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded flex items-center gap-1 text-[10px] font-bold text-amber-400 shadow-md border border-amber-500/30"
-                        title="IMDb Rating"
-                      >
-                        <span className="text-[9px] text-amber-500 font-black">IMDb</span>
-                        <span>{item.imdbRating}</span>
-                      </div>
-                    ) : item.rating ? (
-                      <div
-                        className="bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded flex items-center gap-1 text-[10px] font-bold text-amber-400 shadow-md border border-amber-500/30"
-                        title="TMDB Score"
-                      >
-                        <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-                        <span>{item.rating}</span>
-                      </div>
-                    ) : null}
-                  </div>
-
-                  {/* Top-Left: Media Type / Year & Language Badge */}
-                  <div className="absolute top-1.5 sm:top-2 left-1.5 sm:left-2 flex flex-col gap-1 items-start z-10">
-                    <div className="bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded text-[10px] font-bold text-zinc-300 border border-white/10 flex items-center gap-1 shadow-sm">
-                      {item.mediaType === 'movie' ? (
-                        <>
-                          <Film className="w-2.5 h-2.5 text-[#E50914]" />
-                          <span>{item.releaseYear || 'Movie'}</span>
-                        </>
-                      ) : (
-                        <>
-                          <Tv className="w-2.5 h-2.5 text-amber-400" />
-                          <span>{item.totalEpisodes ? `${item.totalEpisodes} eps` : item.releaseYear || 'TV'}</span>
-                        </>
-                      )}
-                    </div>
-
-                    {/* Netflix India Status Pill */}
-                    {item.availabilityState === 'no_longer_available' ? (
-                      <div
-                        className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-zinc-900/90 text-zinc-400 border border-white/10 shadow-md"
-                        title="No longer streaming on Netflix India"
-                      >
-                        Expired
-                      </div>
-                    ) : (
-                      <div
-                        className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-black/80 text-emerald-400 border border-emerald-500/40 shadow-md flex items-center gap-0.5"
-                        title="Verified available on Netflix India"
-                      >
-                        <span>Netflix IN ✓</span>
-                      </div>
-                    )}
-
-                    {/* Hindi Audio Badge */}
-                    {(item.hindiAudio === true || item.audioLanguages?.includes('hi') || item.originalLanguage === 'hi') && (
-                      <div
-                        className="px-1.5 py-0.5 rounded text-[9px] font-black bg-amber-500 text-black border border-amber-400 shadow-md"
-                        title="Verified Hindi Audio Track Available"
-                      >
-                        हिं Hindi ✓
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Card Content & Action Footer */}
-                <div className="p-3 flex-1 flex flex-col justify-between space-y-2">
-                  <div>
-                    <h4 className="text-xs sm:text-sm font-bold text-white line-clamp-1 group-hover:text-red-400 transition-colors">
-                      {item.title}
-                    </h4>
-
-                    {/* Runtime or Season info */}
-                    <div className="flex items-center gap-2 text-[11px] text-zinc-400 mt-1">
-                      {item.mediaType === 'movie' ? (
-                        <span>{item.runtimeMinutes ? formatRuntime(item.runtimeMinutes) : 'Movie'}</span>
-                      ) : (
-                        <span>
-                          {item.totalSeasons ? `${item.totalSeasons} ${item.totalSeasons === 1 ? 'Season' : 'Seasons'}` : 'Series'}
-                        </span>
-                      )}
-                      {item.countries.length > 0 && (
-                        <>
-                          <span>•</span>
-                          <span className="line-clamp-1">{item.countries[0]}</span>
-                        </>
-                      )}
-                    </div>
-
-                    {/* Genre Tags */}
-                    {item.genres.length > 0 && (
-                      <div className="flex items-center gap-1 flex-wrap mt-1.5">
-                        {item.genres.slice(0, 2).map((g) => (
-                          <span
-                            key={g}
-                            className="text-[10px] px-1.5 py-0.2 rounded bg-white/5 border border-white/5 text-zinc-400"
-                          >
-                            {g}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Available Languages Preview */}
-                    {item.audioLanguages && item.audioLanguages.length > 0 && (
-                      <div className="flex items-center gap-1 flex-wrap mt-1 text-[10px] text-zinc-400">
-                        {item.audioLanguages.slice(0, 3).map((l) => (
-                          <span key={l} className="px-1 py-0.2 rounded bg-black/40 border border-white/5 text-zinc-300 uppercase font-mono">
-                            {l} ✓
-                          </span>
-                        ))}
-                        {item.audioLanguages.length > 3 && (
-                          <span className="text-[9px] text-zinc-500">+{item.audioLanguages.length - 3}</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Quick Card Action Buttons */}
-                  <div className="pt-2 border-t border-white/5 flex items-center gap-1.5">
-                    {alreadyInLibrary ? (
-                      <span className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg bg-emerald-600/20 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold">
-                        <Check className="w-3.5 h-3.5" />
-                        <span>In Library</span>
-                      </span>
-                    ) : (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onAddToLibrary(item);
-                        }}
-                        className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg bg-white/10 hover:bg-[#E50914] text-white text-[11px] font-bold transition-colors"
-                        title="Add to My Watchlist Library"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Add</span>
-                      </button>
-                    )}
-
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onStartWatching(item);
-                      }}
-                      className="px-2 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500 text-amber-400 hover:text-black transition-all border border-amber-500/30 text-[11px] font-bold flex items-center gap-1"
-                      title="Start Watching (moves into Still Watching)"
-                    >
-                      <Tv className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Watch</span>
-                    </button>
-
-                    <a
-                      href={netflixUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="p-1.5 rounded-lg bg-white/5 hover:bg-red-600 text-zinc-400 hover:text-white transition-colors"
-                      title="Open in official Netflix India"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-4">
+          {paginatedTitles.map((item) => (
+            <DiscoveryCard
+              key={item.id}
+              item={item}
+              isInLibrary={isInLibrary(item)}
+              onClick={() => onOpenDetail(convertToLibraryItem(item))}
+              onAddToLibrary={onAddToLibrary}
+              onStartWatching={onStartWatching}
+            />
+          ))}
         </div>
       ) : (
         /* Empty State */
@@ -1967,7 +1509,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
         </div>
       )}
 
-      {/* 6. Infinite Scroll Sentinel & Pagination Controls */}
+      {/* 4. Infinite Scroll Sentinel & Pagination Controls */}
       <div ref={sentinelRef} className="pt-6 flex flex-col items-center justify-center gap-3">
         {loading && catalog.length > 0 && (
           <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-zinc-900 border border-white/10 text-xs text-zinc-300 shadow-xl">
@@ -2000,7 +1542,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
           </div>
         )}
 
-        {/* Load More Button (reveals next slice in infinite scroll mode or advances in page mode) */}
+        {/* Load More Button */}
         {filteredCatalog.length > visibleCount && viewMode === 'infinite' && (
           <button
             onClick={() => setVisibleCount((prev) => Math.min(prev + ITEMS_PER_BATCH, filteredCatalog.length))}
@@ -2010,6 +1552,345 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
           </button>
         )}
       </div>
+
+      {/* 5. Modals: Categories, Country (Include/Exclude), Year Range */}
+      {/* Category Multi-select Modal */}
+      {showGenreModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="relative w-full max-w-lg bg-[#1c1c1e] border border-white/15 rounded-2xl p-6 shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Sliders className="w-5 h-5 text-[#E50914]" />
+                <span>Select Categories</span>
+              </h3>
+              <button
+                onClick={() => setShowGenreModal(false)}
+                className="p-1.5 rounded-full text-gray-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-4 p-2.5 bg-black/40 rounded-xl border border-white/5 mb-4 text-xs">
+              <span className="text-gray-400">Match rule:</span>
+              <label className="flex items-center gap-1.5 cursor-pointer text-white">
+                <input
+                  type="radio"
+                  name="genreMatchMode"
+                  checked={genreMatchMode === 'any'}
+                  onChange={() => setGenreMatchMode('any')}
+                  className="text-red-600"
+                />
+                <span>Match ANY selected</span>
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer text-white">
+                <input
+                  type="radio"
+                  name="genreMatchMode"
+                  checked={genreMatchMode === 'all'}
+                  onChange={() => setGenreMatchMode('all')}
+                  className="text-red-600"
+                />
+                <span>Match ALL selected</span>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-64 overflow-y-auto p-1">
+              {availableGenres.map((g) => {
+                const isChecked = selectedGenres.includes(g);
+                return (
+                  <label
+                    key={g}
+                    className={`flex items-center gap-2 py-1.5 px-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                      isChecked
+                        ? 'bg-red-600/20 border-red-500/40 text-white font-semibold'
+                        : 'bg-black/30 border-white/5 text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => {
+                        setSelectedGenres((prev) =>
+                          isChecked ? prev.filter((x) => x !== g) : [...prev, g]
+                        );
+                      }}
+                      className="rounded bg-neutral-800 border-white/20 text-red-600"
+                    />
+                    <span>{g}</span>
+                  </label>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center justify-between mt-5 pt-3 border-t border-white/10">
+              <button
+                onClick={() => setSelectedGenres([])}
+                className="text-xs text-gray-400 hover:text-white underline"
+              >
+                Reset Categories
+              </button>
+              <button
+                onClick={() => setShowGenreModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-700 text-white"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Country Multi-select Modal with Include & Exclude */}
+      {showCountryModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="relative w-full max-w-lg bg-[#1c1c1e] border border-white/15 rounded-2xl p-5 sm:p-6 shadow-2xl">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                  <Globe className="w-4 h-4 text-blue-400" />
+                  <span>Country Filter & Exclusion</span>
+                </h3>
+                <p className="text-[11px] sm:text-xs text-gray-400">
+                  Include or exclude specific production countries from your view.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowCountryModal(false)}
+                className="p-1.5 rounded-full text-gray-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Mode Switcher Tabs: Include vs Exclude */}
+            <div className="grid grid-cols-2 gap-2 p-1 bg-black/50 rounded-xl border border-white/10 mb-3">
+              <button
+                type="button"
+                onClick={() => setCountryModalTab('include')}
+                className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                  countryModalTab === 'include'
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>Include Countries</span>
+                {selectedCountries.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-black/40 text-[10px]">
+                    {selectedCountries.length}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCountryModalTab('exclude')}
+                className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                  countryModalTab === 'exclude'
+                    ? 'bg-red-600 text-white shadow-md'
+                    : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <Ban className="w-3.5 h-3.5 text-red-200" />
+                <span>Exclude Countries</span>
+                {excludedCountries.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-black/40 text-[10px]">
+                    {excludedCountries.length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Search Country Input */}
+            <div className="relative mb-3">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-zinc-400" />
+              <input
+                type="text"
+                value={countrySearchQuery}
+                onChange={(e) => setCountrySearchQuery(e.target.value)}
+                placeholder="Search countries..."
+                className="w-full bg-black/40 border border-white/10 rounded-xl pl-9 pr-8 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500/60"
+              />
+              {countrySearchQuery && (
+                <button
+                  onClick={() => setCountrySearchQuery('')}
+                  className="absolute right-2.5 top-2 text-zinc-400 hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto p-1 scrollbar-thin">
+              {availableCountries
+                .filter((c) => c.toLowerCase().includes(countrySearchQuery.toLowerCase()))
+                .map((c) => {
+                  const isIncluded = selectedCountries.includes(c);
+                  const isExcluded = excludedCountries.includes(c);
+
+                  if (countryModalTab === 'include') {
+                    return (
+                      <label
+                        key={c}
+                        className={`flex items-center justify-between py-2 px-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                          isIncluded
+                            ? 'bg-blue-600/20 border-blue-500/50 text-white font-semibold shadow-sm'
+                            : 'bg-black/30 border-white/5 text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={isIncluded}
+                            onChange={() => {
+                              if (isIncluded) {
+                                setSelectedCountries((prev) => prev.filter((x) => x !== c));
+                              } else {
+                                setSelectedCountries((prev) => [...prev, c]);
+                                setExcludedCountries((prev) => prev.filter((x) => x !== c));
+                              }
+                            }}
+                            className="rounded bg-neutral-800 border-white/20 text-blue-600"
+                          />
+                          <span>{c}</span>
+                        </div>
+                        {isExcluded && (
+                          <span className="text-[10px] text-red-400 font-normal">Excluded</span>
+                        )}
+                      </label>
+                    );
+                  } else {
+                    return (
+                      <label
+                        key={c}
+                        className={`flex items-center justify-between py-2 px-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                          isExcluded
+                            ? 'bg-red-600/20 border-red-500/50 text-red-200 font-semibold shadow-sm'
+                            : 'bg-black/30 border-white/5 text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={isExcluded}
+                            onChange={() => {
+                              if (isExcluded) {
+                                setExcludedCountries((prev) => prev.filter((x) => x !== c));
+                              } else {
+                                setExcludedCountries((prev) => [...prev, c]);
+                                setSelectedCountries((prev) => prev.filter((x) => x !== c));
+                              }
+                            }}
+                            className="rounded bg-neutral-800 border-white/20 text-red-600"
+                          />
+                          <span>{c}</span>
+                        </div>
+                        {isIncluded && (
+                          <span className="text-[10px] text-blue-400 font-normal">Included</span>
+                        )}
+                      </label>
+                    );
+                  }
+                })}
+            </div>
+
+            <div className="flex items-center justify-between mt-4 pt-3 border-t border-white/10 text-xs">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (countryModalTab === 'include') {
+                      setSelectedCountries([]);
+                    } else {
+                      setExcludedCountries([]);
+                    }
+                  }}
+                  className="text-gray-400 hover:text-white underline text-[11px]"
+                >
+                  Reset {countryModalTab === 'include' ? 'Included' : 'Excluded'}
+                </button>
+                {(selectedCountries.length > 0 || excludedCountries.length > 0) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCountries([]);
+                      setExcludedCountries([]);
+                    }}
+                    className="text-red-400 hover:text-red-300 underline text-[11px]"
+                  >
+                    Clear Both
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCountryModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-[#E50914] hover:bg-red-700 text-white shadow-md transition-all"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Year Range Modal */}
+      {showYearModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="relative w-full max-w-md bg-[#1c1c1e] border border-white/15 rounded-2xl p-6 shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-white">Filter by Release Year</h3>
+              <button
+                onClick={() => setShowYearModal(false)}
+                className="p-1.5 rounded-full text-gray-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 mb-5">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">From Year</label>
+                <input
+                  type="number"
+                  placeholder="e.g. 2010"
+                  value={minYear}
+                  onChange={(e) => setMinYear(e.target.value)}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">To Year</label>
+                <input
+                  type="number"
+                  placeholder="e.g. 2026"
+                  value={maxYear}
+                  onChange={(e) => setMaxYear(e.target.value)}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-3 border-t border-white/10">
+              <button
+                onClick={() => {
+                  setMinYear('');
+                  setMaxYear('');
+                }}
+                className="text-xs text-gray-400 hover:text-white underline"
+              >
+                Reset
+              </button>
+              <button
+                onClick={() => setShowYearModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-yellow-600 hover:bg-yellow-700 text-black"
+              >
+                Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

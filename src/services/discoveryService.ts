@@ -1439,7 +1439,7 @@ export async function syncNetflixIndiaCatalog(options: {
         totalEpisodes: existing.totalEpisodes || item.totalEpisodes,
         cast: existing.cast || item.cast,
         director: existing.director || item.director,
-        creator: existing.creator || item.creator,
+        netflixId: existing.netflixId || item.netflixId,
         trailer: existing.trailer || item.trailer,
         isNetflixIndiaVerified: true,
         netflixIndiaAvailable: true,
