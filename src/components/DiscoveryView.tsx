@@ -30,8 +30,10 @@ import {
 import { AppSettings, DiscoveryTitle, LibraryItem, SavedDiscoveryFilter } from '../types';
 import {
   fetchNetflixIndiaDiscovery,
+  fetchInitialWatchmodeDiscovery,
   syncNetflixIndiaCatalog,
   getWatchmodeQuotaStatus,
+  SEED_NETFLIX_INDIA_TITLES,
   SyncProgressCallback,
   WatchmodeStatusResponse,
 } from '../services/discoveryService';
@@ -195,15 +197,36 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
           if (localTitles && localTitles.length > 0) {
             setCatalog(localTitles);
           } else {
-            // First time: fetch on-demand live TMDB discovery batch so screen isn't completely blank
-            const live = await fetchNetflixIndiaDiscovery({
-              page: 1,
-              apiKey: settings.tmdbApiKey,
-              pagesToFetch: 4,
-            });
-            if (live.titles && live.titles.length > 0) {
-              setCatalog(live.titles);
-              await saveDiscoveryTitles(live.titles);
+            // First time: fetch on-demand live Watchmode Page 1 enriched with TMDB posters,
+            // with fallback to TMDB discover and verified seed titles so Discovery is NEVER empty.
+            let initialTitles: DiscoveryTitle[] = [];
+
+            try {
+              initialTitles = await fetchInitialWatchmodeDiscovery({
+                watchmodeApiKey: settings.watchmodeApiKey,
+                tmdbApiKey: settings.tmdbApiKey,
+                limit: 50,
+              });
+            } catch (e) {
+              console.warn('Initial Watchmode discovery fetch failed:', e);
+            }
+
+            if (!initialTitles || initialTitles.length === 0) {
+              const liveTmdb = await fetchNetflixIndiaDiscovery({
+                page: 1,
+                apiKey: settings.tmdbApiKey,
+                pagesToFetch: 4,
+              });
+              initialTitles = liveTmdb.titles || [];
+            }
+
+            if (!initialTitles || initialTitles.length === 0) {
+              initialTitles = SEED_NETFLIX_INDIA_TITLES;
+            }
+
+            if (initialTitles.length > 0) {
+              setCatalog(initialTitles);
+              await saveDiscoveryTitles(initialTitles);
             }
           }
         }
@@ -1516,7 +1539,23 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       </div>
 
       {/* 5. Main Title Card Grid */}
-      {filteredCatalog.length > 0 ? (
+      {loading && catalog.length === 0 ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
+          {Array.from({ length: 18 }).map((_, idx) => (
+            <div
+              key={idx}
+              className="bg-[#181818] rounded-xl overflow-hidden border border-white/5 animate-pulse flex flex-col justify-between h-[340px]"
+            >
+              <div className="aspect-[2/3] bg-zinc-800/60 w-full" />
+              <div className="p-3 space-y-2">
+                <div className="h-4 bg-zinc-800 rounded w-3/4" />
+                <div className="h-3 bg-zinc-800/60 rounded w-1/2" />
+                <div className="h-3 bg-zinc-800/40 rounded w-full" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : filteredCatalog.length > 0 ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
           {paginatedTitles.map((item) => {
             const alreadyInLibrary = isInLibrary(item);
@@ -1757,10 +1796,10 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
 
       {/* 6. Infinite Scroll Sentinel & Pagination Controls */}
       <div ref={sentinelRef} className="pt-6 flex flex-col items-center justify-center gap-3">
-        {loading && (
+        {loading && catalog.length > 0 && (
           <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-zinc-900 border border-white/10 text-xs text-zinc-300 shadow-xl">
             <div className="w-3.5 h-3.5 border-2 border-[#E50914] border-t-transparent rounded-full animate-spin" />
-            <span>Loading dynamic Netflix India titles from TMDB...</span>
+            <span>Loading dynamic Netflix India titles from Watchmode & TMDB...</span>
           </div>
         )}
 

@@ -26,7 +26,7 @@ export const InfoView: React.FC = () => {
           </div>
           <h3 className="text-base font-bold text-white">Multi-API Live Pipeline</h3>
           <p className="text-xs text-zinc-400 leading-relaxed">
-            Cascades across TMDB, OMDb, TVMaze, and Wikipedia in real time to fetch high-res posters, IMDb & Rotten Tomatoes ratings, synopsis, and episode runtimes without hardcoding.
+            Cascades across TMDB, Watchmode, and OMDb in real time to fetch high-res posters, IMDb & Rotten Tomatoes ratings, synopsis, and streaming availability without hardcoding.
           </p>
         </div>
 

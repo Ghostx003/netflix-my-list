@@ -1546,3 +1546,53 @@ export async function fetchNetflixIndiaDiscovery(
   return result;
 }
 
+/**
+ * Rapid Initial Dynamic Load:
+ * Fetches page 1 of Netflix India from Watchmode (50 titles),
+ * and enriches them with TMDB posters/metadata in parallel so Discovery
+ * renders a verified Netflix India catalog immediately.
+ */
+export async function fetchInitialWatchmodeDiscovery(options: {
+  watchmodeApiKey?: string;
+  tmdbApiKey?: string;
+  limit?: number;
+}): Promise<DiscoveryTitle[]> {
+  const wmKey = options.watchmodeApiKey || DEFAULT_WATCHMODE_KEY;
+  const tmdbKey = options.tmdbApiKey || DEFAULT_PUBLIC_TMDB_KEY;
+  const limit = options.limit || 50;
+
+  try {
+    const wmPage = await fetchWatchmodePage(1, limit, wmKey);
+    if (!wmPage || !Array.isArray(wmPage.titles) || wmPage.titles.length === 0) {
+      return [];
+    }
+
+    const initialTitles = wmPage.titles.map((raw) => normalizeWatchmodeToDiscovery(raw));
+    const deduplicated = deduplicateDiscoveryTitles(initialTitles);
+
+    // Enrich with TMDB metadata (poster, backdrop, synopsis, genres) in small concurrent batches
+    const CONCURRENCY = 5;
+    const enrichedList: DiscoveryTitle[] = [];
+
+    for (let i = 0; i < deduplicated.length; i += CONCURRENCY) {
+      const chunk = deduplicated.slice(i, i + CONCURRENCY);
+      const enrichedChunk = await Promise.all(
+        chunk.map(async (t) => {
+          try {
+            return await enrichTitleWithTMDB(t, tmdbKey);
+          } catch {
+            return t;
+          }
+        })
+      );
+      enrichedList.push(...enrichedChunk);
+    }
+
+    return enrichedList;
+  } catch (err) {
+    console.warn('fetchInitialWatchmodeDiscovery failed, falling back to TMDB discover:', err);
+    return [];
+  }
+}
+
+

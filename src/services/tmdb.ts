@@ -150,79 +150,7 @@ export async function fetchOMDBMetadata(title: string, customKey?: string): Prom
   return null;
 }
 
-/**
- * Multi-API Fallback: Fetch poster & synopsis from TVMaze API (Public, No Key Required)
- */
-export async function fetchTVMazeMetadata(title: string): Promise<{
-  poster?: string;
-  synopsis?: string;
-  genres?: string[];
-  totalEpisodes?: number;
-  averageEpisodeMinutes?: number;
-} | null> {
-  const cacheKey = 'tvmaze_' + title.toLowerCase();
-  const cached = await getCachedMetadata(cacheKey);
-  if (cached) return cached;
 
-  try {
-    const url = 'https://api.tvmaze.com/singlesearch/shows?q=' + encodeURIComponent(title) + '&embed=episodes';
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const d = await res.json();
-    if (!d) return null;
-
-    const poster = d.image?.original || d.image?.medium;
-    // Strip HTML tags from summary
-    const synopsis = d.summary ? d.summary.replace(/<[^>]*>?/gm, '').trim() : undefined;
-    const genres = Array.isArray(d.genres) ? d.genres : [];
-    const totalEpisodes = d._embedded?.episodes ? d._embedded.episodes.length : undefined;
-    const averageEpisodeMinutes = d.averageRuntime || d.runtime || 45;
-
-    const result = {
-      poster,
-      synopsis,
-      genres,
-      totalEpisodes,
-      averageEpisodeMinutes,
-    };
-    await setCachedMetadata(cacheKey, result);
-    return result;
-  } catch (err) {
-    // TVMaze failed or not a TV show
-    return null;
-  }
-}
-
-/**
- * Multi-API Fallback: Fetch poster image from Wikipedia REST Summary API (Public, No Key Required)
- */
-export async function fetchWikipediaMetadata(title: string): Promise<{
-  poster?: string;
-  synopsis?: string;
-} | null> {
-  const cacheKey = 'wiki_' + title.toLowerCase();
-  const cached = await getCachedMetadata(cacheKey);
-  if (cached) return cached;
-
-  try {
-    // Format title into Wikipedia article slug
-    const cleanTitle = title.replace(/\s+/g, '_');
-    const url = 'https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(cleanTitle);
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const d = await res.json();
-    if (!d || d.type === 'disambiguation') return null;
-
-    const poster = d.thumbnail?.source || d.originalimage?.source;
-    const synopsis = d.extract;
-
-    const result = { poster, synopsis };
-    await setCachedMetadata(cacheKey, result);
-    return result;
-  } catch (err) {
-    return null;
-  }
-}
 
 export async function searchTMDB(
   query: string,
@@ -575,24 +503,9 @@ export async function enrichLibraryItem(
       if (chosen) {
         const details = await fetchFullDetails(chosen.id, chosen.mediaType, effectiveKey);
         if (details) {
-          // Check if posterPath is still missing; if so, try TVMaze or Wikipedia
-          let finalPoster = details.posterPath || omdb?.poster;
-          let finalSynopsis = details.synopsis || omdb?.synopsis;
-          let finalGenres = details.genres || omdb?.genres || [];
-
-          if (!finalPoster) {
-            const tvmaze = await fetchTVMazeMetadata(item.originalTitle);
-            if (tvmaze?.poster) {
-              finalPoster = tvmaze.poster;
-              if (!finalSynopsis) finalSynopsis = tvmaze.synopsis;
-            } else {
-              const wiki = await fetchWikipediaMetadata(item.originalTitle);
-              if (wiki?.poster) {
-                finalPoster = wiki.poster;
-                if (!finalSynopsis) finalSynopsis = wiki.synopsis;
-              }
-            }
-          }
+          const finalPoster = details.posterPath || omdb?.poster;
+          const finalSynopsis = details.synopsis || omdb?.synopsis;
+          const finalGenres = details.genres || omdb?.genres || [];
 
           return {
             ...item,
@@ -613,22 +526,8 @@ export async function enrichLibraryItem(
   // 3. Fallback to OMDB data
   if (omdb) {
     const isTv = omdb.mediaType === 'tv';
-    let poster = omdb.poster;
-    let synopsis = omdb.synopsis;
-
-    if (!poster) {
-      const tvmaze = await fetchTVMazeMetadata(item.originalTitle);
-      if (tvmaze?.poster) {
-        poster = tvmaze.poster;
-        if (!synopsis) synopsis = tvmaze.synopsis;
-      } else {
-        const wiki = await fetchWikipediaMetadata(item.originalTitle);
-        if (wiki?.poster) {
-          poster = wiki.poster;
-          if (!synopsis) synopsis = wiki.synopsis;
-        }
-      }
-    }
+    const poster = omdb.poster;
+    const synopsis = omdb.synopsis;
 
     return {
       ...item,
@@ -647,43 +546,6 @@ export async function enrichLibraryItem(
       totalEpisodes: isTv ? 10 : undefined,
       averageEpisodeMinutes: isTv ? (omdb.runtimeMinutes || 45) : undefined,
       status: 'matched',
-      updatedAt: new Date().toISOString(),
-    };
-  }
-
-  // 4. Fallback to TVMaze or Wikipedia if both TMDB and OMDB failed
-  const tvmaze = await fetchTVMazeMetadata(item.originalTitle);
-  if (tvmaze && (tvmaze.poster || tvmaze.synopsis)) {
-    return {
-      ...item,
-      externalId: 'tvmaze_' + encodeURIComponent(item.originalTitle),
-      externalTitle: item.originalTitle,
-      mediaType: 'tv',
-      posterPath: tvmaze.poster,
-      synopsis: tvmaze.synopsis,
-      genres: tvmaze.genres || [],
-      totalEpisodes: tvmaze.totalEpisodes || 10,
-      averageEpisodeMinutes: tvmaze.averageEpisodeMinutes || 45,
-      status: 'matched',
-      updatedAt: new Date().toISOString(),
-    };
-  }
-
-  const wiki = await fetchWikipediaMetadata(item.originalTitle);
-  if (wiki && (wiki.poster || wiki.synopsis)) {
-    const lower = item.originalTitle.toLowerCase();
-    const isLikelySeries = /season|series|chapter|part \d|vol\./i.test(lower);
-    return {
-      ...item,
-      externalId: 'wiki_' + encodeURIComponent(item.originalTitle),
-      externalTitle: item.originalTitle,
-      mediaType: isLikelySeries ? 'tv' : 'movie',
-      posterPath: wiki.poster,
-      synopsis: wiki.synopsis,
-      status: 'matched',
-      runtimeMinutes: isLikelySeries ? undefined : 100,
-      totalEpisodes: isLikelySeries ? 8 : undefined,
-      averageEpisodeMinutes: isLikelySeries ? 45 : undefined,
       updatedAt: new Date().toISOString(),
     };
   }
