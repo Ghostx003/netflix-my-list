@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { AppSettings, LibraryItem, NetflixRawItem } from './types';
+import { AppSettings, LibraryItem, NetflixRawItem, LibraryViewingStatus } from './types';
 import { DEFAULT_SETTINGS, getAllLibraryItems, getSettings, saveLibraryItems, saveSettings, clearLibrary, deleteLibraryItem } from './services/db';
 import { enrichLibraryItem } from './services/tmdb';
 import { deduplicateAndPrepareItems } from './services/duplicateDetector';
@@ -95,12 +95,27 @@ export const App: React.FC = () => {
           getSettings(),
         ]);
         // Filter out any bogus notification items that may have been imported accidentally
-        let validItems = (savedItems || []).filter(item => {
+        let validItems: LibraryItem[] = (savedItems || []).map((item): LibraryItem => {
+          // Heal any desync where item was uncompleted (isCompleted: false) but viewingStatus remained 'completed'
+          if (!item.isCompleted && item.viewingStatus === 'completed') {
+            return {
+              ...item,
+              viewingStatus: (item.progress && item.progress.percentage > 0 ? 'still_watching' : 'unwatched') as LibraryViewingStatus,
+            };
+          }
+          if (item.isCompleted && item.viewingStatus !== 'completed') {
+            return {
+              ...item,
+              viewingStatus: 'completed',
+            };
+          }
+          return item;
+        }).filter(item => {
           const t = (item.originalTitle || '').toLowerCase();
           return !t.includes('new arrival') && !t.includes('watch now') && !t.includes('weeks ago') && !t.includes('days ago');
         });
 
-        if (savedItems && validItems.length !== savedItems.length) {
+        if (savedItems && JSON.stringify(validItems) !== JSON.stringify(savedItems)) {
           await saveLibraryItems(validItems);
         }
 

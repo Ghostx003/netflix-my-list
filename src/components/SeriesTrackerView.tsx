@@ -48,9 +48,14 @@ export const SeriesTrackerView: React.FC<SeriesTrackerViewProps> = ({
     const updated: LibraryItem = {
       ...item,
       isCompleted: isNowDone,
+      viewingStatus: isNowDone ? 'completed' : (item.progress && item.progress.percentage > 0 ? 'still_watching' : 'unwatched'),
       completedAt: isNowDone ? now : undefined,
       userStarRating: isNowDone ? (item.userStarRating || 5) : item.userStarRating,
       timeInvestedMinutes: timeInvested,
+      progress: !isNowDone && item.progress ? {
+        ...item.progress,
+        percentage: item.progress.percentage === 100 ? 0 : item.progress.percentage,
+      } : item.progress,
       updatedAt: now,
     };
 
