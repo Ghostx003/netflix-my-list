@@ -452,17 +452,10 @@ export const App: React.FC = () => {
               };
               await handleAddNewItem(newLibItem);
               setSyncToast({
-                message: `Added "${discItem.title}" to your library! Showing in Recently Added.`,
+                message: `Added "${discItem.title}" to your library!`,
                 type: 'success',
               });
-              // Navigate to Movies & Series catalog tab sorted by recently_added
-              handleTabChange('movies-series');
-              const params = new URLSearchParams(window.location.search);
-              params.set('sortBy', 'recently_added');
-              params.set('sortOrder', 'desc');
-              const newUrl = window.location.pathname + '?' + params.toString() + window.location.hash;
-              window.history.replaceState(null, '', newUrl);
-              setTimeout(() => setSyncToast(null), 3500);
+              setTimeout(() => setSyncToast(null), 3000);
             }}
             onStartWatching={async (discItem) => {
               // Check if item already exists in library
