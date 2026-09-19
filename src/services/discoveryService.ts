@@ -1231,6 +1231,28 @@ function normalizeTmdbToDiscovery(item: any, mediaType: 'movie' | 'tv'): Discove
     genres = item.genre_ids.map((id: number) => TMDB_GENRE_ID_MAP[id]).filter(Boolean);
   }
 
+  // TMDB API TV series quirk: TMDB has NO 'Thriller' genre ID for TV shows (/genre/tv/list only has Crime, Mystery, Drama, etc.).
+  // Infer 'Thriller' tag for TV shows that combine Crime + Mystery or Crime + Drama or contain suspense overtones
+  if (!isMovie) {
+    const hasCrime = genres.includes('Crime');
+    const hasMystery = genres.includes('Mystery');
+    const hasActionAdv = genres.includes('Action & Adventure');
+    const overviewLower = (item.overview || '').toLowerCase();
+    const hasSuspenseKeywords =
+      overviewLower.includes('thrill') ||
+      overviewLower.includes('suspense') ||
+      overviewLower.includes('murder') ||
+      overviewLower.includes('conspiracy') ||
+      overviewLower.includes('hostage') ||
+      overviewLower.includes('investigat');
+
+    if ((hasCrime && (hasMystery || hasSuspenseKeywords)) || (hasActionAdv && hasSuspenseKeywords) || (hasMystery && hasSuspenseKeywords)) {
+      if (!genres.includes('Thriller')) {
+        genres.push('Thriller');
+      }
+    }
+  }
+
   const posterPath = item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : undefined;
   const backdropPath = item.backdrop_path ? `https://image.tmdb.org/t/p/w1280${item.backdrop_path}` : undefined;
 
@@ -1586,10 +1608,38 @@ export async function enrichTitleWithTMDB(
     }
   }
 
-  // Extract genres
-  const genres = Array.isArray(detail.genres)
+  // Extract genres and merge with any existing genres
+  let genres: string[] = Array.isArray(detail.genres)
     ? detail.genres.map((g: any) => g.name).filter(Boolean)
-    : titleItem.genres;
+    : (titleItem.genres || []);
+
+  // Merge with existing titleItem genres so custom or seed tags are never lost
+  if (Array.isArray(titleItem.genres)) {
+    titleItem.genres.forEach((g) => {
+      if (g && !genres.includes(g)) genres.push(g);
+    });
+  }
+
+  // TV thriller inference in TMDB detail
+  if (!isMovie) {
+    const hasCrime = genres.includes('Crime');
+    const hasMystery = genres.includes('Mystery');
+    const hasActionAdv = genres.includes('Action & Adventure');
+    const overviewLower = (detail.overview || titleItem.synopsis || '').toLowerCase();
+    const hasSuspense =
+      overviewLower.includes('thrill') ||
+      overviewLower.includes('suspense') ||
+      overviewLower.includes('murder') ||
+      overviewLower.includes('conspiracy') ||
+      overviewLower.includes('hostage') ||
+      overviewLower.includes('investigat');
+
+    if ((hasCrime && (hasMystery || hasSuspense)) || (hasActionAdv && hasSuspense) || (hasMystery && hasSuspense)) {
+      if (!genres.includes('Thriller')) {
+        genres.push('Thriller');
+      }
+    }
+  }
 
   // Extract countries
   const rawCountries =
@@ -2032,17 +2082,20 @@ export async function fetchNetflixIndiaDiscovery(
     omdbApiKey?: string;
     watchmodeApiKey?: string;
     pagesToFetch?: number;
+    forceRefresh?: boolean;
   } = {}
 ): Promise<{ titles: DiscoveryTitle[]; totalResults: number; totalPages: number }> {
   const startPage = options.page || 1;
-  const numPages = options.pagesToFetch || 2;
+  const numPages = options.pagesToFetch || 3;
   const apiKey = options.apiKey || DEFAULT_PUBLIC_TMDB_KEY;
-  const cacheKey = `discovery_in_p${startPage}_n${numPages}_${options.mediaType || 'all'}_v3`;
+  const cacheKey = `discovery_in_p${startPage}_n${numPages}_${options.mediaType || 'all'}_v4`;
 
-  // Check cache first
-  const cached = await getCachedMetadata(cacheKey);
-  if (cached && Array.isArray(cached.titles) && cached.titles.length > 25) {
-    return cached;
+  // Check cache first if not forced refresh
+  if (!options.forceRefresh) {
+    const cached = await getCachedMetadata(cacheKey);
+    if (cached && Array.isArray(cached.titles) && cached.titles.length > 25) {
+      return cached;
+    }
   }
 
   const fetchedTitles: DiscoveryTitle[] = [];
@@ -2056,6 +2109,7 @@ export async function fetchNetflixIndiaDiscovery(
       const pageNum = p;
 
       if (options.mediaType === 'all' || options.mediaType === 'movie') {
+        // General top popular movies on Netflix India
         const movieUrl = `${TMDB_BASE_URL}/discover/movie?api_key=${apiKey}&watch_region=IN&with_watch_providers=8&sort_by=popularity.desc&page=${pageNum}`;
         fetchPromises.push(
           fetch(movieUrl)
@@ -2072,9 +2126,29 @@ export async function fetchNetflixIndiaDiscovery(
             })
             .catch(() => [])
         );
+
+        // Targeted Thriller query (Genre ID 53) to ensure rich Thriller genre coverage
+        if (p === startPage) {
+          const thrillerMovieUrl = `${TMDB_BASE_URL}/discover/movie?api_key=${apiKey}&watch_region=IN&with_watch_providers=8&with_genres=53&sort_by=popularity.desc&page=1`;
+          fetchPromises.push(
+            fetch(thrillerMovieUrl)
+              .then((r) => (r.ok ? r.json() : { results: [] }))
+              .then((d) => {
+                return (d.results || []).map((m: any) => {
+                  const norm = normalizeTmdbToDiscovery(m, 'movie');
+                  norm.netflixIndiaAvailable = true;
+                  norm.availabilityState = 'available';
+                  if (!norm.genres.includes('Thriller')) norm.genres.push('Thriller');
+                  return norm;
+                });
+              })
+              .catch(() => [])
+          );
+        }
       }
 
       if (options.mediaType === 'all' || options.mediaType === 'tv') {
+        // General top TV shows on Netflix India
         const tvUrl = `${TMDB_BASE_URL}/discover/tv?api_key=${apiKey}&watch_region=IN&with_watch_providers=8&sort_by=popularity.desc&page=${pageNum}`;
         fetchPromises.push(
           fetch(tvUrl)
@@ -2091,6 +2165,25 @@ export async function fetchNetflixIndiaDiscovery(
             })
             .catch(() => [])
         );
+
+        // Targeted Crime/Mystery TV query (Genre IDs 80, 9648) to infer TV Thrillers & Crime series
+        if (p === startPage) {
+          const suspenseTvUrl = `${TMDB_BASE_URL}/discover/tv?api_key=${apiKey}&watch_region=IN&with_watch_providers=8&with_genres=80|9648&sort_by=popularity.desc&page=1`;
+          fetchPromises.push(
+            fetch(suspenseTvUrl)
+              .then((r) => (r.ok ? r.json() : { results: [] }))
+              .then((d) => {
+                return (d.results || []).map((t: any) => {
+                  const norm = normalizeTmdbToDiscovery(t, 'tv');
+                  norm.netflixIndiaAvailable = true;
+                  norm.availabilityState = 'available';
+                  if (!norm.genres.includes('Thriller')) norm.genres.push('Thriller');
+                  return norm;
+                });
+              })
+              .catch(() => [])
+          );
+        }
       }
     }
 

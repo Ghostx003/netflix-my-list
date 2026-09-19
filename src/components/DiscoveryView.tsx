@@ -153,6 +153,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [countryModalTab, setCountryModalTab] = useState<'include' | 'exclude'>('include');
   const [countrySearchQuery, setCountrySearchQuery] = useState('');
+  const [genreSearchQuery, setGenreSearchQuery] = useState('');
 
   // Debounce search query
   useEffect(() => {
@@ -376,6 +377,69 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       console.error('Catalogue sync failed:', err);
       setSyncError(err.message || 'Catalogue sync failed. Check your API key or network.');
       setIsSyncing(false);
+    }
+  };
+
+  // Dedicated "Refresh from API" handler - fetches live Netflix India titles from TMDB API with forceRefresh, merges and updates tags
+  const [isRefreshingApi, setIsRefreshingApi] = useState(false);
+  const [refreshNotification, setRefreshNotification] = useState<string | null>(null);
+
+  const handleRefreshCatalogFromApi = async () => {
+    if (isRefreshingApi || isSyncing) return;
+    setIsRefreshingApi(true);
+    setSyncError(null);
+    setRefreshNotification('Contacting TMDB API to discover & refresh Netflix India titles and tags...');
+
+    try {
+      // Fetch 6 pages of live Netflix India titles (with_genres for Thriller & Crime included)
+      const res = await fetchNetflixIndiaDiscovery({
+        page: 1,
+        apiKey: settings.tmdbApiKey,
+        pagesToFetch: 6,
+        forceRefresh: true,
+      });
+
+      const freshTitles = res.titles || [];
+      if (freshTitles.length > 0) {
+        // Merge with seed titles and current catalog so existing enrichments and verified seeds are preserved
+        const combined = deduplicateDiscoveryTitles([
+          ...SEED_NETFLIX_INDIA_TITLES,
+          ...catalog,
+          ...freshTitles,
+        ]);
+
+        setCatalog(combined);
+        await saveDiscoveryTitles(combined);
+
+        const syncIso = new Date().toLocaleString('en-IN', {
+          dateStyle: 'medium',
+          timeStyle: 'short',
+        });
+        setLastSyncTime(syncIso);
+
+        const currentMeta = (await getDiscoveryCatalogMeta()) || {};
+        await setDiscoveryCatalogMeta({
+          ...currentMeta,
+          lastSync: syncIso,
+          totalAvailable: combined.filter((t) => t.availabilityState === 'available').length,
+          totalTitles: combined.length,
+        });
+
+        setRefreshNotification(`✨ Refreshed successfully! Catalogue updated with ${combined.length} titles and categorized tags.`);
+        try {
+          confetti({ particleCount: 40, spread: 60, origin: { y: 0.5 } });
+        } catch {}
+      } else {
+        setRefreshNotification('Catalog is already up to date with the latest titles.');
+      }
+    } catch (err: any) {
+      console.error('API Refresh failed:', err);
+      setSyncError(err.message || 'Failed refreshing catalog from TMDB API.');
+    } finally {
+      setIsRefreshingApi(false);
+      setTimeout(() => {
+        setRefreshNotification(null);
+      }, 4000);
     }
   };
 
@@ -937,12 +1001,27 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
           )}
         </div>
 
-        {/* Sync, Analytics, Surprise Me & Filter Action Buttons */}
+        {/* Sync, Refresh API, Analytics, Surprise Me & Filter Action Buttons */}
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+          {/* Refresh from API Button */}
+          <button
+            onClick={handleRefreshCatalogFromApi}
+            disabled={isRefreshingApi || isSyncing}
+            className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all shadow-md ${
+              isRefreshingApi
+                ? 'bg-amber-950/80 text-amber-300 border border-amber-500/50 cursor-wait'
+                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white border border-white/10 active:scale-95'
+            }`}
+            title="Refresh catalogue directly from TMDB & Watchmode APIs with latest Netflix India titles, enriched tags, and full category coverage"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingApi ? 'animate-spin text-amber-400' : 'text-zinc-400'}`} />
+            <span>{isRefreshingApi ? 'Refreshing...' : 'Refresh API'}</span>
+          </button>
+
           {/* Sync Netflix India Catalogue Button */}
           <button
             onClick={() => setShowSyncModal(true)}
-            disabled={isSyncing}
+            disabled={isSyncing || isRefreshingApi}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all shadow-lg ${
               isSyncing
                 ? 'bg-zinc-800 text-zinc-400 cursor-not-allowed border border-white/10'
@@ -978,6 +1057,22 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Refresh API Notification Banner */}
+      {refreshNotification && (
+        <div className="bg-amber-950/80 border border-amber-500/50 rounded-xl p-4 flex items-center gap-3 text-amber-200 text-xs animate-fade-in shadow-lg">
+          <RefreshCw className={`w-4 h-4 text-amber-400 shrink-0 ${isRefreshingApi ? 'animate-spin' : ''}`} />
+          <div className="flex-1 font-medium">{refreshNotification}</div>
+          {!isRefreshingApi && (
+            <button
+              onClick={() => setRefreshNotification(null)}
+              className="text-amber-400 hover:text-white"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Sync Error Banner */}
       {syncError && (
@@ -1835,8 +1930,30 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               </div>
             )}
 
+            {/* Category Search Input */}
+            <div className="relative mb-3">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-zinc-400" />
+              <input
+                type="text"
+                value={genreSearchQuery}
+                onChange={(e) => setGenreSearchQuery(e.target.value)}
+                placeholder="Search categories / tags (e.g. Thriller, Crime, Anime)..."
+                className="w-full bg-black/40 border border-white/10 rounded-xl pl-9 pr-8 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-red-500/60"
+              />
+              {genreSearchQuery && (
+                <button
+                  onClick={() => setGenreSearchQuery('')}
+                  className="absolute right-2.5 top-2 text-zinc-400 hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-64 overflow-y-auto p-1">
-              {availableGenres.map((g) => {
+              {availableGenres
+                .filter((g) => g.toLowerCase().includes(genreSearchQuery.toLowerCase().trim()))
+                .map((g) => {
                 const isChecked =
                   genreModalTab === 'include'
                     ? selectedGenres.includes(g)
