@@ -23,28 +23,23 @@ export const CachedImage: React.FC<CachedImageProps> = ({
   useEffect(() => {
     let isCancelled = false;
     setHasError(false);
+    setImageSrc(src);
 
     if (!src) {
-      setImageSrc(undefined);
       return;
     }
 
     async function checkAndCache() {
-      // 1. Check local IndexedDB cache first
-      const cached = await getCachedThumbnail(src!);
-      if (cached && !isCancelled) {
-        setImageSrc(cached);
-        return;
-      }
+      try {
+        // 1. Check local IndexedDB cache first
+        const cached = await getCachedThumbnail(src!);
+        if (cached && !isCancelled) {
+          setImageSrc(cached);
+          return;
+        }
 
-      // If not cached, start with original src
-      if (!isCancelled) {
-        setImageSrc(src);
-      }
-
-      // 2. Fetch as blob in background and cache if remote URL
-      if (src!.startsWith('http')) {
-        try {
+        // 2. Fetch as blob in background and cache if remote URL
+        if (src!.startsWith('http')) {
           const res = await fetch(src!, { mode: 'cors' });
           if (res.ok) {
             const blob = await res.blob();
@@ -57,9 +52,9 @@ export const CachedImage: React.FC<CachedImageProps> = ({
             };
             reader.readAsDataURL(blob);
           }
-        } catch {
-          // Cross-origin restriction or offline — keep original imageSrc
         }
+      } catch {
+        // Cross-origin restriction or offline — keep original imageSrc
       }
     }
 
@@ -79,7 +74,9 @@ export const CachedImage: React.FC<CachedImageProps> = ({
       src={imageSrc}
       alt={alt}
       className={className}
-      onError={() => setHasError(true)}
+      onError={() => {
+        setHasError(true);
+      }}
       loading="lazy"
       {...props}
     />

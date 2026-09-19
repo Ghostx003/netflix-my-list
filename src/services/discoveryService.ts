@@ -905,22 +905,17 @@ export async function fetchNetflixIndiaDiscovery(
   const startPage = options.page || 1;
   const numPages = options.pagesToFetch || 2; // Fetch 2 pages at a time (40-60 titles per batch)
   const apiKey = options.apiKey || DEFAULT_PUBLIC_TMDB_KEY;
-  const cacheKey = `discovery_in_p${startPage}_n${numPages}_${options.mediaType || 'all'}`;
+  const cacheKey = `discovery_in_p${startPage}_n${numPages}_${options.mediaType || 'all'}_v2`;
 
-  // Check cache first
+  // Check cache first (ignore if empty or old truncated cache)
   const cached = await getCachedMetadata(cacheKey);
-  if (cached && Array.isArray(cached.titles) && cached.titles.length > 0) {
+  if (cached && Array.isArray(cached.titles) && cached.titles.length > 25) {
     return cached;
   }
 
   const fetchedTitles: DiscoveryTitle[] = [];
   let reportedTotalResults = 0;
   let reportedTotalPages = 0;
-
-  // 1. If on page 1, always seed with curated verified Netflix India titles
-  if (startPage === 1) {
-    fetchedTitles.push(...SEED_NETFLIX_INDIA_TITLES);
-  }
 
   try {
     const fetchPromises: Promise<any>[] = [];
@@ -960,45 +955,21 @@ export async function fetchNetflixIndiaDiscovery(
     const results = await Promise.all(fetchPromises);
     results.forEach((list) => fetchedTitles.push(...list));
   } catch (err) {
-    console.warn('Discovery TMDB fetch encountered an issue, using curated seeds:', err);
+    console.warn('Discovery TMDB fetch encountered an issue:', err);
   }
 
-  // Deduplicate before enrichment
+  // Deduplicate dynamic results
   const deduplicated = deduplicateDiscoveryTitles(fetchedTitles);
 
-  // Layer OMDB metadata (Rotten Tomatoes & IMDb) asynchronously for top items on the page
-  const enrichedTitles = await Promise.all(
-    deduplicated.slice(0, 50).map(async (item) => {
-      // If already has IMDb and RT rating, skip
-      if (item.imdbRating && item.rottenTomatoesRating) return item;
-
-      try {
-        const omdb = await fetchOMDBMetadata(item.title, options.omdbApiKey);
-        if (omdb) {
-          return {
-            ...item,
-            imdbRating: item.imdbRating || omdb.imdbRating,
-            rottenTomatoesRating: item.rottenTomatoesRating || omdb.rottenTomatoesRating,
-            runtimeMinutes: item.runtimeMinutes || omdb.runtimeMinutes,
-            synopsis: item.synopsis || omdb.synopsis,
-            countries: item.countries.length > 0 ? item.countries : (omdb.countries || []),
-          };
-        }
-      } catch {}
-      return item;
-    })
-  );
-
-  // Combine top enriched items with remainder
-  const finalTitles = [...enrichedTitles, ...deduplicated.slice(50)];
-
   const result = {
-    titles: finalTitles,
-    totalResults: reportedTotalResults || 4000,
-    totalPages: reportedTotalPages || 200,
+    titles: deduplicated,
+    totalResults: reportedTotalResults || 4500,
+    totalPages: reportedTotalPages || 250,
   };
 
   // Cache for 6 hours
-  await setCachedMetadata(cacheKey, result);
+  if (deduplicated.length > 0) {
+    await setCachedMetadata(cacheKey, result);
+  }
   return result;
 }
