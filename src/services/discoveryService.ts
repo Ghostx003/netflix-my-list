@@ -734,6 +734,36 @@ export const SEED_NETFLIX_INDIA_TITLES: DiscoveryTitle[] = [
   },
 ];
 
+const TMDB_GENRE_ID_MAP: Record<number, string> = {
+  28: 'Action',
+  12: 'Adventure',
+  16: 'Animation',
+  35: 'Comedy',
+  80: 'Crime',
+  99: 'Documentary',
+  18: 'Drama',
+  10751: 'Family',
+  14: 'Fantasy',
+  36: 'History',
+  27: 'Horror',
+  10402: 'Music',
+  9648: 'Mystery',
+  10749: 'Romance',
+  878: 'Sci-Fi',
+  10770: 'TV Movie',
+  53: 'Thriller',
+  10752: 'War',
+  37: 'Western',
+  10759: 'Action & Adventure',
+  10762: 'Kids',
+  10763: 'News',
+  10764: 'Reality',
+  10765: 'Sci-Fi & Fantasy',
+  10766: 'Soap',
+  10767: 'Talk',
+  10768: 'War & Politics',
+};
+
 /**
  * Normalizes raw TMDB item into unified DiscoveryTitle
  */
@@ -748,8 +778,13 @@ function normalizeTmdbToDiscovery(item: any, mediaType: 'movie' | 'tv'): Discove
   const rawCountries = item.origin_country || (item.production_countries?.map((c: any) => c.name || c.iso_3166_1)) || [];
   const countries = normalizeCountriesList(rawCountries);
 
-  // Genre mapping
-  const genres = (item.genres?.map((g: any) => g.name)) || [];
+  // Genre mapping (supports both expanded genres array and genre_ids array from Discover endpoint)
+  let genres: string[] = [];
+  if (Array.isArray(item.genres) && item.genres.length > 0) {
+    genres = item.genres.map((g: any) => g.name || g).filter(Boolean);
+  } else if (Array.isArray(item.genre_ids) && item.genre_ids.length > 0) {
+    genres = item.genre_ids.map((id: number) => TMDB_GENRE_ID_MAP[id]).filter(Boolean);
+  }
 
   const posterPath = item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : undefined;
   const backdropPath = item.backdrop_path ? `https://image.tmdb.org/t/p/w1280${item.backdrop_path}` : undefined;
@@ -864,11 +899,13 @@ export async function fetchNetflixIndiaDiscovery(
     apiKey?: string;
     omdbApiKey?: string;
     watchmodeApiKey?: string;
+    pagesToFetch?: number; // Support fetching multiple batches (e.g. 1-3) for a rich browsing catalog
   } = {}
 ): Promise<{ titles: DiscoveryTitle[]; totalResults: number; totalPages: number }> {
-  const page = options.page || 1;
+  const startPage = options.page || 1;
+  const numPages = options.pagesToFetch || 2; // Fetch 2 pages at a time (40-60 titles per batch)
   const apiKey = options.apiKey || DEFAULT_PUBLIC_TMDB_KEY;
-  const cacheKey = `discovery_in_p${page}_${options.mediaType || 'all'}`;
+  const cacheKey = `discovery_in_p${startPage}_n${numPages}_${options.mediaType || 'all'}`;
 
   // Check cache first
   const cached = await getCachedMetadata(cacheKey);
@@ -877,33 +914,47 @@ export async function fetchNetflixIndiaDiscovery(
   }
 
   const fetchedTitles: DiscoveryTitle[] = [];
+  let reportedTotalResults = 0;
+  let reportedTotalPages = 0;
 
   // 1. If on page 1, always seed with curated verified Netflix India titles
-  if (page === 1) {
+  if (startPage === 1) {
     fetchedTitles.push(...SEED_NETFLIX_INDIA_TITLES);
   }
 
   try {
     const fetchPromises: Promise<any>[] = [];
 
-    if (options.mediaType === 'all' || options.mediaType === 'movie') {
-      const movieUrl = `${TMDB_BASE_URL}/discover/movie?api_key=${apiKey}&watch_region=IN&with_watch_providers=8&sort_by=popularity.desc&page=${page}&vote_count.gte=10`;
-      fetchPromises.push(
-        fetch(movieUrl)
-          .then((r) => (r.ok ? r.json() : { results: [] }))
-          .then((d) => (d.results || []).map((m: any) => normalizeTmdbToDiscovery(m, 'movie')))
-          .catch(() => [])
-      );
-    }
+    for (let p = startPage; p < startPage + numPages; p++) {
+      const pageNum = p;
 
-    if (options.mediaType === 'all' || options.mediaType === 'tv') {
-      const tvUrl = `${TMDB_BASE_URL}/discover/tv?api_key=${apiKey}&watch_region=IN&with_watch_providers=8&sort_by=popularity.desc&page=${page}&vote_count.gte=10`;
-      fetchPromises.push(
-        fetch(tvUrl)
-          .then((r) => (r.ok ? r.json() : { results: [] }))
-          .then((d) => (d.results || []).map((t: any) => normalizeTmdbToDiscovery(t, 'tv')))
-          .catch(() => [])
-      );
+      if (options.mediaType === 'all' || options.mediaType === 'movie') {
+        const movieUrl = `${TMDB_BASE_URL}/discover/movie?api_key=${apiKey}&watch_region=IN&with_watch_providers=8&sort_by=popularity.desc&page=${pageNum}`;
+        fetchPromises.push(
+          fetch(movieUrl)
+            .then((r) => (r.ok ? r.json() : { results: [], total_results: 0, total_pages: 0 }))
+            .then((d) => {
+              if (d.total_results) reportedTotalResults = Math.max(reportedTotalResults, d.total_results);
+              if (d.total_pages) reportedTotalPages = Math.max(reportedTotalPages, d.total_pages);
+              return (d.results || []).map((m: any) => normalizeTmdbToDiscovery(m, 'movie'));
+            })
+            .catch(() => [])
+        );
+      }
+
+      if (options.mediaType === 'all' || options.mediaType === 'tv') {
+        const tvUrl = `${TMDB_BASE_URL}/discover/tv?api_key=${apiKey}&watch_region=IN&with_watch_providers=8&sort_by=popularity.desc&page=${pageNum}`;
+        fetchPromises.push(
+          fetch(tvUrl)
+            .then((r) => (r.ok ? r.json() : { results: [], total_results: 0, total_pages: 0 }))
+            .then((d) => {
+              if (d.total_results) reportedTotalResults = Math.max(reportedTotalResults, d.total_results);
+              if (d.total_pages) reportedTotalPages = Math.max(reportedTotalPages, d.total_pages);
+              return (d.results || []).map((t: any) => normalizeTmdbToDiscovery(t, 'tv'));
+            })
+            .catch(() => [])
+        );
+      }
     }
 
     const results = await Promise.all(fetchPromises);
@@ -917,7 +968,7 @@ export async function fetchNetflixIndiaDiscovery(
 
   // Layer OMDB metadata (Rotten Tomatoes & IMDb) asynchronously for top items on the page
   const enrichedTitles = await Promise.all(
-    deduplicated.slice(0, 40).map(async (item) => {
+    deduplicated.slice(0, 50).map(async (item) => {
       // If already has IMDb and RT rating, skip
       if (item.imdbRating && item.rottenTomatoesRating) return item;
 
@@ -939,12 +990,12 @@ export async function fetchNetflixIndiaDiscovery(
   );
 
   // Combine top enriched items with remainder
-  const finalTitles = [...enrichedTitles, ...deduplicated.slice(40)];
+  const finalTitles = [...enrichedTitles, ...deduplicated.slice(50)];
 
   const result = {
     titles: finalTitles,
-    totalResults: 500, // Estimated catalog depth
-    totalPages: 25,
+    totalResults: reportedTotalResults || 4000,
+    totalPages: reportedTotalPages || 200,
   };
 
   // Cache for 6 hours

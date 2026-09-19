@@ -83,6 +83,8 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   const [catalog, setCatalog] = useState<DiscoveryTitle[]>(SEED_NETFLIX_INDIA_TITLES);
   const [loading, setLoading] = useState(false);
   const [apiPage, setApiPage] = useState(1);
+  const [totalCatalogResults, setTotalCatalogResults] = useState<number>(4500);
+  const [totalCatalogPages, setTotalCatalogPages] = useState<number>(200);
 
   // Filters state
   const [searchQuery, setSearchQuery] = useState('');
@@ -139,7 +141,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Load catalog on mount
+  // Load catalog on mount & when apiPage advances
   useEffect(() => {
     let isMounted = true;
     async function loadCatalog() {
@@ -150,17 +152,22 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
           apiKey: settings.tmdbApiKey,
           omdbApiKey: settings.omdbApiKey,
           watchmodeApiKey: settings.watchmodeApiKey,
+          pagesToFetch: 2, // Fetch 2 pages (~40-60 titles) per batch
         });
-        if (isMounted && res.titles && res.titles.length > 0) {
-          setCatalog((prev) => {
-            const combined = [...prev, ...res.titles];
-            const map = new Map<string, DiscoveryTitle>();
-            for (const item of combined) {
-              const key = item.imdbId || (item.tmdbId ? `${item.mediaType}_${item.tmdbId}` : item.title);
-              if (!map.has(key)) map.set(key, item);
-            }
-            return Array.from(map.values());
-          });
+        if (isMounted) {
+          if (res.totalResults) setTotalCatalogResults(res.totalResults);
+          if (res.totalPages) setTotalCatalogPages(res.totalPages);
+          if (res.titles && res.titles.length > 0) {
+            setCatalog((prev) => {
+              const combined = [...prev, ...res.titles];
+              const map = new Map<string, DiscoveryTitle>();
+              for (const item of combined) {
+                const key = item.imdbId || (item.tmdbId ? `${item.mediaType}_${item.tmdbId}` : item.title);
+                if (!map.has(key)) map.set(key, item);
+              }
+              return Array.from(map.values());
+            });
+          }
         }
       } catch (err) {
         console.error('Error fetching discovery catalog:', err);
@@ -465,6 +472,14 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
     return filteredCatalog.slice(start, start + ITEMS_PER_PAGE);
   }, [filteredCatalog, currentPage]);
+
+  // When user approaches the end of the loaded catalog, auto-fetch the next batch from the API
+  useEffect(() => {
+    if (!loading && currentPage >= totalPages && apiPage * 2 < totalCatalogPages) {
+      // Auto fetch next 2 pages when nearing end of current loaded pool
+      setApiPage((p) => p + 2);
+    }
+  }, [currentPage, totalPages, loading, apiPage, totalCatalogPages]);
 
   // Convert DiscoveryTitle to LibraryItem format for modal preview
   const convertToLibraryItem = (item: DiscoveryTitle): LibraryItem => {
@@ -1062,10 +1077,12 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-zinc-900/60 p-3.5 rounded-xl border border-white/5">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-bold text-white">
-            Showing {filteredCatalog.length} {filteredCatalog.length === 1 ? 'title' : 'titles'}
+            {filteredCatalog.length} {filteredCatalog.length === 1 ? 'title' : 'titles'} loaded
           </span>
           <span className="text-zinc-500">•</span>
-          <span className="text-xs text-zinc-400 font-medium">Netflix India</span>
+          <span className="text-xs text-zinc-400 font-medium">
+            Catalog: {totalCatalogResults.toLocaleString()}+ titles available in Netflix India
+          </span>
 
           {/* Active filter pills */}
           {contentType !== 'all' && (
@@ -1381,11 +1398,11 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
 
           {/* Load next catalog batch from API */}
           <button
-            onClick={() => setApiPage((p) => p + 1)}
+            onClick={() => setApiPage((p) => p + 2)}
             disabled={loading}
-            className="ml-3 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold text-white transition-colors border border-white/10"
+            className="ml-3 px-3.5 py-1.5 rounded-xl bg-[#E50914]/20 hover:bg-[#E50914]/30 border border-[#E50914]/40 text-xs font-bold text-red-300 transition-all shadow-md active:scale-95 disabled:opacity-50"
           >
-            {loading ? 'Loading...' : '+ Load More from Netflix API'}
+            {loading ? 'Fetching Netflix Titles...' : '+ Load More from Netflix Catalog'}
           </button>
         </div>
       )}
