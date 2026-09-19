@@ -21,6 +21,7 @@ import { getNetflixUrl } from '../services/normalizer';
 interface SurpriseMeModalProps {
   isOpen: boolean;
   items: LibraryItem[];
+  customPool?: LibraryItem[] | null;
   onClose: () => void;
   onWatchNow: (item: LibraryItem) => void;
   onOpenDetail: (item: LibraryItem) => void;
@@ -33,12 +34,18 @@ type PoolOption = 'all' | 'movies' | 'tv' | 'unwatched' | 'still_watching';
 export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
   isOpen,
   items,
+  customPool,
   onClose,
   onWatchNow,
   onOpenDetail,
   onAddToLibrary,
   onMarkWatched,
 }) => {
+  const isCustomPool = Boolean(customPool && customPool.length > 0);
+  const activePoolItems = useMemo(() => {
+    return isCustomPool ? (customPool as LibraryItem[]) : items;
+  }, [isCustomPool, customPool, items]);
+
   const [selectedPool, setSelectedPool] = useState<PoolOption>('all');
   const [selectedGenre, setSelectedGenre] = useState<string>('all');
   const [excludeDropped, setExcludeDropped] = useState<boolean>(true);
@@ -49,13 +56,23 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
   // Collect unique genres
   const allGenres = useMemo(() => {
     const s = new Set<string>();
-    items.forEach((x) => x.genres?.forEach((g) => s.add(g)));
+    activePoolItems.forEach((x) => x.genres?.forEach((g) => s.add(g)));
     return Array.from(s).sort();
-  }, [items]);
+  }, [activePoolItems]);
 
   // Candidates pool
   const candidatePool = useMemo(() => {
-    return items.filter((item) => {
+    return activePoolItems.filter((item) => {
+      // If user provided a custom pool directly (e.g. from Discovery filters), respect their exact filtered items
+      if (isCustomPool) {
+        if (selectedGenre !== 'all') {
+          if (!item.genres || !item.genres.includes(selectedGenre)) return false;
+        }
+        if (selectedPool === 'movies' && item.mediaType !== 'movie') return false;
+        if (selectedPool === 'tv' && item.mediaType !== 'tv') return false;
+        return true;
+      }
+
       if (excludeDropped && (item.viewingStatus === 'dropped' || (!item.viewingStatus && item.droppedReason))) {
         return false;
       }
@@ -72,7 +89,7 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
 
       return true;
     });
-  }, [items, selectedPool, selectedGenre, excludeDropped]);
+  }, [activePoolItems, isCustomPool, selectedPool, selectedGenre, excludeDropped]);
 
   if (!isOpen) return null;
 
@@ -173,9 +190,18 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
             <Sparkles className="w-6 h-6" />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-white">Surprise Me Roulette</h3>
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              <span>Surprise Me Roulette</span>
+              {isCustomPool && (
+                <span className="text-[11px] font-semibold bg-red-500/20 text-red-400 border border-red-500/30 px-2 py-0.5 rounded-full">
+                  🎯 Filtered Discovery Pool
+                </span>
+              )}
+            </h3>
             <p className="text-xs text-zinc-400">
-              Can't decide? Let the algorithm spin your library.
+              {isCustomPool
+                ? `Spinning exclusively from your currently filtered Discovery selection (${activePoolItems.length} titles)`
+                : "Can't decide? Let the algorithm spin your library."}
             </p>
           </div>
         </div>
@@ -183,11 +209,21 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
         {/* Filters */}
         <div className="space-y-3 bg-black/40 border border-zinc-800 rounded-xl p-4">
           <div>
-            <label className="block text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-1.5">
-              Source Pool ({candidatePool.length} eligible)
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold text-zinc-300 uppercase tracking-wider">
+                {isCustomPool ? 'Type Filter' : 'Source Pool'} ({candidatePool.length} eligible)
+              </label>
+              {isCustomPool && (
+                <span className="text-[11px] text-zinc-400">
+                  Total filtered: <strong className="text-white">{activePoolItems.length}</strong>
+                </span>
+              )}
+            </div>
             <div className="flex flex-wrap gap-1.5">
-              {(['all', 'movies', 'tv', 'unwatched', 'still_watching'] as PoolOption[]).map((pool) => (
+              {(isCustomPool
+                ? (['all', 'movies', 'tv'] as PoolOption[])
+                : (['all', 'movies', 'tv', 'unwatched', 'still_watching'] as PoolOption[])
+              ).map((pool) => (
                 <button
                   key={pool}
                   onClick={() => setSelectedPool(pool)}
@@ -197,7 +233,7 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
                       : 'bg-zinc-800 text-zinc-400 hover:text-white'
                   }`}
                 >
-                  {pool === 'all' && 'All Library'}
+                  {pool === 'all' && (isCustomPool ? 'All Filtered' : 'All Library')}
                   {pool === 'movies' && 'Movies Only'}
                   {pool === 'tv' && 'TV Series'}
                   {pool === 'unwatched' && 'Unwatched'}
@@ -223,15 +259,17 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
             </select>
           </div>
 
-          <label className="flex items-center gap-2 pt-1 text-xs text-zinc-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={excludeDropped}
-              onChange={(e) => setExcludeDropped(e.target.checked)}
-              className="rounded border-zinc-700 text-purple-600 focus:ring-purple-500 bg-zinc-800"
-            />
-            <span>Exclude Dropped Titles</span>
-          </label>
+          {!isCustomPool && (
+            <label className="flex items-center gap-2 pt-1 text-xs text-zinc-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={excludeDropped}
+                onChange={(e) => setExcludeDropped(e.target.checked)}
+                className="rounded border-zinc-700 text-purple-600 focus:ring-purple-500 bg-zinc-800"
+              />
+              <span>Exclude Dropped Titles</span>
+            </label>
+          )}
         </div>
 
         {/* Result Preview (Card with thumbnail, ratings, Add to Library, Watched, & Surprise Again inside thumbnail) */}
@@ -363,9 +401,9 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
                   <button
                     onClick={() => {
                       onOpenDetail(result);
-                      onClose();
+                      // Surprise modal remains open underneath!
                     }}
-                    className="px-3 py-1.5 text-xs font-semibold text-zinc-300 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
+                    className="px-3 py-1.5 text-xs font-semibold text-zinc-300 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors border border-zinc-700"
                   >
                     Details
                   </button>

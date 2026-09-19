@@ -71,6 +71,7 @@ export const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isBackupOpen, setIsBackupOpen] = useState(false);
   const [isSurpriseMeOpen, setIsSurpriseMeOpen] = useState(false);
+  const [surpriseMeCustomPool, setSurpriseMeCustomPool] = useState<LibraryItem[] | null>(null);
 
   // Drop modal state
   const [itemToDrop, setItemToDrop] = useState<LibraryItem | null>(null);
@@ -593,7 +594,10 @@ export const App: React.FC = () => {
               setTimeout(() => setSyncToast(null), 3000);
             }}
             onOpenDetail={(item) => setSelectedDetailItem(item)}
-            onOpenSurpriseMeModal={() => setIsSurpriseMeOpen(true)}
+            onOpenSurpriseMeModal={(pool) => {
+              setSurpriseMeCustomPool(pool && pool.length > 0 ? pool : null);
+              setIsSurpriseMeOpen(true);
+            }}
           />
         )}
 
@@ -658,10 +662,14 @@ export const App: React.FC = () => {
       <SurpriseMeModal
         isOpen={isSurpriseMeOpen}
         items={items}
-        onClose={() => setIsSurpriseMeOpen(false)}
+        customPool={surpriseMeCustomPool}
+        onClose={() => {
+          setIsSurpriseMeOpen(false);
+          setSurpriseMeCustomPool(null);
+        }}
         onWatchNow={handleWatchNow}
         onOpenDetail={(item) => {
-          setIsSurpriseMeOpen(false);
+          // Keep Surprise Modal open behind the details modal!
           setSelectedDetailItem(item);
         }}
         onAddToLibrary={async (item) => {

@@ -68,6 +68,7 @@ type PresetType =
   | 'kdramas'
   | 'anime'
   | 'european'
+  | 'asian'
   | 'hindi_dubbed'
   | 'highly_rated'
   | 'recently_added';
@@ -90,6 +91,37 @@ const EUROPEAN_COUNTRIES = new Set([
   'Czech Republic',
   'Austria',
   'Switzerland',
+]);
+
+export const ASIAN_COUNTRIES = new Set([
+  'Japan',
+  'South Korea',
+  'India',
+  'China',
+  'Hong Kong',
+  'Taiwan',
+  'Thailand',
+  'Indonesia',
+  'Vietnam',
+  'Philippines',
+  'Singapore',
+  'Malaysia',
+  'Turkey',
+  'Pakistan',
+  'Bangladesh',
+  'Nepal',
+  'Sri Lanka',
+  'Israel',
+  'United Arab Emirates',
+  'Saudi Arabia',
+  'Iran',
+  'Iraq',
+  'Lebanon',
+  'Jordan',
+  'Kuwait',
+  'Qatar',
+  'Kazakhstan',
+  'Uzbekistan',
 ]);
 
 const ITEMS_PER_BATCH = 40;
@@ -521,6 +553,12 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       setSelectedGenres([]);
       setAudioFilter('all');
       setMinRating(0);
+    } else if (preset === 'asian') {
+      setContentType('all');
+      setSelectedCountries(Array.from(ASIAN_COUNTRIES));
+      setSelectedGenres([]);
+      setAudioFilter('all');
+      setMinRating(0);
     } else if (preset === 'hindi_dubbed') {
       setContentType('all');
       setSelectedCountries([]);
@@ -655,9 +693,11 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       });
     }
 
-    // 3. European preset check
+    // 3. European & Asian preset check
     if (activePreset === 'european') {
       result = result.filter((x) => (x.countries || []).some((c) => EUROPEAN_COUNTRIES.has(normalizeCountryName(c))));
+    } else if (activePreset === 'asian') {
+      result = result.filter((x) => (x.countries || []).some((c) => ASIAN_COUNTRIES.has(normalizeCountryName(c))));
     } else if (selectedCountries.length > 0) {
       // 4. Country include filter
       result = result.filter((x) => {
@@ -936,18 +976,19 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     };
   };
 
-  // Surprise Me: open SurpriseMeModal roulette if handler provided, otherwise pick random from filteredCatalog
+  // Surprise Me: open SurpriseMeModal roulette with all currently filtered Discovery titles
   const handleSurpriseMe = () => {
+    const convertedPool = filteredCatalog.map(convertToLibraryItem);
     if (onOpenSurpriseMeModal) {
-      onOpenSurpriseMeModal();
+      onOpenSurpriseMeModal(convertedPool);
       return;
     }
-    if (filteredCatalog.length === 0) return;
-    const randomItem = filteredCatalog[Math.floor(Math.random() * filteredCatalog.length)];
+    if (convertedPool.length === 0) return;
+    const randomItem = convertedPool[Math.floor(Math.random() * convertedPool.length)];
     try {
       confetti({ particleCount: 35, spread: 55, origin: { y: 0.6 } });
     } catch {}
-    onOpenDetail(convertToLibraryItem(randomItem));
+    onOpenDetail(randomItem);
   };
 
   // Active filters count
@@ -1442,6 +1483,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                 { id: 'kdramas', label: '🇰🇷 K-Dramas' },
                 { id: 'anime', label: '⚔️ Anime' },
                 { id: 'european', label: '🏰 European' },
+                { id: 'asian', label: '🌏 Asian' },
               ] as const
             ).map((preset) => (
               <button

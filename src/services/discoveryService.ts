@@ -1337,17 +1337,138 @@ export function inferTvThrillerGenre(title: string, genres: string[], synopsis?:
 }
 
 /**
- * Ensures all titles in a list have proper TV Thriller tags applied retroactively
+ * Detects additional specific genres for series (especially those with only 'Drama' or sparse genres)
+ * based on deep synopsis keyword analysis and known conventions.
+ */
+export function inferAdditionalSeriesGenres(title: string, currentGenres: string[], synopsis?: string): string[] {
+  const newGenres = new Set<string>(currentGenres);
+  const synLower = (synopsis || '').toLowerCase();
+  const titleLower = (title || '').toLowerCase();
+  const combinedText = `${titleLower} ${synLower}`;
+
+  // Crime
+  if (
+    !newGenres.has('Crime') &&
+    (combinedText.includes('detective') ||
+      combinedText.includes('murder') ||
+      combinedText.includes('police') ||
+      combinedText.includes('cop') ||
+      combinedText.includes('cartel') ||
+      combinedText.includes('gangster') ||
+      combinedText.includes('mafia') ||
+      combinedText.includes('investigat') ||
+      combinedText.includes('heist') ||
+      combinedText.includes('criminal') ||
+      combinedText.includes('serial killer') ||
+      combinedText.includes('robbery') ||
+      combinedText.includes('fbi') ||
+      combinedText.includes('narcotics'))
+  ) {
+    newGenres.add('Crime');
+  }
+
+  // Mystery
+  if (
+    !newGenres.has('Mystery') &&
+    (combinedText.includes('mystery') ||
+      combinedText.includes('mysterious') ||
+      combinedText.includes('disappear') ||
+      combinedText.includes('unravel') ||
+      combinedText.includes('secret') ||
+      combinedText.includes('clue') ||
+      combinedText.includes('whodunit') ||
+      combinedText.includes('uncover the truth') ||
+      combinedText.includes('conspiracy'))
+  ) {
+    newGenres.add('Mystery');
+  }
+
+  // Romance
+  if (
+    !newGenres.has('Romance') &&
+    (combinedText.includes('fall in love') ||
+      combinedText.includes('falls in love') ||
+      combinedText.includes('romantic') ||
+      combinedText.includes('love story') ||
+      combinedText.includes('romance') ||
+      combinedText.includes('soulmate') ||
+      combinedText.includes('relationship') ||
+      combinedText.includes('heartbreak') ||
+      combinedText.includes('wedding'))
+  ) {
+    newGenres.add('Romance');
+  }
+
+  // Comedy
+  if (
+    !newGenres.has('Comedy') &&
+    (combinedText.includes('hilarious') ||
+      combinedText.includes('comedy') ||
+      combinedText.includes('comedic') ||
+      combinedText.includes('sitcom') ||
+      combinedText.includes('humor') ||
+      combinedText.includes('quirky') ||
+      combinedText.includes('satire') ||
+      combinedText.includes('mischief'))
+  ) {
+    newGenres.add('Comedy');
+  }
+
+  // Action / Adventure
+  if (
+    !newGenres.has('Action') &&
+    !newGenres.has('Action & Adventure') &&
+    (combinedText.includes('martial arts') ||
+      combinedText.includes('action-packed') ||
+      combinedText.includes('assassin') ||
+      combinedText.includes('soldier') ||
+      combinedText.includes('battle') ||
+      combinedText.includes('superhero') ||
+      combinedText.includes('combat') ||
+      combinedText.includes('gunfight') ||
+      combinedText.includes('chase') ||
+      combinedText.includes('mission to save'))
+  ) {
+    newGenres.add('Action');
+  }
+
+  // Sci-Fi & Fantasy
+  if (
+    !newGenres.has('Sci-Fi & Fantasy') &&
+    !newGenres.has('Science Fiction') &&
+    !newGenres.has('Fantasy') &&
+    (combinedText.includes('supernatural') ||
+      combinedText.includes('time travel') ||
+      combinedText.includes('alternate reality') ||
+      combinedText.includes('dystopian') ||
+      combinedText.includes('alien') ||
+      combinedText.includes('magic') ||
+      combinedText.includes('apocalyptic') ||
+      combinedText.includes('futuristic') ||
+      combinedText.includes('powers'))
+  ) {
+    newGenres.add('Sci-Fi & Fantasy');
+  }
+
+  // Thriller
+  if (!newGenres.has('Thriller') && inferTvThrillerGenre(title, Array.from(newGenres), synopsis)) {
+    newGenres.add('Thriller');
+  }
+
+  return Array.from(newGenres);
+}
+
+/**
+ * Ensures all titles in a list have proper TV Thriller and enriched genres applied retroactively,
+ * especially resolving series that are only tagged "Drama".
  */
 export function ensureTvThrillerGenres(titles: DiscoveryTitle[]): DiscoveryTitle[] {
   return titles.map((item) => {
     if (item.mediaType === 'tv') {
-      const genres = [...(item.genres || [])];
-      if (inferTvThrillerGenre(item.title, genres, item.synopsis)) {
-        if (!genres.includes('Thriller')) {
-          genres.push('Thriller');
-          return { ...item, genres };
-        }
+      const existingGenres = [...(item.genres || [])];
+      const enrichedGenres = inferAdditionalSeriesGenres(item.title, existingGenres, item.synopsis);
+      if (enrichedGenres.length !== existingGenres.length) {
+        return { ...item, genres: enrichedGenres };
       }
     }
     return item;
@@ -1376,12 +1497,10 @@ function normalizeTmdbToDiscovery(item: any, mediaType: 'movie' | 'tv'): Discove
     genres = item.genre_ids.map((id: number) => TMDB_GENRE_ID_MAP[id]).filter(Boolean);
   }
 
-  // TMDB API TV series quirk: TMDB has NO 'Thriller' genre ID for TV shows (/genre/tv/list only has Crime, Mystery, Drama, etc.).
-  // Infer 'Thriller' tag using our comprehensive inferTvThrillerGenre engine
-  if (!isMovie && inferTvThrillerGenre(title || '', genres, item.overview)) {
-    if (!genres.includes('Thriller')) {
-      genres.push('Thriller');
-    }
+  // TMDB API TV series quirk: TMDB has NO 'Thriller' genre ID for TV shows and often only assigns 'Drama'.
+  // Infer specific rich genres (Crime, Mystery, Thriller, Romance, Comedy, etc.)
+  if (!isMovie) {
+    genres = inferAdditionalSeriesGenres(title || '', genres, item.overview);
   }
 
   const posterPath = item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : undefined;
@@ -1751,11 +1870,9 @@ export async function enrichTitleWithTMDB(
     });
   }
 
-  // TV thriller inference in TMDB detail
-  if (!isMovie && inferTvThrillerGenre(titleItem.title, genres, detail.overview || titleItem.synopsis)) {
-    if (!genres.includes('Thriller')) {
-      genres.push('Thriller');
-    }
+  // TV series genre enrichment in TMDB detail
+  if (!isMovie) {
+    genres = inferAdditionalSeriesGenres(titleItem.title, genres, detail.overview || titleItem.synopsis);
   }
 
   // Extract countries
