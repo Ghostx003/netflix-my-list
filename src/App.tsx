@@ -161,8 +161,9 @@ export const App: React.FC = () => {
         // Never overwrite a manual match chosen by user
         if (item.isManualMatch) continue;
 
-        // Automatically enrich items if pending, missing poster, missing trailer, or missing ratings
-        if (item.status === 'pending' || !item.posterPath || !item.trailer || item.rottenTomatoesRating === undefined || item.status === 'needs_review') {
+        // Automatically enrich items ONLY if pending or missing essential details (poster, ratings)
+        const hasDetails = item.status === 'matched' && !!item.posterPath && item.rottenTomatoesRating !== undefined;
+        if (!hasDetails && (item.status === 'pending' || !item.posterPath || item.status === 'needs_review')) {
           try {
             const enriched = await enrichLibraryItem(
               item,

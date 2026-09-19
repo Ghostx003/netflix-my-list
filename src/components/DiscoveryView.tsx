@@ -26,6 +26,7 @@ import { AppSettings, DiscoveryTitle, LibraryItem, SavedDiscoveryFilter } from '
 import { fetchNetflixIndiaDiscovery, SEED_NETFLIX_INDIA_TITLES } from '../services/discoveryService';
 import { getNetflixUrl, normalizeCountryName } from '../services/normalizer';
 import { formatRuntime } from '../services/analytics';
+import { CachedImage } from './CachedImage';
 import confetti from 'canvas-confetti';
 
 interface DiscoveryViewProps {
@@ -1165,26 +1166,21 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               >
                 {/* Poster Area */}
                 <div className="relative aspect-[2/3] w-full overflow-hidden bg-neutral-900">
-                  {item.posterPath ? (
-                    <img
-                      src={item.posterPath}
-                      alt={item.title}
-                      loading="lazy"
-                      onError={(e) => {
-                        (e.target as HTMLElement).style.display = 'none';
-                      }}
-                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center text-zinc-500 bg-gradient-to-b from-neutral-800 to-neutral-950">
-                      {item.mediaType === 'movie' ? (
-                        <Film className="w-10 h-10 mb-2 text-zinc-600" />
-                      ) : (
-                        <Tv className="w-10 h-10 mb-2 text-zinc-600" />
-                      )}
-                      <span className="text-xs line-clamp-2 font-medium">{item.title}</span>
-                    </div>
-                  )}
+                  <CachedImage
+                    src={item.posterPath}
+                    alt={item.title}
+                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    fallbackIcon={
+                      <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center text-zinc-500 bg-gradient-to-b from-neutral-800 to-neutral-950">
+                        {item.mediaType === 'movie' ? (
+                          <Film className="w-10 h-10 mb-2 text-zinc-600" />
+                        ) : (
+                          <Tv className="w-10 h-10 mb-2 text-zinc-600" />
+                        )}
+                        <span className="text-xs line-clamp-2 font-medium">{item.title}</span>
+                      </div>
+                    }
+                  />
 
                   {/* Hover Play Button Overlay */}
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">

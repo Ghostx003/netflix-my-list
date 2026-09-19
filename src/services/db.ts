@@ -2,7 +2,7 @@ import { openDB, IDBPDatabase } from 'idb';
 import { AppSettings, LibraryItem } from '../types';
 
 const DB_NAME = 'NetflixWatchlistDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export const DEFAULT_SETTINGS: AppSettings = {
   tmdbApiKey: '',
@@ -24,7 +24,7 @@ let dbPromise: Promise<IDBPDatabase> | null = null;
 function getDB() {
   if (!dbPromise) {
     dbPromise = openDB(DB_NAME, DB_VERSION, {
-      upgrade(db) {
+      upgrade(db, oldVersion) {
         if (!db.objectStoreNames.contains('library')) {
           const libraryStore = db.createObjectStore('library', { keyPath: 'id' });
           libraryStore.createIndex('normalizedTitle', 'normalizedTitle', { unique: false });
@@ -36,6 +36,9 @@ function getDB() {
         }
         if (!db.objectStoreNames.contains('settings')) {
           db.createObjectStore('settings', { keyPath: 'key' });
+        }
+        if (!db.objectStoreNames.contains('thumbnail_cache')) {
+          db.createObjectStore('thumbnail_cache', { keyPath: 'url' });
         }
       },
     });
@@ -195,4 +198,88 @@ export async function setCachedMetadata(cacheKey: string, data: any): Promise<vo
       timestamp: Date.now(),
     });
   } catch {}
+}
+
+export async function getAllCachedMetadata(): Promise<Array<{ cacheKey: string; data: any; timestamp: number }>> {
+  try {
+    const db = await getDB();
+    return await db.getAll('metadata_cache');
+  } catch {
+    return [];
+  }
+}
+
+export async function restoreCachedMetadata(entries: Array<{ cacheKey: string; data: any; timestamp: number }>): Promise<void> {
+  try {
+    const db = await getDB();
+    const tx = db.transaction('metadata_cache', 'readwrite');
+    for (const item of entries) {
+      if (item.cacheKey && item.data) {
+        tx.store.put(item);
+      }
+    }
+    await tx.done;
+  } catch (err) {
+    console.warn('Failed restoring metadata cache:', err);
+  }
+}
+
+// Image Thumbnail Cache operations
+export async function getCachedThumbnail(url: string): Promise<string | null> {
+  if (!url) return null;
+  try {
+    const db = await getDB();
+    const entry = await db.get('thumbnail_cache', url);
+    if (entry && entry.dataUrl) {
+      return entry.dataUrl;
+    }
+  } catch {}
+  return null;
+}
+
+export async function setCachedThumbnail(url: string, dataUrl: string): Promise<void> {
+  if (!url || !dataUrl) return;
+  try {
+    const db = await getDB();
+    await db.put('thumbnail_cache', {
+      url,
+      dataUrl,
+      cachedAt: Date.now(),
+    });
+  } catch {}
+}
+
+export async function getAllCachedThumbnails(): Promise<Record<string, string>> {
+  try {
+    const db = await getDB();
+    const all = await db.getAll('thumbnail_cache');
+    const result: Record<string, string> = {};
+    for (const item of all) {
+      if (item.url && item.dataUrl) {
+        result[item.url] = item.dataUrl;
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+export async function restoreCachedThumbnails(thumbnails: Record<string, string>): Promise<void> {
+  try {
+    const db = await getDB();
+    const tx = db.transaction('thumbnail_cache', 'readwrite');
+    for (const [url, dataUrl] of Object.entries(thumbnails)) {
+      if (url && dataUrl) {
+        tx.store.put({
+          url,
+          dataUrl,
+          cachedAt: Date.now(),
+        });
+      }
+    }
+    await tx.done;
+  } catch (err) {
+    console.warn('Failed restoring thumbnail cache:', err);
+  }
 }

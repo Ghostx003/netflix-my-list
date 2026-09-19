@@ -506,6 +506,19 @@ export async function enrichLibraryItem(
     return item;
   }
 
+  // If details already exist, do not re-fetch from API
+  const hasFullDetails =
+    item.status === 'matched' &&
+    !!item.posterPath &&
+    (item.rating !== undefined || item.imdbRating !== undefined || item.rottenTomatoesRating !== undefined) &&
+    (item.genres && item.genres.length > 0) &&
+    !!item.synopsis &&
+    (item.mediaType === 'movie' ? item.runtimeMinutes !== undefined : item.totalEpisodes !== undefined);
+
+  if (hasFullDetails) {
+    return item;
+  }
+
   const effectiveKey = apiKey || DEFAULT_PUBLIC_TMDB_KEY;
   const slug = createDuplicateKey(item.originalTitle);
 

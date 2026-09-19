@@ -1,5 +1,16 @@
 import { LibraryItem, AppSettings, BackupData } from '../types';
-import { getAllLibraryItems, saveLibraryItems, clearLibrary, getSettings, saveSettings, normalizeLibraryItem } from './db';
+import {
+  getAllLibraryItems,
+  saveLibraryItems,
+  clearLibrary,
+  getSettings,
+  saveSettings,
+  normalizeLibraryItem,
+  getAllCachedMetadata,
+  restoreCachedMetadata,
+  getAllCachedThumbnails,
+  restoreCachedThumbnails,
+} from './db';
 import { createDuplicateKey } from './normalizer';
 
 /**
@@ -7,16 +18,22 @@ import { createDuplicateKey } from './normalizer';
  */
 export async function exportBackup(
   customItems?: LibraryItem[],
-  customSettings?: AppSettings
+  customSettings?: AppSettings,
+  includeCachedThumbnails: boolean = false
 ): Promise<string> {
   const items = customItems && customItems.length > 0 ? customItems : await getAllLibraryItems();
   const settings = customSettings || (await getSettings());
 
+  const metadataCache = await getAllCachedMetadata();
+  const cachedThumbnails = includeCachedThumbnails ? await getAllCachedThumbnails() : undefined;
+
   const backup: BackupData = {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     items: items.map(normalizeLibraryItem),
     settings,
+    metadataCache,
+    cachedThumbnails,
   };
 
   const jsonString = JSON.stringify(backup, null, 2);
@@ -38,7 +55,7 @@ export async function exportBackup(
 }
 
 /**
- * Validates a parsed JSON file to see if it is avalid backup
+ * Validates a parsed JSON file to see if it is a valid backup
  */
 export function validateBackup(parsed: any): { valid: boolean; error?: string; data?: BackupData } {
   if (!parsed || typeof parsed !== 'object') {
@@ -59,6 +76,8 @@ export function validateBackup(parsed: any): { valid: boolean; error?: string; d
       exportedAt: parsed.exportedAt || new Date().toISOString(),
       items,
       settings,
+      metadataCache: parsed.metadataCache,
+      cachedThumbnails: parsed.cachedThumbnails,
     },
   };
 }
@@ -71,6 +90,12 @@ export async function importBackupReplace(backup: BackupData): Promise<{ count: 
   await saveLibraryItems(backup.items);
   if (backup.settings) {
     await saveSettings(backup.settings);
+  }
+  if (backup.metadataCache && Array.isArray(backup.metadataCache)) {
+    await restoreCachedMetadata(backup.metadataCache);
+  }
+  if (backup.cachedThumbnails && typeof backup.cachedThumbnails === 'object') {
+    await restoreCachedThumbnails(backup.cachedThumbnails);
   }
   return { count: backup.items.length };
 }
@@ -152,6 +177,13 @@ export async function importBackupMerge(backup: BackupData): Promise<{
 
   const mergedList = Array.from(existingById.values());
   await saveLibraryItems(mergedList);
+
+  if (backup.metadataCache && Array.isArray(backup.metadataCache)) {
+    await restoreCachedMetadata(backup.metadataCache);
+  }
+  if (backup.cachedThumbnails && typeof backup.cachedThumbnails === 'object') {
+    await restoreCachedThumbnails(backup.cachedThumbnails);
+  }
 
   return {
     addedCount,

@@ -3,6 +3,7 @@ import { Star, Tv, Clock, Layers, Play, CheckCircle2, UserX } from 'lucide-react
 import { LibraryItem } from '../types';
 import { formatRuntime, calculateSeriesRuntime } from '../services/analytics';
 import { getNetflixUrl, getPriorityLanguageBadge } from '../services/normalizer';
+import { CachedImage } from './CachedImage';
 
 interface TvSeriesCardProps {
   item: LibraryItem;
@@ -39,22 +40,17 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
       className="group relative bg-[#181818] hover:bg-[#232323] rounded-xl overflow-hidden border border-white/5 hover:border-red-600/40 transition-all duration-300 shadow-lg hover:shadow-2xl hover:-translate-y-1.5 cursor-pointer flex flex-col"
     >
       <div className="relative aspect-[2/3] w-full overflow-hidden bg-neutral-900">
-        {item.posterPath ? (
-          <img
-            src={item.posterPath}
-            alt={item.externalTitle || item.originalTitle}
-            loading="lazy"
-            onError={(e) => {
-              (e.target as HTMLElement).style.display = 'none';
-            }}
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-          />
-        ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center text-zinc-500 bg-gradient-to-b from-neutral-800 to-neutral-950">
-            <Tv className="w-12 h-12 mb-2 text-zinc-600" />
-            <span className="text-xs line-clamp-2 font-medium">{item.originalTitle}</span>
-          </div>
-        )}
+        <CachedImage
+          src={item.posterPath}
+          alt={item.externalTitle || item.originalTitle}
+          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+          fallbackIcon={
+            <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center text-zinc-500 bg-gradient-to-b from-neutral-800 to-neutral-950">
+              <Tv className="w-12 h-12 mb-2 text-zinc-600" />
+              <span className="text-xs line-clamp-2 font-medium">{item.originalTitle}</span>
+            </div>
+          }
+        />
 
         {/* Hover play icon overlay like Netflix */}
         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">

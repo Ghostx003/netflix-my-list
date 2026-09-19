@@ -217,6 +217,8 @@ export interface BackupData {
   exportedAt: string;
   items: LibraryItem[];
   settings: AppSettings;
+  metadataCache?: Array<{ cacheKey: string; data: any; timestamp: number }>;
+  cachedThumbnails?: Record<string, string>; // base64 or cached image URLs
 }
 
 export interface AnalyticsStats {

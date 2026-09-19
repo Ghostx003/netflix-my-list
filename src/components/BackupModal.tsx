@@ -26,14 +26,16 @@ export const BackupModal: React.FC<BackupModalProps> = ({
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
 
+  const [includeThumbnails, setIncludeThumbnails] = useState(false);
+
   if (!isOpen) return null;
 
   const handleExport = async () => {
     setIsExporting(true);
     setExportSuccess(null);
     try {
-      const file = await exportBackup(items, settings);
-      setExportSuccess(`Exported successfully as ${file}`);
+      const file = await exportBackup(items, settings, includeThumbnails);
+      setExportSuccess(`Exported successfully as ${file}${includeThumbnails ? ' (with cached thumbnails included)' : ''}`);
     } catch (err) {
       setErrorMessage('Failed to generate backup file.');
     } finally {
@@ -71,10 +73,10 @@ export const BackupModal: React.FC<BackupModalProps> = ({
     try {
       if (mode === 'replace') {
         const res = await importBackupReplace(pendingBackup);
-        setImportSuccess(`Complete library replaced with ${res.count} titles.`);
+        setImportSuccess(`Complete library replaced with ${res.count} titles.${pendingBackup.cachedThumbnails ? ' Cached thumbnails restored.' : ''}`);
       } else {
         const res = await importBackupMerge(pendingBackup);
-        setImportSuccess(`Merged successfully: +${res.addedCount} new, ${res.updatedCount} updated (${res.totalCount} total).`);
+        setImportSuccess(`Merged successfully: +${res.addedCount} new, ${res.updatedCount} updated (${res.totalCount} total).${pendingBackup.cachedThumbnails ? ' Cached thumbnails restored.' : ''}`);
       }
       setPendingBackup(null);
       await onRefreshLibrary();
@@ -102,28 +104,51 @@ export const BackupModal: React.FC<BackupModalProps> = ({
           <div>
             <h3 className="text-lg font-bold text-white">Backup & Restore Database</h3>
             <p className="text-xs text-zinc-400">
-              Save or restore your entire library, reasons, statuses, progress, and settings.
+              Save or restore your entire library, reasons, statuses, progress, cache, and settings.
             </p>
           </div>
         </div>
 
         <div className="space-y-4">
           {/* Export Card */}
-          <div className="p-4 rounded-xl bg-black/40 border border-zinc-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div>
-              <h4 className="text-sm font-bold text-white">Export Full Backup</h4>
-              <p className="text-xs text-zinc-400 mt-0.5">
-                Downloads a JSON snapshot with {items.length} titles and all your personal metadata.
-              </p>
+          <div className="p-4 rounded-xl bg-black/40 border border-zinc-800 space-y-3">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <h4 className="text-sm font-bold text-white">Export Full Backup</h4>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Downloads a JSON snapshot with {items.length} titles and all personal metadata & settings.
+                </p>
+              </div>
+              <button
+                onClick={handleExport}
+                disabled={isExporting}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-lg transition-all whitespace-nowrap"
+              >
+                <Download className="w-4 h-4" />
+                <span>{isExporting ? 'Exporting...' : 'Export Backup'}</span>
+              </button>
             </div>
-            <button
-              onClick={handleExport}
-              disabled={isExporting}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-lg transition-all"
-            >
-              <Download className="w-4 h-4" />
-              <span>{isExporting ? 'Exporting...' : 'Export Backup'}</span>
-            </button>
+
+            {/* Thumbnail Cache Option Toggle */}
+            <div className="pt-2 border-t border-white/5 flex items-center justify-between">
+              <div>
+                <label className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeThumbnails}
+                    onChange={(e) => setIncludeThumbnails(e.target.checked)}
+                    className="rounded accent-blue-500 cursor-pointer"
+                  />
+                  <span>Include cached thumbnails in backup</span>
+                </label>
+                <p className="text-[11px] text-zinc-500 ml-5">
+                  Embeds offline image thumbnails into the JSON (increases file size, enables 100% offline poster loading).
+                </p>
+              </div>
+              <span className="text-[10px] font-mono text-zinc-400">
+                {includeThumbnails ? 'Offline Images Included' : 'Compact (Fast)'}
+              </span>
+            </div>
           </div>
 
           {/* Import Card */}
