@@ -94,26 +94,59 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
           </div>
 
-          {/* TMDB & OMDB API Keys */}
-          <div className="bg-black/30 p-4 rounded-xl border border-white/5 space-y-2">
-            <label className="text-xs font-semibold text-gray-300 flex items-center justify-between">
-              <span className="flex items-center gap-1.5">
+          {/* Metadata & Catalog API Keys */}
+          <div className="bg-black/30 p-4 rounded-xl border border-white/5 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-gray-300 flex items-center gap-1.5">
                 <Key className="w-3.5 h-3.5 text-yellow-400" />
-                Metadata API Keys (Optional)
-              </span>
-              <span className="text-[10px] text-emerald-400">Active built-in fallback</span>
-            </label>
-            <input
-              type="password"
-              value={form.tmdbApiKey}
-              onChange={(e) => setForm({ ...form, tmdbApiKey: e.target.value.trim() })}
-              placeholder="TMDB API Key (optional)..."
-              className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-[#E50914]"
-            />
-            <p className="text-[11px] text-gray-400 flex items-start gap-1">
+                Catalog & Metadata APIs (Optional)
+              </label>
+              <span className="text-[10px] text-emerald-400">Free built-in fallback active</span>
+            </div>
+
+            <div>
+              <label className="text-[11px] text-zinc-400 block mb-1">
+                TMDB API Key (Free tier at <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">themoviedb.org</a>):
+              </label>
+              <input
+                type="password"
+                value={form.tmdbApiKey}
+                onChange={(e) => setForm({ ...form, tmdbApiKey: e.target.value.trim() })}
+                placeholder="Custom TMDB API Key (optional)..."
+                className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-[#E50914]"
+              />
+            </div>
+
+            <div>
+              <label className="text-[11px] text-zinc-400 block mb-1">
+                OMDB API Key (Free tier 1,000 req/day for IMDb & Rotten Tomatoes at <a href="https://www.omdbapi.com/apikey.aspx" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">omdbapi.com</a>):
+              </label>
+              <input
+                type="password"
+                value={form.omdbApiKey || ''}
+                onChange={(e) => setForm({ ...form, omdbApiKey: e.target.value.trim() })}
+                placeholder="Custom OMDB API Key (optional)..."
+                className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-[#E50914]"
+              />
+            </div>
+
+            <div>
+              <label className="text-[11px] text-zinc-400 block mb-1">
+                Watchmode API Key (Optional streaming catalog API at <a href="https://api.watchmode.com/" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">watchmode.com</a>):
+              </label>
+              <input
+                type="password"
+                value={form.watchmodeApiKey || ''}
+                onChange={(e) => setForm({ ...form, watchmodeApiKey: e.target.value.trim() })}
+                placeholder="Watchmode API Key (optional)..."
+                className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-[#E50914]"
+              />
+            </div>
+
+            <p className="text-[11px] text-gray-400 flex items-start gap-1 pt-1">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0 mt-0.5" />
               <span>
-                Automatic high-res posters, Rotten Tomatoes %, and IMDb ratings are fetched live without requiring manual setup!
+                Discovery runs out-of-the-box using verified Netflix India catalog feeds, TMDB Discover, and built-in fallbacks without requiring custom keys!
               </span>
             </p>
           </div>

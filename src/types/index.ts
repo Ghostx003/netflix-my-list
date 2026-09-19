@@ -104,6 +104,14 @@ export interface LibraryItem {
   userStarRating?: number; // 1 to 5 stars
   timeInvestedMinutes?: number; // Total time spent watching
 
+  // Cast and crew / extra metadata
+  cast?: string[];
+  director?: string;
+  creator?: string;
+  netflixAddedDate?: string;
+  isNetflixIndiaVerified?: boolean;
+  imdbId?: string;
+
   // Timestamps
   addedAt: string;
   updatedAt: string;
@@ -129,9 +137,69 @@ export interface TrailerInfo {
   isOfficial?: boolean;
 }
 
+export interface DiscoveryTitle {
+  id: string;
+  tmdbId?: number;
+  imdbId?: string;
+  netflixId?: string;
+  title: string;
+  originalTitle?: string;
+  mediaType: 'movie' | 'tv';
+  releaseYear?: number;
+  releaseDate?: string;
+  netflixAddedDate?: string;
+  posterPath?: string;
+  backdropPath?: string;
+  rating?: number; // TMDB rating (0-10)
+  imdbRating?: number; // IMDb rating (0-10)
+  rottenTomatoesRating?: number; // RT percentage (0-100)
+  voteCount?: number;
+  synopsis?: string;
+  genres: string[];
+  countries: string[];
+  originalLanguage?: string;
+  audioLanguages?: string[];
+  subtitleLanguages?: string[];
+  runtimeMinutes?: number;
+  totalSeasons?: number;
+  totalEpisodes?: number;
+  averageEpisodeMinutes?: number;
+  episodes?: EpisodeInfo[];
+  trailer?: TrailerInfo;
+  cast?: string[];
+  director?: string;
+  creator?: string;
+  isNetflixIndiaVerified: boolean;
+  availabilitySource?: string;
+}
+
+export interface SavedDiscoveryFilter {
+  id: string;
+  name: string;
+  createdAt: string;
+  state: {
+    contentType: 'all' | 'movie' | 'tv';
+    preset: string;
+    searchQuery: string;
+    selectedGenres: string[];
+    genreMatchMode: 'any' | 'all';
+    selectedCountries: string[];
+    selectedLanguages: string[];
+    audioLanguage: string;
+    minYear: string;
+    maxYear: string;
+    minImdb: number;
+    minTmdb: number;
+    minRottenTomatoes: number;
+    sortBy: string;
+    sortOrder: 'asc' | 'desc';
+  };
+}
+
 export interface AppSettings {
   tmdbApiKey: string;
   omdbApiKey?: string;
+  watchmodeApiKey?: string;
   capSeriesEpisodes?: boolean; // Toggle capping
   maxEpisodesPerSeries: number;
   playbackSpeed: number; // Home / General usage speed (e.g. 2.0x)

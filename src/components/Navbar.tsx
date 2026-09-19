@@ -1,10 +1,10 @@
 import React from 'react';
-import { Film, Tv, BarChart3, UploadCloud, Settings as SettingsIcon, RefreshCw, CheckSquare, Info } from 'lucide-react';
+import { Film, Tv, BarChart3, UploadCloud, Settings as SettingsIcon, RefreshCw, CheckSquare, Info, Compass } from 'lucide-react';
 import { AppSettings, LibraryItem } from '../types';
 
 interface NavbarProps {
-  activeTab: 'import' | 'movies-series' | 'still-watching' | 'dropped' | 'tracker' | 'analytics' | 'info';
-  setActiveTab: (tab: 'import' | 'movies-series' | 'still-watching' | 'dropped' | 'tracker' | 'analytics' | 'info') => void;
+  activeTab: 'import' | 'movies-series' | 'still-watching' | 'dropped' | 'tracker' | 'discovery' | 'analytics' | 'info';
+  setActiveTab: (tab: 'import' | 'movies-series' | 'still-watching' | 'dropped' | 'tracker' | 'discovery' | 'analytics' | 'info') => void;
   items: LibraryItem[];
   settings: AppSettings;
   onOpenSettings: () => void;
@@ -143,6 +143,21 @@ export const Navbar: React.FC<NavbarProps> = ({
                   {completedCount}
                 </span>
               )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('discovery')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap ${
+                activeTab === 'discovery'
+                  ? 'bg-[#E50914] text-white shadow-lg shadow-red-600/30 font-semibold'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Compass className="w-4 h-4 text-[#E50914]" />
+              <span>Discovery</span>
+              <span className="ml-1 text-[10px] px-1.5 py-0.2 bg-red-500/20 text-red-300 rounded-full font-bold">
+                IN
+              </span>
             </button>
 
             <button
@@ -288,6 +303,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
 
             <button
+              onClick={() => setActiveTab('discovery')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
+                activeTab === 'discovery'
+                  ? 'bg-[#E50914] text-white font-semibold'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Compass className="w-3.5 h-3.5 text-[#E50914]" />
+              <span>Discovery</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('analytics')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
                 activeTab === 'analytics'
@@ -389,6 +416,19 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span className="text-[10px] tracking-tight">Done</span>
           {activeTab === 'tracker' && (
             <span className="absolute -bottom-1 w-4 h-0.5 bg-emerald-400 rounded-full" />
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('discovery')}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all relative ${
+            activeTab === 'discovery' ? 'text-[#E50914] font-bold' : 'text-zinc-400 hover:text-white'
+          }`}
+        >
+          <Compass className={`w-5 h-5 mb-0.5 ${activeTab === 'discovery' ? 'stroke-[2.5]' : 'stroke-2'}`} />
+          <span className="text-[10px] tracking-tight">Discover</span>
+          {activeTab === 'discovery' && (
+            <span className="absolute -bottom-1 w-4 h-0.5 bg-[#E50914] rounded-full" />
           )}
         </button>
 

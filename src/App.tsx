@@ -18,10 +18,12 @@ import { ConfirmationModal } from './components/ConfirmationModal';
 import { SurpriseMeModal } from './components/SurpriseMeModal';
 import { BackupModal } from './components/BackupModal';
 import { InfoView } from './components/InfoView';
+import { DiscoveryView } from './components/DiscoveryView';
+import { DiscoveryTitle } from './types';
 
-type ActiveTabType = 'import' | 'movies-series' | 'still-watching' | 'dropped' | 'tracker' | 'analytics' | 'info';
+type ActiveTabType = 'import' | 'movies-series' | 'still-watching' | 'dropped' | 'tracker' | 'discovery' | 'analytics' | 'info';
 
-const VALID_TABS: ActiveTabType[] = ['import', 'movies-series', 'still-watching', 'dropped', 'tracker', 'analytics', 'info'];
+const VALID_TABS: ActiveTabType[] = ['import', 'movies-series', 'still-watching', 'dropped', 'tracker', 'discovery', 'analytics', 'info'];
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTabType>(() => {
@@ -403,6 +405,121 @@ export const App: React.FC = () => {
             settings={settings}
             onUpdateItem={handleUpdateItem}
             onAddNewItem={handleAddNewItem}
+          />
+        )}
+
+        {activeTab === 'discovery' && (
+          <DiscoveryView
+            settings={settings}
+            libraryItems={items}
+            onAddToLibrary={async (discItem) => {
+              const newLibItem: LibraryItem = {
+                id: 'item_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+                originalTitle: discItem.title,
+                normalizedTitle: discItem.title.toLowerCase().trim(),
+                videoId: discItem.netflixId,
+                mediaType: discItem.mediaType,
+                status: 'matched',
+                viewingStatus: 'unwatched',
+                externalId: discItem.tmdbId,
+                externalTitle: discItem.title,
+                releaseYear: discItem.releaseYear,
+                releaseDate: discItem.releaseDate,
+                posterPath: discItem.posterPath,
+                backdropPath: discItem.backdropPath,
+                rating: discItem.rating,
+                imdbRating: discItem.imdbRating,
+                rottenTomatoesRating: discItem.rottenTomatoesRating,
+                voteCount: discItem.voteCount,
+                synopsis: discItem.synopsis,
+                genres: discItem.genres,
+                countries: discItem.countries,
+                languages: discItem.audioLanguages,
+                originalLanguage: discItem.originalLanguage,
+                runtimeMinutes: discItem.runtimeMinutes,
+                totalSeasons: discItem.totalSeasons,
+                totalEpisodes: discItem.totalEpisodes,
+                averageEpisodeMinutes: discItem.averageEpisodeMinutes,
+                episodes: discItem.episodes,
+                trailer: discItem.trailer,
+                cast: discItem.cast,
+                director: discItem.director,
+                creator: discItem.creator,
+                addedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              };
+              await handleAddNewItem(newLibItem);
+              setSyncToast({
+                message: `Added "${discItem.title}" to your library!`,
+                type: 'success',
+              });
+              setTimeout(() => setSyncToast(null), 3000);
+            }}
+            onStartWatching={async (discItem) => {
+              // Check if item already exists in library
+              const existing = items.find(
+                (i) =>
+                  (discItem.imdbId && i.imdbId === discItem.imdbId) ||
+                  (discItem.tmdbId && i.externalId === discItem.tmdbId) ||
+                  i.originalTitle.toLowerCase().trim() === discItem.title.toLowerCase().trim()
+              );
+
+              if (existing) {
+                const updated: LibraryItem = {
+                  ...existing,
+                  viewingStatus: 'still_watching',
+                  isCompleted: false,
+                  droppedReason: undefined,
+                  droppedAt: undefined,
+                  progress: existing.progress || { percentage: 10, watchedMinutes: 30 },
+                  updatedAt: new Date().toISOString(),
+                };
+                await handleUpdateItem(updated);
+                setSelectedDetailItem(updated);
+              } else {
+                const newLibItem: LibraryItem = {
+                  id: 'item_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+                  originalTitle: discItem.title,
+                  normalizedTitle: discItem.title.toLowerCase().trim(),
+                  videoId: discItem.netflixId,
+                  mediaType: discItem.mediaType,
+                  status: 'matched',
+                  viewingStatus: 'still_watching',
+                  progress: { percentage: 10, watchedMinutes: 30 },
+                  externalId: discItem.tmdbId,
+                  externalTitle: discItem.title,
+                  releaseYear: discItem.releaseYear,
+                  releaseDate: discItem.releaseDate,
+                  posterPath: discItem.posterPath,
+                  backdropPath: discItem.backdropPath,
+                  rating: discItem.rating,
+                  imdbRating: discItem.imdbRating,
+                  rottenTomatoesRating: discItem.rottenTomatoesRating,
+                  voteCount: discItem.voteCount,
+                  synopsis: discItem.synopsis,
+                  genres: discItem.genres,
+                  countries: discItem.countries,
+                  languages: discItem.audioLanguages,
+                  originalLanguage: discItem.originalLanguage,
+                  runtimeMinutes: discItem.runtimeMinutes,
+                  totalSeasons: discItem.totalSeasons,
+                  totalEpisodes: discItem.totalEpisodes,
+                  averageEpisodeMinutes: discItem.averageEpisodeMinutes,
+                  episodes: discItem.episodes,
+                  trailer: discItem.trailer,
+                  cast: discItem.cast,
+                  director: discItem.director,
+                  creator: discItem.creator,
+                  addedAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                };
+                await handleAddNewItem(newLibItem);
+                setSelectedDetailItem(newLibItem);
+              }
+              handleTabChange('still-watching');
+            }}
+            onOpenDetail={(item) => setSelectedDetailItem(item)}
+            onOpenSurpriseMeModal={() => setIsSurpriseMeOpen(true)}
           />
         )}
 
