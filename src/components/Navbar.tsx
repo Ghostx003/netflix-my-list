@@ -23,6 +23,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   onRescan,
   isRescanning,
 }) => {
+  // Detect Android device
+  const isAndroid = typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent || '');
+
   const activeCatalogItems = items.filter(
     (i) => !i.isCompleted && i.viewingStatus !== 'completed' && i.viewingStatus !== 'dropped' && !i.droppedReason
   );
@@ -38,22 +41,23 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <>
-      {/* Top Header */}
-      <header className="sticky top-0 z-40 bg-[#141414]/95 backdrop-blur-xl border-b border-white/10 transition-all">
-        {/* Row 1: Brand + Action Buttons */}
-        <div className="px-3 sm:px-6 lg:px-10 xl:px-14 py-2 flex items-center justify-between gap-3">
-          {/* Brand */}
-          <div
-            onClick={() => setActiveTab('analytics')}
-            className="cursor-pointer flex items-center gap-2 group flex-shrink-0"
-          >
-            <span className="text-[#E50914] font-black text-xl sm:text-2xl tracking-tighter uppercase font-sans drop-shadow-sm group-hover:scale-105 transition-transform">
-              Netflix
-            </span>
-            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider bg-white/10 px-2 py-0.5 rounded-md text-gray-300 border border-white/5 whitespace-nowrap">
-              Watchlist
-            </span>
-          </div>
+      {/* Top Header — hidden on Android devices since bottom bar handles navigation */}
+      {!isAndroid && (
+        <header className="sticky top-0 z-40 bg-[#141414]/95 backdrop-blur-xl border-b border-white/10 transition-all">
+          {/* Row 1: Brand + Action Buttons */}
+          <div className="px-3 sm:px-6 lg:px-10 xl:px-14 py-2 flex items-center justify-between gap-3">
+            {/* Brand */}
+            <div
+              onClick={() => setActiveTab('analytics')}
+              className="cursor-pointer flex items-center gap-2 group flex-shrink-0"
+            >
+              <span className="text-[#E50914] font-black text-xl sm:text-2xl tracking-tighter uppercase font-sans drop-shadow-sm group-hover:scale-105 transition-transform">
+                Netflix
+              </span>
+              <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider bg-white/10 px-2 py-0.5 rounded-md text-gray-300 border border-white/5 whitespace-nowrap">
+                Watchlist
+              </span>
+            </div>
 
           {/* Desktop Nav (only xl+) */}
           <nav className="hidden xl:flex items-center gap-2 bg-black/40 p-1.5 rounded-2xl border border-white/5 flex-1 mx-4">
@@ -156,18 +160,20 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
             </button>
 
-            <button
-              onClick={() => setActiveTab('info')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap ${
-                activeTab === 'info'
-                  ? 'bg-red-600 text-white shadow-lg shadow-red-600/30 font-semibold'
-                  : 'text-gray-400 hover:text-white hover:bg-white/5'
-              }`}
-              title="Documentation & Features"
-            >
-              <Info className="w-4 h-4" />
-              <span>Info</span>
-            </button>
+            {!isAndroid && (
+              <button
+                onClick={() => setActiveTab('info')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap ${
+                  activeTab === 'info'
+                    ? 'bg-red-600 text-white shadow-lg shadow-red-600/30 font-semibold'
+                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                }`}
+                title="Documentation & Features"
+              >
+                <Info className="w-4 h-4" />
+                <span>Info</span>
+              </button>
+            )}
           </nav>
 
           {/* Action Controls — always visible, no text-clipping */}
@@ -293,23 +299,26 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>Analytics</span>
             </button>
 
-            <button
-              onClick={() => setActiveTab('info')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
-                activeTab === 'info'
-                  ? 'bg-red-600 text-white font-semibold'
-                  : 'text-gray-400 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <Info className="w-3.5 h-3.5" />
-              <span>Info</span>
-            </button>
+            {!isAndroid && (
+              <button
+                onClick={() => setActiveTab('info')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
+                  activeTab === 'info'
+                    ? 'bg-red-600 text-white font-semibold'
+                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <Info className="w-3.5 h-3.5" />
+                <span>Info</span>
+              </button>
+            )}
           </nav>
         </div>
       </header>
+      )}
 
       {/* Sleek Mobile Bottom Navigation Bar (Docked) */}
-      <div className="xl:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#121212]/95 backdrop-blur-xl border-t border-white/10 px-2 py-1.5 pb-safe flex items-center justify-around shadow-2xl">
+      <div className={`${isAndroid ? 'flex' : 'xl:hidden flex'} fixed bottom-0 left-0 right-0 z-50 bg-[#121212]/95 backdrop-blur-xl border-t border-white/10 px-2 py-1.5 pb-safe items-center justify-around shadow-2xl`}>
         <button
           onClick={() => setActiveTab('movies-series')}
           className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all relative ${
@@ -408,6 +417,17 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="absolute -bottom-1 w-4 h-0.5 bg-[#E50914] rounded-full" />
           )}
         </button>
+
+        {isAndroid && (
+          <button
+            onClick={onOpenSettings}
+            className="flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all relative text-zinc-400 hover:text-white"
+            title="Settings & Configuration"
+          >
+            <SettingsIcon className="w-5 h-5 mb-0.5 stroke-2" />
+            <span className="text-[10px] tracking-tight">Settings</span>
+          </button>
+        )}
       </div>
     </>
   );
