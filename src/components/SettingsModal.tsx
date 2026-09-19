@@ -148,7 +148,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-xs font-semibold text-orange-300 flex items-center gap-1.5">
                   <Dumbbell className="w-3.5 h-3.5 text-orange-400" />
-                  Gym & Cardio Speed
+                  Gym & Cardio Playback Speed
                 </label>
                 <span className="text-xs font-mono font-bold text-orange-400 bg-orange-500/10 px-2 py-0.5 rounded border border-orange-500/20">
                   {form.gymSpeed || 1.5}×
@@ -167,41 +167,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 ))}
               </div>
             </div>
-
-            <div className="pt-3 border-t border-white/5">
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-semibold text-yellow-300 flex items-center gap-1.5">
-                  <Utensils className="w-3.5 h-3.5 text-yellow-400" />
-                  Lunch / Meal Speed
-                </label>
-                <span className="text-xs font-mono font-bold text-yellow-400 bg-yellow-500/10 px-2 py-0.5 rounded border border-yellow-500/20">
-                  {form.mealSpeed || 1.5}×
-                </span>
-              </div>
-              <div className="grid grid-cols-5 gap-1.5">
-                {[1.0, 1.25, 1.5, 1.75, 2.0].map((speed) => (
-                  <button
-                    type="button"
-                    key={speed}
-                    onClick={() => setForm({ ...form, mealSpeed: speed })}
-                    className={'py-1.5 rounded-lg text-xs font-bold font-mono transition-all ' + ((form.mealSpeed || 1.5) === speed ? 'bg-yellow-500 text-black font-extrabold shadow-md' : 'bg-white/5 text-gray-400 hover:bg-white/10')}
-                  >
-                    {speed}×
-                  </button>
-                ))}
-              </div>
-            </div>
           </div>
 
-          {/* Gym & Meals Duration Config */}
+          {/* Gym Duration Config */}
           <div className="bg-black/30 p-4 rounded-xl border border-white/5 space-y-3">
             <div className="flex items-center justify-between">
               <div>
                 <label className="text-xs font-semibold text-gray-300 flex items-center gap-1.5">
                   <Dumbbell className="w-3.5 h-3.5 text-orange-400" />
-                  Enable Gym Workout Mode
+                  Enable Gym Workout Watch Mode
                 </label>
-                <p className="text-[11px] text-gray-500">Include gym sessions in daily consumption.</p>
+                <p className="text-[11px] text-gray-500">Include gym sessions in your daily watch plan.</p>
               </div>
               <button
                 type="button"
@@ -217,7 +193,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="flex items-center justify-between pt-2 border-t border-white/5">
               <label className="text-xs font-semibold text-gray-300 flex items-center gap-1.5">
                 <Dumbbell className="w-3.5 h-3.5 text-orange-400" />
-                Gym Session Duration (clock hours)
+                Gym Session Hours per Day
               </label>
               <input
                 type="number"
@@ -226,22 +202,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 step={0.25}
                 value={form.gymHoursPerSession}
                 onChange={(e) => setForm({ ...form, gymHoursPerSession: parseFloat(e.target.value) || 1.0 })}
-                className="w-20 bg-black/50 border border-white/10 rounded px-2 py-1 text-xs text-right font-mono text-white"
-              />
-            </div>
-
-            <div className="flex items-center justify-between pt-2 border-t border-white/5">
-              <label className="text-xs font-semibold text-yellow-300 flex items-center gap-1.5">
-                <Utensils className="w-3.5 h-3.5 text-yellow-400" />
-                Daily Lunch / Meal Time (clock hours)
-              </label>
-              <input
-                type="number"
-                min={0.0}
-                max={4.0}
-                step={0.25}
-                value={form.mealDailyHours}
-                onChange={(e) => setForm({ ...form, mealDailyHours: parseFloat(e.target.value) || 0.0 })}
                 className="w-20 bg-black/50 border border-white/10 rounded px-2 py-1 text-xs text-right font-mono text-white"
               />
             </div>

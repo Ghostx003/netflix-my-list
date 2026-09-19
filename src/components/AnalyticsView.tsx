@@ -429,146 +429,225 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
         </div>
       </div>
 
-      {/* Gym Mode & Meal-Watching Section */}
-      <div className="rounded-3xl bg-gradient-to-r from-orange-950/30 via-neutral-900 to-black border border-orange-500/20 p-8 shadow-2xl space-y-6">
+      {/* Streamlined Gym + Home Watch Time Calculator */}
+      <div className="rounded-3xl bg-[#1c1c1e] border border-orange-500/20 p-6 sm:p-8 shadow-2xl space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/30 text-xs font-bold uppercase mb-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-orange-500/10 text-orange-400 border border-orange-500/20 text-xs font-bold uppercase mb-2">
               <Dumbbell className="w-3.5 h-3.5" />
-              <span>Cardio & Multi-Speed Lifestyle Mode</span>
+              <span>Gym + Home Watch Calculator</span>
             </div>
-            <h3 className="text-2xl font-black text-white">Pair Watchlist with Workouts & Meals</h3>
+            <h3 className="text-xl sm:text-2xl font-black text-white">Daily Watch Routine & Finish Projection</h3>
             <p className="text-xs text-gray-400 mt-1 max-w-xl">
-              Turn your backlog into milestones at customized speeds (e.g. {settings.gymSpeed || 1.5}× for gym, {settings.mealSpeed || 1.5}× for lunch, and {settings.playbackSpeed}× at home). Dropping or completing titles automatically recalculates remaining time!
+              Set how many hours you watch at the gym and at home with your preferred playback speeds.
             </p>
           </div>
 
           <div className="flex items-center gap-3">
             <button
-              onClick={onOpenSettings}
-              className="px-4 py-2 rounded-xl bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 text-xs font-bold border border-orange-500/30 transition-colors flex items-center gap-1.5"
+              onClick={() => onUpdateSettings({ ...settings, enableGymMode: !settings.enableGymMode })}
+              className={`px-4 py-2 rounded-xl text-xs font-bold border transition-colors flex items-center gap-2 ${
+                settings.enableGymMode
+                  ? 'bg-orange-500/20 border-orange-500/40 text-orange-300'
+                  : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'
+              }`}
             >
-              <Sliders className="w-3.5 h-3.5" />
-              <span>Configure Workout & Speeds</span>
+              <Dumbbell className="w-3.5 h-3.5" />
+              <span>{settings.enableGymMode ? 'Gym Included: Active' : 'Gym Included: Off'}</span>
             </button>
           </div>
         </div>
 
-        {/* Multi-Speed Combined Consumption Banner */}
-        <div className="p-5 rounded-2xl bg-black/40 border border-orange-500/20 space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-orange-400 flex items-center gap-1.5">
-              <Zap className="w-4 h-4" />
-              Combined Actual Content Consumed Daily:
-            </span>
-            <div className="flex items-baseline gap-2">
-              <span className="text-2xl sm:text-3xl font-black font-mono text-emerald-400">
-                {stats.combinedDailyContentHours} hrs
+        {/* Inputs: Gym Session & Home Viewing */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Gym Routine Card */}
+          <div className={`p-5 rounded-2xl border transition-all ${
+            settings.enableGymMode 
+              ? 'bg-black/40 border-orange-500/30' 
+              : 'bg-black/20 border-white/5 opacity-60'
+          }`}>
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-xs font-bold uppercase tracking-wider text-orange-400 flex items-center gap-1.5">
+                <Dumbbell className="w-4 h-4" />
+                Gym / Cardio Session
               </span>
-              <span className="text-xs text-gray-400 font-medium">
-                content cleared in {stats.combinedDailyClockHours} clock hrs/day
+              <span className="text-xs font-mono font-bold text-orange-300 bg-orange-500/10 px-2 py-0.5 rounded border border-orange-500/20">
+                {settings.enableGymMode ? `+${stats.gymDailyContentHours} content hrs/day` : 'Paused'}
               </span>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <div className="flex justify-between items-center text-xs mb-1.5">
+                  <span className="text-gray-400">Gym Time per Day:</span>
+                  <span className="font-mono font-bold text-white">
+                    {settings.gymHoursPerSession || 1.0} hr{(settings.gymHoursPerSession || 1.0) !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0.25}
+                  max={3.0}
+                  step={0.25}
+                  disabled={!settings.enableGymMode}
+                  value={settings.gymHoursPerSession || 1.0}
+                  onChange={(e) =>
+                    onUpdateSettings({
+                      ...settings,
+                      enableGymMode: true,
+                      gymHoursPerSession: parseFloat(e.target.value) || 1.0,
+                    })
+                  }
+                  className="w-full h-2 bg-black/60 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between items-center text-xs mb-1.5">
+                  <span className="text-gray-400">Gym Playback Speed:</span>
+                  <span className="font-mono font-bold text-orange-400">{settings.gymSpeed || 1.5}×</span>
+                </div>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {speedOptions.map((spd) => (
+                    <button
+                      key={spd}
+                      type="button"
+                      disabled={!settings.enableGymMode}
+                      onClick={() =>
+                        onUpdateSettings({
+                          ...settings,
+                          gymSpeed: spd,
+                        })
+                      }
+                      className={`py-1 rounded-lg text-xs font-bold font-mono transition-all ${
+                        (settings.gymSpeed || 1.5) === spd
+                          ? 'bg-orange-500 text-white shadow-md'
+                          : 'bg-white/5 text-gray-400 hover:bg-white/10'
+                      }`}
+                    >
+                      {spd}×
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-white/5 text-xs">
-            <div className="flex items-center justify-between bg-zinc-900/60 p-2.5 rounded-xl border border-white/5">
-              <span className="text-gray-400 flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-[#E50914]" />
-                Home ({settings.playbackSpeed}×):
+          {/* Home Routine Card */}
+          <div className="p-5 rounded-2xl bg-black/40 border border-white/10 space-y-4">
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-xs font-bold uppercase tracking-wider text-red-400 flex items-center gap-1.5">
+                <Clock className="w-4 h-4" />
+                Home Watching
               </span>
-              <span className="font-mono font-bold text-white">
-                +{stats.homeDailyContentHours} content hrs ({settings.dailyViewingHours}h real)
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between bg-zinc-900/60 p-2.5 rounded-xl border border-white/5">
-              <span className="text-gray-400 flex items-center gap-1.5">
-                <Dumbbell className="w-3.5 h-3.5 text-orange-400" />
-                Gym ({settings.gymSpeed || 1.5}×):
-              </span>
-              <span className="font-mono font-bold text-orange-300">
-                +{stats.gymDailyContentHours} content hrs ({settings.enableGymMode ? ((settings.gymHoursPerSession || 1.0) * (settings.gymSessionsPerDay || 1.0)) : 0}h real)
+              <span className="text-xs font-mono font-bold text-white bg-white/10 px-2 py-0.5 rounded border border-white/10">
+                +{stats.homeDailyContentHours} content hrs/day
               </span>
             </div>
 
-            <div className="flex items-center justify-between bg-zinc-900/60 p-2.5 rounded-xl border border-white/5">
-              <span className="text-gray-400 flex items-center gap-1.5">
-                <Utensils className="w-3.5 h-3.5 text-yellow-400" />
-                Lunch / Meals ({settings.mealSpeed || 1.5}×):
-              </span>
-              <span className="font-mono font-bold text-yellow-300">
-                +{stats.mealDailyContentHours} content hrs ({settings.mealDailyHours || 0}h real)
-              </span>
+            <div className="space-y-4">
+              <div>
+                <div className="flex justify-between items-center text-xs mb-1.5">
+                  <span className="text-gray-400">Home Time per Day:</span>
+                  <span className="font-mono font-bold text-white">
+                    {settings.dailyViewingHours || 1.0} hr{(settings.dailyViewingHours || 1.0) !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0.5}
+                  max={6.0}
+                  step={0.5}
+                  value={settings.dailyViewingHours || 1.0}
+                  onChange={(e) =>
+                    onUpdateSettings({
+                      ...settings,
+                      dailyViewingHours: parseFloat(e.target.value) || 1.0,
+                    })
+                  }
+                  className="w-full h-2 bg-black/60 rounded-lg appearance-none cursor-pointer accent-[#E50914]"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between items-center text-xs mb-1.5">
+                  <span className="text-gray-400">Home Playback Speed:</span>
+                  <span className="font-mono font-bold text-yellow-400">{settings.playbackSpeed}×</span>
+                </div>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {speedOptions.map((spd) => (
+                    <button
+                      key={spd}
+                      type="button"
+                      onClick={() =>
+                        onUpdateSettings({
+                          ...settings,
+                          playbackSpeed: spd,
+                        })
+                      }
+                      className={`py-1 rounded-lg text-xs font-bold font-mono transition-all ${
+                        settings.playbackSpeed === spd
+                          ? 'bg-[#E50914] text-white shadow-md'
+                          : 'bg-white/5 text-gray-400 hover:bg-white/10'
+                      }`}
+                    >
+                      {spd}×
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Gym Calculations Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-1">
-          <div className="bg-black/40 p-4 rounded-2xl border border-white/5">
-            <span className="text-[11px] font-semibold text-gray-400 uppercase block">
-              Per Gym Session @ {settings.gymSpeed || 1.5}×
-            </span>
-            <div className="mt-2 font-mono">
-              <span className="text-2xl font-bold text-white">
-                {stats.gymContentHoursPerSession}
+        {/* Big Clear Summary Strip */}
+        <div className="p-6 rounded-2xl bg-black/60 border border-white/10 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-white/10">
+            <div>
+              <span className="text-xs uppercase font-bold text-gray-400 block tracking-wider">Total Remaining Backlog:</span>
+              <span className="text-2xl sm:text-3xl font-black font-mono text-white">
+                {stats.remainingContentHours.toLocaleString()} hours
               </span>
-              <span className="text-xs text-gray-500 block">content hrs consumed</span>
+            </div>
+
+            <div className="text-left sm:text-right">
+              <span className="text-xs uppercase font-bold text-emerald-400 block tracking-wider">Content Cleared Daily:</span>
+              <span className="text-2xl sm:text-3xl font-black font-mono text-emerald-400">
+                {stats.combinedDailyContentHours} hrs/day
+              </span>
+              <span className="text-[11px] text-gray-400 block">
+                ({settings.enableGymMode ? `${stats.gymDailyContentHours}h gym + ` : ''}{stats.homeDailyContentHours}h home)
+              </span>
             </div>
           </div>
 
-          <div className="bg-black/40 p-4 rounded-2xl border border-white/5">
-            <span className="text-[11px] font-semibold text-gray-400 uppercase block">
-              Sessions Required
-            </span>
-            <div className="mt-2 font-mono">
-              <span className="text-2xl font-bold text-orange-400">
-                ~{stats.gymSessionsRequired}
-              </span>
-              <span className="text-xs text-gray-500 block">workout sessions total</span>
-            </div>
-          </div>
-
-          <div className="bg-black/40 p-4 rounded-2xl border border-white/5">
-            <span className="text-[11px] font-semibold text-gray-400 uppercase block">
-              Combined Finish Horizon
-            </span>
-            <div className="mt-2 font-mono">
-              <span className="text-2xl font-bold text-emerald-400">
+          {/* How long it will take to finish catalog */}
+          <div className="grid grid-cols-3 gap-3 text-center">
+            <div className="bg-zinc-900/80 p-4 rounded-xl border border-white/5">
+              <span className="text-[11px] font-semibold text-gray-400 uppercase block">Days</span>
+              <span className="text-2xl sm:text-3xl font-black font-mono text-white mt-1 block">
                 ~{Math.round(stats.daysToComplete)}
               </span>
-              <span className="text-xs text-gray-500 block">days to clear catalog</span>
+              <span className="text-[10px] text-gray-500">calendar days</span>
             </div>
-          </div>
 
-          <div className="bg-black/40 p-4 rounded-2xl border border-white/5">
-            <span className="text-[11px] font-semibold text-gray-400 uppercase block">
-              Years Horizon
-            </span>
-            <div className="mt-2 font-mono">
-              <span className="text-2xl font-bold text-gray-300">
+            <div className="bg-zinc-900/80 p-4 rounded-xl border border-white/5">
+              <span className="text-[11px] font-semibold text-gray-400 uppercase block">Months</span>
+              <span className="text-2xl sm:text-3xl font-black font-mono text-orange-400 mt-1 block">
+                ~{stats.monthsToComplete}
+              </span>
+              <span className="text-[10px] text-gray-500">months of watching</span>
+            </div>
+
+            <div className="bg-zinc-900/80 p-4 rounded-xl border border-white/5">
+              <span className="text-[11px] font-semibold text-gray-400 uppercase block">Years</span>
+              <span className="text-2xl sm:text-3xl font-black font-mono text-emerald-400 mt-1 block">
                 ~{stats.yearsToComplete}
               </span>
-              <span className="text-xs text-gray-500 block">years with lifestyle plan</span>
+              <span className="text-[10px] text-gray-500">years to finish catalog</span>
             </div>
           </div>
         </div>
-
-        {/* Meals Watch Time Integration Pill */}
-        {settings.mealDailyHours > 0 && (
-          <div className="p-4 rounded-xl bg-black/30 border border-white/5 flex items-center justify-between text-xs text-gray-300">
-            <div className="flex items-center gap-2">
-              <Utensils className="w-4 h-4 text-yellow-400" />
-              <span>
-                Includes <strong className="text-white font-mono">{settings.mealDailyHours} hrs/day</strong> during breakfast/lunch/dinner watching at <strong className="text-yellow-400 font-mono">{settings.mealSpeed || 1.5}×</strong>.
-              </span>
-            </div>
-            <span className="text-yellow-400 font-mono font-bold">
-              +{stats.mealDailyContentHours} content hrs/day
-            </span>
-          </div>
-        )}
       </div>
     </div>
   );

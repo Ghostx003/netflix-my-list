@@ -192,16 +192,15 @@ export function computeAnalytics(
   const stillWatchingRealHoursAtSpeed = Number(((stillWatchingRemainingMinutes / 60) / speed).toFixed(1));
 
   // Multi-speed configuration:
-  // - Home usage: playbackSpeed (e.g. 2.0x) for dailyViewingHours
-  // - Gym / Cardio: gymSpeed (e.g. 1.5x) for gymHoursPerSession * gymSessionsPerDay
-  // - Meal / Lunch: mealSpeed (e.g. 1.5x) for mealDailyHours
+  // - Home: playbackSpeed (e.g. 2.0x) * dailyViewingHours (hours at home)
+  // - Gym / Cardio: gymSpeed (e.g. 1.5x) * gymHoursPerSession * gymSessionsPerDay (hours at gym)
   const homeSpeed = speed;
   const gymSpeed = settings.gymSpeed || 1.5;
-  const mealSpeed = settings.mealSpeed || 1.5;
+  const mealSpeed = settings.mealSpeed || 1.0;
 
   const homeDailyContentHours = Number(((settings.dailyViewingHours || 0) * homeSpeed).toFixed(1));
-  const gymHoursPerSession = settings.gymHoursPerSession || 1.0;
-  const gymSessionsPerDay = settings.gymSessionsPerDay || 1.0;
+  const gymHoursPerSession = settings.gymHoursPerSession !== undefined ? settings.gymHoursPerSession : 1.0;
+  const gymSessionsPerDay = settings.gymSessionsPerDay !== undefined ? settings.gymSessionsPerDay : 1.0;
   const gymDailyClockHours = settings.enableGymMode ? (gymHoursPerSession * gymSessionsPerDay) : 0;
   const gymDailyContentHours = Number((gymDailyClockHours * gymSpeed).toFixed(1));
   const gymContentHoursPerSession = Number((gymHoursPerSession * gymSpeed).toFixed(2));
@@ -209,7 +208,7 @@ export function computeAnalytics(
   const mealDailyClockHours = settings.mealDailyHours || 0;
   const mealDailyContentHours = Number((mealDailyClockHours * mealSpeed).toFixed(1));
 
-  // Combined daily content consumed across all modes at their respective speeds
+  // Combined daily content consumed across home + gym
   const combinedDailyContentHours = Number(
     (homeDailyContentHours + gymDailyContentHours + mealDailyContentHours).toFixed(1)
   );
