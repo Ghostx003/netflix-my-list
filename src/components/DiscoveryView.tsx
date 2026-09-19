@@ -126,6 +126,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   const [searchQuery, setSearchQuery] = useState(initialFilters.searchQuery);
   const [debouncedQuery, setDebouncedQuery] = useState(initialFilters.searchQuery);
   const [contentType, setContentType] = useState<'all' | 'movie' | 'tv'>(initialFilters.mediaType);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'in_library' | 'not_in_library'>(initialFilters.statusFilter);
   const [activePreset, setActivePreset] = useState<PresetType>(initialFilters.preset as PresetType);
   const [sortBy, setSortBy] = useState(initialFilters.sortBy);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(initialFilters.sortOrder);
@@ -161,6 +162,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     const filterState: DiscoveryFilterState = {
       searchQuery,
       mediaType: contentType,
+      statusFilter,
       preset: activePreset,
       sortBy: sortBy as any,
       sortOrder,
@@ -178,6 +180,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   }, [
     searchQuery,
     contentType,
+    statusFilter,
     activePreset,
     sortBy,
     sortOrder,
@@ -199,6 +202,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       setSearchQuery(parsed.searchQuery);
       setDebouncedQuery(parsed.searchQuery);
       setContentType(parsed.mediaType);
+      setStatusFilter(parsed.statusFilter);
       setActivePreset(parsed.preset as PresetType);
       setSortBy(parsed.sortBy as any);
       setSortOrder(parsed.sortOrder);
@@ -461,6 +465,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     setDebouncedQuery('');
     setActivePreset('all');
     setContentType('all');
+    setStatusFilter('all');
     setSelectedGenres([]);
     setGenreMatchMode('any');
     setSelectedCountries([]);
@@ -508,6 +513,13 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     // 1. Content Type (Movies / TV Shows)
     if (contentType !== 'all') {
       result = result.filter((x) => x.mediaType === contentType);
+    }
+
+    // 1b. Status Filter (Active Catalog vs In Library vs Not in Library)
+    if (statusFilter === 'in_library') {
+      result = result.filter((x) => isInLibrary(x));
+    } else if (statusFilter === 'not_in_library') {
+      result = result.filter((x) => !isInLibrary(x));
     }
 
     // 2. Search query (Title, alternate/original title, genre, country, language, cast, director)
@@ -667,6 +679,8 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   }, [
     catalog,
     contentType,
+    statusFilter,
+    isInLibrary,
     debouncedQuery,
     activePreset,
     selectedCountries,
@@ -810,6 +824,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   const activeFiltersCount = useMemo(() => {
     let count = 0;
     if (contentType !== 'all') count++;
+    if (statusFilter !== 'all') count++;
     if (activePreset !== 'all') count++;
     if (selectedGenres.length > 0) count++;
     if (selectedCountries.length > 0) count++;
@@ -822,6 +837,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     return count;
   }, [
     contentType,
+    statusFilter,
     activePreset,
     selectedGenres,
     selectedCountries,
@@ -1204,6 +1220,17 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               <option value="tv" className="bg-zinc-900 text-white">TV Shows Only</option>
             </select>
 
+            {/* Status selector (matching Movies & Series) */}
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+              className="w-full md:w-auto bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-[#E50914] cursor-pointer truncate"
+            >
+              <option value="all" className="bg-zinc-900 text-white">Active Catalog</option>
+              <option value="not_in_library" className="bg-zinc-900 text-white">Not in Library</option>
+              <option value="in_library" className="bg-zinc-900 text-white">Already in Library</option>
+            </select>
+
             {/* Sort Dropdown */}
             <select
               value={sortBy}
@@ -1436,6 +1463,15 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/10 text-gray-300 text-[11px]">
                 <span>{contentType === 'tv' ? 'TV Shows' : 'Movies'}</span>
                 <button onClick={() => setContentType('all')}>
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {statusFilter !== 'all' && (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/10 text-gray-300 text-[11px]">
+                <span>{statusFilter === 'in_library' ? 'In Library' : 'Not in Library'}</span>
+                <button onClick={() => setStatusFilter('all')}>
                   <X className="w-3 h-3" />
                 </button>
               </span>

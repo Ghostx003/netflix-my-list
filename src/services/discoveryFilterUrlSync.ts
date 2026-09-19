@@ -1,6 +1,7 @@
 export interface DiscoveryFilterState {
   searchQuery: string;
   mediaType: 'all' | 'movie' | 'tv';
+  statusFilter: 'all' | 'in_library' | 'not_in_library';
   preset: string;
   sortBy:
     | 'netflix_newest'
@@ -33,6 +34,7 @@ export interface DiscoveryFilterState {
 export const DEFAULT_DISCOVERY_FILTER_STATE: DiscoveryFilterState = {
   searchQuery: '',
   mediaType: 'all',
+  statusFilter: 'all',
   preset: 'all',
   sortBy: 'netflix_newest',
   sortOrder: 'desc',
@@ -54,6 +56,7 @@ export function hasDiscoveryFilterParamsInUrl(search: string = window.location.s
   const filterKeys = [
     'dq',
     'dMediaType',
+    'dStatus',
     'dPreset',
     'dSortBy',
     'dSortOrder',
@@ -80,6 +83,10 @@ export function parseInitialDiscoveryFilters(): DiscoveryFilterState {
     if (params.has('dMediaType')) {
       const mt = params.get('dMediaType') as any;
       if (['all', 'movie', 'tv'].includes(mt)) filters.mediaType = mt;
+    }
+    if (params.has('dStatus')) {
+      const st = params.get('dStatus') as any;
+      if (['all', 'in_library', 'not_in_library'].includes(st)) filters.statusFilter = st;
     }
     if (params.has('dPreset')) filters.preset = params.get('dPreset') || 'all';
     if (params.has('dSortBy')) {
@@ -146,6 +153,7 @@ export function syncDiscoveryFiltersToUrlAndStorage(filters: DiscoveryFilterStat
 
   updateParam('dq', filters.searchQuery ? filters.searchQuery.trim() : undefined);
   updateParam('dMediaType', filters.mediaType, 'all');
+  updateParam('dStatus', filters.statusFilter, 'all');
   updateParam('dPreset', filters.preset, 'all');
   updateParam('dSortBy', filters.sortBy, 'netflix_newest');
   updateParam('dSortOrder', filters.sortOrder, 'desc');
@@ -190,6 +198,7 @@ export function clearDiscoveryFiltersFromUrlAndStorage() {
   const filterKeys = [
     'dq',
     'dMediaType',
+    'dStatus',
     'dPreset',
     'dSortBy',
     'dSortOrder',
