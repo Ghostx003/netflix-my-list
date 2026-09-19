@@ -100,6 +100,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   onStartWatching,
   onMarkWatched,
   onOpenDetail,
+  onOpenSurpriseMeModal,
 }) => {
   // Discovery catalog data - persistent from local IndexedDB
   const [catalog, setCatalog] = useState<DiscoveryTitle[]>([]);
@@ -928,8 +929,12 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     };
   };
 
-  // Surprise Me from filtered results
+  // Surprise Me: open SurpriseMeModal roulette if handler provided, otherwise pick random from filteredCatalog
   const handleSurpriseMe = () => {
+    if (onOpenSurpriseMeModal) {
+      onOpenSurpriseMeModal();
+      return;
+    }
     if (filteredCatalog.length === 0) return;
     const randomItem = filteredCatalog[Math.floor(Math.random() * filteredCatalog.length)];
     try {

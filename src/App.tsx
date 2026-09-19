@@ -664,6 +664,60 @@ export const App: React.FC = () => {
           setIsSurpriseMeOpen(false);
           setSelectedDetailItem(item);
         }}
+        onAddToLibrary={async (item) => {
+          const isExisting = items.some(
+            (i) =>
+              i.id === item.id ||
+              (item.externalId && i.externalId === item.externalId) ||
+              (item.videoId && i.videoId === item.videoId) ||
+              i.originalTitle.toLowerCase().trim() === item.originalTitle.toLowerCase().trim()
+          );
+          if (!isExisting) {
+            await handleAddNewItem(item);
+            setSyncToast({
+              message: `Added "${item.externalTitle || item.originalTitle}" to your library!`,
+              type: 'success',
+            });
+            setTimeout(() => setSyncToast(null), 3000);
+          }
+        }}
+        onMarkWatched={async (item) => {
+          const existing = items.find(
+            (i) =>
+              i.id === item.id ||
+              (item.externalId && i.externalId === item.externalId) ||
+              (item.videoId && i.videoId === item.videoId) ||
+              i.originalTitle.toLowerCase().trim() === item.originalTitle.toLowerCase().trim()
+          );
+          if (existing) {
+            const updated: LibraryItem = {
+              ...existing,
+              viewingStatus: 'completed',
+              isCompleted: true,
+              completedAt: new Date().toISOString(),
+              droppedReason: undefined,
+              droppedAt: undefined,
+              progress: { percentage: 100, watchedMinutes: existing.runtimeMinutes || 120 },
+              updatedAt: new Date().toISOString(),
+            };
+            await handleUpdateItem(updated);
+          } else {
+            const newItem: LibraryItem = {
+              ...item,
+              viewingStatus: 'completed',
+              isCompleted: true,
+              completedAt: new Date().toISOString(),
+              progress: { percentage: 100, watchedMinutes: item.runtimeMinutes || 120 },
+              updatedAt: new Date().toISOString(),
+            };
+            await handleAddNewItem(newItem);
+          }
+          setSyncToast({
+            message: `Marked "${item.externalTitle || item.originalTitle}" as Watched! Spinning next...`,
+            type: 'success',
+          });
+          setTimeout(() => setSyncToast(null), 2500);
+        }}
       />
 
       {/* Modal: Backup & Restore */}
