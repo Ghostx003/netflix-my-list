@@ -52,6 +52,7 @@ interface DiscoveryViewProps {
   libraryItems: LibraryItem[];
   onAddToLibrary: (item: DiscoveryTitle) => void;
   onStartWatching: (item: DiscoveryTitle) => void;
+  onMarkWatched?: (item: DiscoveryTitle) => void;
   onOpenDetail: (item: LibraryItem) => void;
   onOpenSurpriseMeModal?: (filteredPool?: LibraryItem[]) => void;
 }
@@ -95,6 +96,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   libraryItems,
   onAddToLibrary,
   onStartWatching,
+  onMarkWatched,
   onOpenDetail,
 }) => {
   // Discovery catalog data - persistent from local IndexedDB
@@ -126,11 +128,12 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   const [searchQuery, setSearchQuery] = useState(initialFilters.searchQuery);
   const [debouncedQuery, setDebouncedQuery] = useState(initialFilters.searchQuery);
   const [contentType, setContentType] = useState<'all' | 'movie' | 'tv'>(initialFilters.mediaType);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'in_library' | 'not_in_library'>(initialFilters.statusFilter);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'not_in_library' | 'not_in_library_unwatched' | 'in_library' | 'unwatched'>(initialFilters.statusFilter);
   const [activePreset, setActivePreset] = useState<PresetType>(initialFilters.preset as PresetType);
   const [sortBy, setSortBy] = useState(initialFilters.sortBy);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(initialFilters.sortOrder);
   const [selectedGenres, setSelectedGenres] = useState<string[]>(initialFilters.selectedGenres);
+  const [excludedGenres, setExcludedGenres] = useState<string[]>(initialFilters.excludedGenres || []);
   const [genreMatchMode, setGenreMatchMode] = useState<'any' | 'all'>(initialFilters.genreMatchMode);
   const [selectedCountries, setSelectedCountries] = useState<string[]>(initialFilters.selectedCountries);
   const [excludedCountries, setExcludedCountries] = useState<string[]>(initialFilters.excludedCountries);
@@ -142,6 +145,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
 
   // Modal dialog states matching MoviesSeriesView
   const [showGenreModal, setShowGenreModal] = useState(false);
+  const [genreModalTab, setGenreModalTab] = useState<'include' | 'exclude'>('include');
   const [showCountryModal, setShowCountryModal] = useState(false);
   const [showYearModal, setShowYearModal] = useState(false);
   const [countryModalTab, setCountryModalTab] = useState<'include' | 'exclude'>('include');
@@ -167,6 +171,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       sortBy: sortBy as any,
       sortOrder,
       selectedGenres,
+      excludedGenres,
       genreMatchMode,
       selectedCountries,
       excludedCountries,
@@ -185,6 +190,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     sortBy,
     sortOrder,
     selectedGenres,
+    excludedGenres,
     genreMatchMode,
     selectedCountries,
     excludedCountries,
@@ -207,6 +213,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       setSortBy(parsed.sortBy as any);
       setSortOrder(parsed.sortOrder);
       setSelectedGenres(parsed.selectedGenres);
+      setExcludedGenres(parsed.excludedGenres || []);
       setGenreMatchMode(parsed.genreMatchMode);
       setSelectedCountries(parsed.selectedCountries);
       setExcludedCountries(parsed.excludedCountries);
@@ -482,17 +489,31 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     clearDiscoveryFiltersFromUrlAndStorage();
   };
 
-  // Check if title is already in user's library
-  const librarySet = useMemo(() => {
-    const set = new Set<string>();
+  // Check if title is already in user's library and watched status
+  const { librarySet, completedLibrarySet } = useMemo(() => {
+    const libSet = new Set<string>();
+    const compSet = new Set<string>();
     libraryItems.forEach((i) => {
-      if (i.imdbId) set.add(`imdb_${i.imdbId}`);
-      if (i.externalId) set.add(`ext_${i.externalId}`);
-      if (i.videoId) set.add(`vid_${i.videoId}`);
+      const isComp = i.viewingStatus === 'completed' || i.isCompleted === true;
+      if (i.imdbId) {
+        libSet.add(`imdb_${i.imdbId}`);
+        if (isComp) compSet.add(`imdb_${i.imdbId}`);
+      }
+      if (i.externalId) {
+        libSet.add(`ext_${i.externalId}`);
+        if (isComp) compSet.add(`ext_${i.externalId}`);
+      }
+      if (i.videoId) {
+        libSet.add(`vid_${i.videoId}`);
+        if (isComp) compSet.add(`vid_${i.videoId}`);
+      }
       const norm = (i.externalTitle || i.originalTitle || '').toLowerCase().trim();
-      set.add(norm);
+      if (norm) {
+        libSet.add(norm);
+        if (isComp) compSet.add(norm);
+      }
     });
-    return set;
+    return { librarySet: libSet, completedLibrarySet: compSet };
   }, [libraryItems]);
 
   const isInLibrary = useCallback(
@@ -506,6 +527,17 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     [librarySet]
   );
 
+  const isWatchedInLibrary = useCallback(
+    (item: DiscoveryTitle) => {
+      if (item.imdbId && completedLibrarySet.has(`imdb_${item.imdbId}`)) return true;
+      if (item.tmdbId && completedLibrarySet.has(`ext_${item.tmdbId}`)) return true;
+      if (item.netflixId && completedLibrarySet.has(`vid_${item.netflixId}`)) return true;
+      const norm = (item.title || '').toLowerCase().trim();
+      return completedLibrarySet.has(norm);
+    },
+    [completedLibrarySet]
+  );
+
   // Filter & Sort Logic
   const filteredCatalog = useMemo(() => {
     let result = catalog;
@@ -515,11 +547,20 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       result = result.filter((x) => x.mediaType === contentType);
     }
 
-    // 1b. Status Filter (Active Catalog vs In Library vs Not in Library)
+    // 1b. Status Filter:
+    // 'all' = Active Catalog (all titles)
+    // 'not_in_library' = Not in Library
+    // 'not_in_library_unwatched' = Not in Library & Unwatched
+    // 'in_library' = In Library
+    // 'unwatched' = Unwatched (not completed)
     if (statusFilter === 'in_library') {
       result = result.filter((x) => isInLibrary(x));
     } else if (statusFilter === 'not_in_library') {
       result = result.filter((x) => !isInLibrary(x));
+    } else if (statusFilter === 'not_in_library_unwatched') {
+      result = result.filter((x) => !isInLibrary(x) && !isWatchedInLibrary(x));
+    } else if (statusFilter === 'unwatched') {
+      result = result.filter((x) => !isWatchedInLibrary(x));
     }
 
     // 2. Search query (Title, alternate/original title, genre, country, language, cast, director)
@@ -555,13 +596,18 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       });
     }
 
-    // 5. Genres filter
+    // 5. Genres filter (Includes)
     if (selectedGenres.length > 0) {
       if (genreMatchMode === 'all') {
         result = result.filter((x) => selectedGenres.every((g) => (x.genres || []).includes(g)));
       } else {
         result = result.filter((x) => selectedGenres.some((g) => (x.genres || []).includes(g)));
       }
+    }
+
+    // 5b. Genres filter (Excludes)
+    if (excludedGenres.length > 0) {
+      result = result.filter((x) => !(x.genres || []).some((g) => excludedGenres.includes(g)));
     }
 
     // 6. Original Language / Spoken Language filter
@@ -681,11 +727,13 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     contentType,
     statusFilter,
     isInLibrary,
+    isWatchedInLibrary,
     debouncedQuery,
     activePreset,
     selectedCountries,
     excludedCountries,
     selectedGenres,
+    excludedGenres,
     genreMatchMode,
     selectedLanguage,
     audioFilter,
@@ -827,6 +875,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     if (statusFilter !== 'all') count++;
     if (activePreset !== 'all') count++;
     if (selectedGenres.length > 0) count++;
+    if (excludedGenres.length > 0) count++;
     if (selectedCountries.length > 0) count++;
     if (excludedCountries.length > 0) count++;
     if (selectedLanguage !== 'all') count++;
@@ -840,6 +889,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     statusFilter,
     activePreset,
     selectedGenres,
+    excludedGenres,
     selectedCountries,
     excludedCountries,
     selectedLanguage,
@@ -1228,7 +1278,9 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
             >
               <option value="all" className="bg-zinc-900 text-white">Active Catalog</option>
               <option value="not_in_library" className="bg-zinc-900 text-white">Not in Library</option>
+              <option value="not_in_library_unwatched" className="bg-zinc-900 text-white">Not in Library & Unwatched</option>
               <option value="in_library" className="bg-zinc-900 text-white">Already in Library</option>
+              <option value="unwatched" className="bg-zinc-900 text-white">Unwatched</option>
             </select>
 
             {/* Sort Dropdown */}
@@ -1264,7 +1316,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
 
         {/* Row 2: Category, Country, Year, Hindi & Language filters */}
         <div className="pt-2 border-t border-white/5 space-y-2">
-          {/* Preset Quick Buttons */}
+          {/* Preset Quick Buttons & Selectable Rating */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
             {(
               [
@@ -1274,7 +1326,6 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                 { id: 'kdramas', label: '🇰🇷 K-Dramas' },
                 { id: 'anime', label: '⚔️ Anime' },
                 { id: 'european', label: '🏰 European' },
-                { id: 'highly_rated', label: '⭐ Highly Rated (8.0+)' },
               ] as const
             ).map((preset) => (
               <button
@@ -1289,6 +1340,46 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                 {preset.label}
               </button>
             ))}
+
+            {/* Selectable Highly Rated Preset / Rating Threshold */}
+            <div className="flex items-center gap-1 bg-zinc-900/80 border border-white/10 rounded-xl px-2 py-0.5 text-xs shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  if (activePreset === 'highly_rated') {
+                    setActivePreset('all');
+                    setMinRating(0);
+                  } else {
+                    handleApplyPreset('highly_rated');
+                  }
+                }}
+                className={`flex items-center gap-1 font-bold transition-colors ${
+                  activePreset === 'highly_rated' || minRating > 0
+                    ? 'text-amber-400'
+                    : 'text-zinc-300 hover:text-white'
+                }`}
+              >
+                <span>⭐ Highly Rated</span>
+              </button>
+              <select
+                value={minRating > 0 ? minRating.toFixed(1) : '8.0'}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  setMinRating(val);
+                  setActivePreset('highly_rated');
+                  setSortBy('imdb_desc');
+                }}
+                className="bg-zinc-800 text-amber-300 text-[11px] font-bold rounded px-1.5 py-0.5 border border-white/10 focus:outline-none cursor-pointer"
+                title="Select minimum rating threshold"
+              >
+                <option value="6.5">6.5+</option>
+                <option value="7.0">7.0+</option>
+                <option value="7.5">7.5+</option>
+                <option value="8.0">8.0+</option>
+                <option value="8.5">8.5+</option>
+                <option value="9.0">9.0+</option>
+              </select>
+            </div>
           </div>
 
           <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
@@ -1310,8 +1401,10 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
             <button
               onClick={() => setShowGenreModal(true)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all shrink-0 ${
-                selectedGenres.length > 0
-                  ? 'bg-red-600/20 border-red-500/50 text-red-300'
+                selectedGenres.length > 0 || excludedGenres.length > 0
+                  ? selectedGenres.length > 0
+                    ? 'bg-red-600/20 border-red-500/50 text-red-300'
+                    : 'bg-red-600/20 border-red-500/50 text-red-300'
                   : 'bg-black/40 border-white/10 text-gray-300 hover:text-white'
               }`}
             >
@@ -1319,7 +1412,12 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               <span>Categories</span>
               {selectedGenres.length > 0 && (
                 <span className="px-1.5 py-0.2 rounded-full bg-red-500/30 text-[10px] font-bold">
-                  {selectedGenres.length}
+                  +{selectedGenres.length}
+                </span>
+              )}
+              {excludedGenres.length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-red-500/30 text-red-200 text-[10px] font-bold">
+                  -{excludedGenres.length}
                 </span>
               )}
             </button>
@@ -1407,12 +1505,27 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
           <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-white/5">
             {selectedGenres.map((g) => (
               <span
-                key={g}
+                key={'inc_g_' + g}
                 className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-red-600/20 border border-red-500/30 text-red-300 text-[11px]"
               >
                 <span>{g}</span>
                 <button
                   onClick={() => setSelectedGenres((prev) => prev.filter((x) => x !== g))}
+                  className="hover:text-white"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+
+            {excludedGenres.map((g) => (
+              <span
+                key={'exc_g_' + g}
+                className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-red-600/20 border border-red-500/30 text-red-300 text-[11px]"
+              >
+                <span>🚫 Exclude: {g}</span>
+                <button
+                  onClick={() => setExcludedGenres((prev) => prev.filter((x) => x !== g))}
                   className="hover:text-white"
                 >
                   <X className="w-3 h-3" />
@@ -1470,7 +1583,15 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
 
             {statusFilter !== 'all' && (
               <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/10 text-gray-300 text-[11px]">
-                <span>{statusFilter === 'in_library' ? 'In Library' : 'Not in Library'}</span>
+                <span>
+                  {statusFilter === 'in_library'
+                    ? 'In Library'
+                    : statusFilter === 'not_in_library'
+                    ? 'Not in Library'
+                    : statusFilter === 'not_in_library_unwatched'
+                    ? 'Not in Library & Unwatched'
+                    : 'Unwatched'}
+                </span>
                 <button onClick={() => setStatusFilter('all')}>
                   <X className="w-3 h-3" />
                 </button>
@@ -1522,9 +1643,11 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               key={item.id}
               item={item}
               isInLibrary={isInLibrary(item)}
+              isWatched={isWatchedInLibrary(item)}
               onClick={() => onOpenDetail(convertToLibraryItem(item))}
               onAddToLibrary={onAddToLibrary}
               onStartWatching={onStartWatching}
+              onMarkWatched={onMarkWatched}
             />
           ))}
         </div>
@@ -1590,15 +1713,20 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       </div>
 
       {/* 5. Modals: Categories, Country (Include/Exclude), Year Range */}
-      {/* Category Multi-select Modal */}
+      {/* Category Multi-select Modal with Include & Exclude Tabs */}
       {showGenreModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="relative w-full max-w-lg bg-[#1c1c1e] border border-white/15 rounded-2xl p-6 shadow-2xl">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <Sliders className="w-5 h-5 text-[#E50914]" />
-                <span>Select Categories</span>
-              </h3>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Sliders className="w-5 h-5 text-[#E50914]" />
+                  <span>Category Filter & Exclusion</span>
+                </h3>
+                <p className="text-[11px] sm:text-xs text-gray-400">
+                  Include or exclude specific genres & categories from your view.
+                </p>
+              </div>
               <button
                 onClick={() => setShowGenreModal(false)}
                 className="p-1.5 rounded-full text-gray-400 hover:text-white"
@@ -1607,39 +1735,84 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               </button>
             </div>
 
-            <div className="flex items-center gap-4 p-2.5 bg-black/40 rounded-xl border border-white/5 mb-4 text-xs">
-              <span className="text-gray-400">Match rule:</span>
-              <label className="flex items-center gap-1.5 cursor-pointer text-white">
-                <input
-                  type="radio"
-                  name="genreMatchMode"
-                  checked={genreMatchMode === 'any'}
-                  onChange={() => setGenreMatchMode('any')}
-                  className="text-red-600"
-                />
-                <span>Match ANY selected</span>
-              </label>
-              <label className="flex items-center gap-1.5 cursor-pointer text-white">
-                <input
-                  type="radio"
-                  name="genreMatchMode"
-                  checked={genreMatchMode === 'all'}
-                  onChange={() => setGenreMatchMode('all')}
-                  className="text-red-600"
-                />
-                <span>Match ALL selected</span>
-              </label>
+            {/* Mode Switcher Tabs: Include vs Exclude */}
+            <div className="grid grid-cols-2 gap-2 p-1 bg-black/50 rounded-xl border border-white/10 mb-3">
+              <button
+                type="button"
+                onClick={() => setGenreModalTab('include')}
+                className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                  genreModalTab === 'include'
+                    ? 'bg-[#E50914] text-white shadow-md'
+                    : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>Include Categories</span>
+                {selectedGenres.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-black/40 text-[10px]">
+                    {selectedGenres.length}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setGenreModalTab('exclude')}
+                className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                  genreModalTab === 'exclude'
+                    ? 'bg-red-600 text-white shadow-md'
+                    : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <Ban className="w-3.5 h-3.5 text-red-200" />
+                <span>Exclude Categories</span>
+                {excludedGenres.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-black/40 text-[10px]">
+                    {excludedGenres.length}
+                  </span>
+                )}
+              </button>
             </div>
+
+            {genreModalTab === 'include' && (
+              <div className="flex items-center gap-4 p-2.5 bg-black/40 rounded-xl border border-white/5 mb-4 text-xs">
+                <span className="text-gray-400">Match rule:</span>
+                <label className="flex items-center gap-1.5 cursor-pointer text-white">
+                  <input
+                    type="radio"
+                    name="genreMatchMode"
+                    checked={genreMatchMode === 'any'}
+                    onChange={() => setGenreMatchMode('any')}
+                    className="text-red-600"
+                  />
+                  <span>Match ANY selected</span>
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer text-white">
+                  <input
+                    type="radio"
+                    name="genreMatchMode"
+                    checked={genreMatchMode === 'all'}
+                    onChange={() => setGenreMatchMode('all')}
+                    className="text-red-600"
+                  />
+                  <span>Match ALL selected</span>
+                </label>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-64 overflow-y-auto p-1">
               {availableGenres.map((g) => {
-                const isChecked = selectedGenres.includes(g);
+                const isChecked =
+                  genreModalTab === 'include'
+                    ? selectedGenres.includes(g)
+                    : excludedGenres.includes(g);
                 return (
                   <label
                     key={g}
                     className={`flex items-center gap-2 py-1.5 px-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
                       isChecked
-                        ? 'bg-red-600/20 border-red-500/40 text-white font-semibold'
+                        ? genreModalTab === 'include'
+                          ? 'bg-red-600/20 border-red-500/40 text-white font-semibold'
+                          : 'bg-red-600/30 border-red-500/60 text-red-200 font-semibold'
                         : 'bg-black/30 border-white/5 text-gray-400 hover:text-white'
                     }`}
                   >
@@ -1647,9 +1820,15 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                       type="checkbox"
                       checked={isChecked}
                       onChange={() => {
-                        setSelectedGenres((prev) =>
-                          isChecked ? prev.filter((x) => x !== g) : [...prev, g]
-                        );
+                        if (genreModalTab === 'include') {
+                          setSelectedGenres((prev) =>
+                            isChecked ? prev.filter((x) => x !== g) : [...prev, g]
+                          );
+                        } else {
+                          setExcludedGenres((prev) =>
+                            isChecked ? prev.filter((x) => x !== g) : [...prev, g]
+                          );
+                        }
                       }}
                       className="rounded bg-neutral-800 border-white/20 text-red-600"
                     />
@@ -1661,10 +1840,16 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
 
             <div className="flex items-center justify-between mt-5 pt-3 border-t border-white/10">
               <button
-                onClick={() => setSelectedGenres([])}
+                onClick={() => {
+                  if (genreModalTab === 'include') {
+                    setSelectedGenres([]);
+                  } else {
+                    setExcludedGenres([]);
+                  }
+                }}
                 className="text-xs text-gray-400 hover:text-white underline"
               >
-                Reset Categories
+                Reset {genreModalTab === 'include' ? 'Included' : 'Excluded'} Categories
               </button>
               <button
                 onClick={() => setShowGenreModal(false)}

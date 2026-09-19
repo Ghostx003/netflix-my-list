@@ -1083,14 +1083,14 @@ export async function enrichTitleWithTMDB(
 
   if (!detail) {
     try {
-      let detailUrl = `${TMDB_BASE_URL}/${endpointType}/${tmdbId}?api_key=${key}&append_to_response=credits,videos,external_ids`;
+      let detailUrl = `${TMDB_BASE_URL}/${endpointType}/${tmdbId}?api_key=${key}&append_to_response=credits,videos,external_ids,watch/providers`;
       let res = await fetch(detailUrl);
       if (res.ok) {
         detail = await res.json();
       } else if (res.status === 404) {
         // Watchmode sometimes tags mediaType as TV when TMDB has it as movie (or vice versa)
         const altEndpoint = isMovie ? 'tv' : 'movie';
-        const altUrl = `${TMDB_BASE_URL}/${altEndpoint}/${tmdbId}?api_key=${key}&append_to_response=credits,videos,external_ids`;
+        const altUrl = `${TMDB_BASE_URL}/${altEndpoint}/${tmdbId}?api_key=${key}&append_to_response=credits,videos,external_ids,watch/providers`;
         const altRes = await fetch(altUrl);
         if (altRes.ok) {
           detail = await altRes.json();
@@ -1102,7 +1102,7 @@ export async function enrichTitleWithTMDB(
             const sData = await sRes.json();
             if (sData.results && sData.results.length > 0) {
               const matchedId = sData.results[0].id;
-              const fUrl = `${TMDB_BASE_URL}/${endpointType}/${matchedId}?api_key=${key}&append_to_response=credits,videos,external_ids`;
+              const fUrl = `${TMDB_BASE_URL}/${endpointType}/${matchedId}?api_key=${key}&append_to_response=credits,videos,external_ids,watch/providers`;
               const fRes = await fetch(fUrl);
               if (fRes.ok) {
                 detail = await fRes.json();
@@ -1125,6 +1125,20 @@ export async function enrichTitleWithTMDB(
       ...titleItem,
       tmdbId,
     };
+  }
+
+  // Extract Netflix ID automatically from watch/providers or external URLs
+  let autoNetflixId = titleItem.netflixId;
+  if (!autoNetflixId && detail['watch/providers']?.results) {
+    const wpResults = detail['watch/providers'].results;
+    const regionObj = wpResults.IN || wpResults.US || Object.values(wpResults)[0];
+    const link = (regionObj as any)?.link;
+    if (typeof link === 'string') {
+      const match = link.match(/(?:title|watch)\/(\d{6,10})/);
+      if (match && match[1]) {
+        autoNetflixId = match[1];
+      }
+    }
   }
 
   // Extract genres
@@ -1196,6 +1210,7 @@ export async function enrichTitleWithTMDB(
   return {
     ...titleItem,
     tmdbId,
+    netflixId: autoNetflixId || titleItem.netflixId,
     imdbId: titleItem.imdbId || detail.external_ids?.imdb_id || detail.imdb_id,
     originalTitle: isMovie ? detail.original_title : detail.original_name,
     releaseDate: isMovie ? detail.release_date : detail.first_air_date,

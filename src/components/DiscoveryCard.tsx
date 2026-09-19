@@ -8,17 +8,21 @@ import { CachedImage } from './CachedImage';
 interface DiscoveryCardProps {
   item: DiscoveryTitle;
   isInLibrary: boolean;
+  isWatched?: boolean;
   onClick: () => void;
   onAddToLibrary: (item: DiscoveryTitle) => void;
   onStartWatching: (item: DiscoveryTitle) => void;
+  onMarkWatched?: (item: DiscoveryTitle) => void;
 }
 
 export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
   item,
   isInLibrary,
+  isWatched,
   onClick,
   onAddToLibrary,
   onStartWatching,
+  onMarkWatched,
 }) => {
   const isMovie = item.mediaType === 'movie';
   const netflixUrl = getNetflixUrl({
@@ -164,14 +168,22 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
 
           {/* Season & Episode count line for TV Series */}
           {!isMovie && (
-            <div className="text-[11px] text-zinc-400 flex items-center gap-1.5 font-medium mb-1">
-              <span>
+            <div className="text-[11px] text-zinc-300 flex items-center flex-wrap gap-1.5 font-medium mb-1">
+              <span className="font-semibold text-white">
                 {item.totalSeasons ? `${item.totalSeasons} ${item.totalSeasons === 1 ? 'Season' : 'Seasons'}` : 'Series'}
               </span>
               {totalEpisodes ? (
                 <>
                   <span className="text-zinc-600">•</span>
                   <span>{totalEpisodes} Episodes</span>
+                </>
+              ) : null}
+              {seriesTotalMinutes ? (
+                <>
+                  <span className="text-zinc-600">•</span>
+                  <span className="text-amber-400/90 font-mono text-[10px]">
+                    {formatRuntime(seriesTotalMinutes)} total
+                  </span>
                 </>
               ) : null}
             </div>
@@ -202,7 +214,7 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
           <div className="flex items-center justify-between gap-1 text-xs text-zinc-300">
             <div className="flex items-center gap-1 font-mono text-zinc-400 whitespace-nowrap text-[10px] sm:text-[11px] min-w-0">
               <Clock className="w-3 h-3 text-zinc-500 shrink-0" />
-              <span className="truncate">
+              <span className="truncate" title={isMovie ? 'Movie Duration' : 'Total Series Duration'}>
                 {displayRuntimeMinutes ? formatRuntime(displayRuntimeMinutes) : isMovie ? 'Movie' : 'Series'}
               </span>
             </div>
@@ -220,7 +232,7 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
             </a>
           </div>
 
-          {/* Add to Library & Start Watching Buttons */}
+          {/* Add to Library, Start Watching & Mark Watched Buttons */}
           <div className="flex items-center gap-1.5 pt-1 border-t border-zinc-800/40">
             {isInLibrary ? (
               <span className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg bg-emerald-600/20 border border-emerald-500/30 text-emerald-300 text-[10px] sm:text-[11px] font-bold">
@@ -241,12 +253,31 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
               </button>
             )}
 
+            {/* Quick Watched Action Button */}
+            {onMarkWatched && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMarkWatched(item);
+                }}
+                className={`px-2 sm:px-2.5 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold flex items-center gap-1 transition-all border active:scale-95 ${
+                  isWatched
+                    ? 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-600/30'
+                    : 'bg-zinc-800/90 hover:bg-emerald-600 hover:text-white text-zinc-300 border-zinc-700/60'
+                }`}
+                title={isWatched ? 'Completed / Watched' : 'Mark as Watched'}
+              >
+                <Check className="w-3 h-3" />
+                <span className="hidden xs:inline sm:inline">Watched</span>
+              </button>
+            )}
+
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onStartWatching(item);
               }}
-              className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black transition-all border border-amber-500/30 text-[10px] sm:text-[11px] font-bold flex items-center gap-1 active:scale-95"
+              className="px-2 sm:px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black transition-all border border-amber-500/30 text-[10px] sm:text-[11px] font-bold flex items-center gap-1 active:scale-95"
               title="Start Watching"
             >
               <Tv className="w-3 h-3" />

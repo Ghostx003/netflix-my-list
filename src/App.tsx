@@ -527,6 +527,78 @@ export const App: React.FC = () => {
               }
               handleTabChange('still-watching');
             }}
+            onMarkWatched={async (discItem) => {
+              const existing = items.find(
+                (i) =>
+                  (discItem.imdbId && i.imdbId === discItem.imdbId) ||
+                  (discItem.tmdbId && i.externalId === discItem.tmdbId) ||
+                  (discItem.netflixId && i.videoId === discItem.netflixId) ||
+                  i.originalTitle.toLowerCase().trim() === discItem.title.toLowerCase().trim()
+              );
+
+              if (existing) {
+                const updated: LibraryItem = {
+                  ...existing,
+                  viewingStatus: 'completed',
+                  isCompleted: true,
+                  completedAt: new Date().toISOString(),
+                  droppedReason: undefined,
+                  droppedAt: undefined,
+                  progress: { percentage: 100, watchedMinutes: existing.runtimeMinutes || 120 },
+                  updatedAt: new Date().toISOString(),
+                };
+                await handleUpdateItem(updated);
+                setSyncToast({
+                  message: `Marked "${discItem.title}" as Watched!`,
+                  type: 'success',
+                });
+              } else {
+                const newLibItem: LibraryItem = {
+                  id: 'item_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+                  originalTitle: discItem.title,
+                  normalizedTitle: discItem.title.toLowerCase().trim(),
+                  videoId: discItem.netflixId,
+                  mediaType: discItem.mediaType,
+                  status: 'matched',
+                  viewingStatus: 'completed',
+                  isCompleted: true,
+                  completedAt: new Date().toISOString(),
+                  progress: { percentage: 100, watchedMinutes: discItem.runtimeMinutes || 120 },
+                  externalId: discItem.tmdbId,
+                  externalTitle: discItem.title,
+                  releaseYear: discItem.releaseYear,
+                  releaseDate: discItem.releaseDate,
+                  posterPath: discItem.posterPath,
+                  backdropPath: discItem.backdropPath,
+                  rating: discItem.rating,
+                  imdbRating: discItem.imdbRating,
+                  rottenTomatoesRating: discItem.rottenTomatoesRating,
+                  voteCount: discItem.voteCount,
+                  synopsis: discItem.synopsis,
+                  genres: discItem.genres,
+                  countries: discItem.countries,
+                  languages: discItem.audioLanguages,
+                  originalLanguage: discItem.originalLanguage,
+                  runtimeMinutes: discItem.runtimeMinutes,
+                  totalSeasons: discItem.totalSeasons,
+                  totalEpisodes: discItem.totalEpisodes,
+                  averageEpisodeMinutes: discItem.averageEpisodeMinutes,
+                  episodes: discItem.episodes,
+                  trailer: discItem.trailer,
+                  cast: discItem.cast,
+                  director: discItem.director,
+                  creator: discItem.creator,
+                  addedAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                };
+                await handleAddNewItem(newLibItem);
+                setSyncToast({
+                  message: `Marked "${discItem.title}" as Watched and saved to Library!`,
+                  type: 'success',
+                });
+              }
+              setTimeout(() => setSyncToast(null), 3000);
+            }}
             onOpenDetail={(item) => setSelectedDetailItem(item)}
             onOpenSurpriseMeModal={() => setIsSurpriseMeOpen(true)}
           />

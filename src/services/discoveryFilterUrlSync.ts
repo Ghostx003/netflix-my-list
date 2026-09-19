@@ -1,7 +1,12 @@
 export interface DiscoveryFilterState {
   searchQuery: string;
   mediaType: 'all' | 'movie' | 'tv';
-  statusFilter: 'all' | 'in_library' | 'not_in_library';
+  statusFilter:
+    | 'all'
+    | 'not_in_library'
+    | 'not_in_library_unwatched'
+    | 'in_library'
+    | 'unwatched';
   preset: string;
   sortBy:
     | 'netflix_newest'
@@ -21,6 +26,7 @@ export interface DiscoveryFilterState {
     | 'episodes_most';
   sortOrder: 'asc' | 'desc';
   selectedGenres: string[];
+  excludedGenres: string[];
   genreMatchMode: 'any' | 'all';
   selectedCountries: string[];
   excludedCountries: string[];
@@ -39,6 +45,7 @@ export const DEFAULT_DISCOVERY_FILTER_STATE: DiscoveryFilterState = {
   sortBy: 'netflix_newest',
   sortOrder: 'desc',
   selectedGenres: [],
+  excludedGenres: [],
   genreMatchMode: 'any',
   selectedCountries: [],
   excludedCountries: [],
@@ -61,6 +68,7 @@ export function hasDiscoveryFilterParamsInUrl(search: string = window.location.s
     'dSortBy',
     'dSortOrder',
     'dGenres',
+    'dExcludeGenres',
     'dGenreMode',
     'dCountries',
     'dExcludeCountries',
@@ -86,7 +94,9 @@ export function parseInitialDiscoveryFilters(): DiscoveryFilterState {
     }
     if (params.has('dStatus')) {
       const st = params.get('dStatus') as any;
-      if (['all', 'in_library', 'not_in_library'].includes(st)) filters.statusFilter = st;
+      if (['all', 'not_in_library', 'not_in_library_unwatched', 'in_library', 'unwatched'].includes(st)) {
+        filters.statusFilter = st;
+      }
     }
     if (params.has('dPreset')) filters.preset = params.get('dPreset') || 'all';
     if (params.has('dSortBy')) {
@@ -99,6 +109,10 @@ export function parseInitialDiscoveryFilters(): DiscoveryFilterState {
     if (params.has('dGenres')) {
       const g = params.get('dGenres');
       filters.selectedGenres = g ? g.split(',').map((s) => s.trim()).filter(Boolean) : [];
+    }
+    if (params.has('dExcludeGenres')) {
+      const eg = params.get('dExcludeGenres');
+      filters.excludedGenres = eg ? eg.split(',').map((s) => s.trim()).filter(Boolean) : [];
     }
     if (params.has('dGenreMode')) {
       const gm = params.get('dGenreMode') as any;
@@ -164,6 +178,12 @@ export function syncDiscoveryFiltersToUrlAndStorage(filters: DiscoveryFilterStat
     currentParams.delete('dGenres');
   }
 
+  if (filters.excludedGenres.length > 0) {
+    currentParams.set('dExcludeGenres', filters.excludedGenres.join(','));
+  } else {
+    currentParams.delete('dExcludeGenres');
+  }
+
   updateParam('dGenreMode', filters.genreMatchMode, 'any');
 
   if (filters.selectedCountries.length > 0) {
@@ -203,6 +223,7 @@ export function clearDiscoveryFiltersFromUrlAndStorage() {
     'dSortBy',
     'dSortOrder',
     'dGenres',
+    'dExcludeGenres',
     'dGenreMode',
     'dCountries',
     'dExcludeCountries',
