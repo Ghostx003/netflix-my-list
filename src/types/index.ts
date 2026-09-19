@@ -6,6 +6,7 @@ export interface WatchProgress {
   percentage: number;
   currentSeason?: number;
   currentEpisode?: number;
+  completedSeasons?: number[];
   watchedMinutes: number;
   lastWatchedAt?: string; // ISO date string
 }

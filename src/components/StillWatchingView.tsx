@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Play, Check, Trash2, Clock, Film, Tv, Search, Star } from 'lucide-react';
+import { Play, Check, Trash2, Clock, Film, Tv, Search, Star, ChevronDown, ChevronUp, CheckCircle2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { LibraryItem, WatchProgress } from '../types';
 import { formatRuntime } from '../services/analytics';
@@ -22,6 +22,8 @@ export const StillWatchingView: React.FC<StillWatchingViewProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<StillSortOption>('recently_watched');
+  // Tracks which card IDs have their slider / editor expanded
+  const [expandedCardIds, setExpandedCardIds] = useState<Record<string, boolean>>({});
 
   // Filter still watching titles
   const watchingItems = useMemo(() => {
@@ -68,13 +70,23 @@ export const StillWatchingView: React.FC<StillWatchingViewProps> = ({
     });
   }, [watchingItems, searchQuery, sortBy]);
 
-  // Mark Completed
+  const toggleExpand = (itemId: string) => {
+    setExpandedCardIds((prev) => ({
+      ...prev,
+      [itemId]: !prev[itemId],
+    }));
+  };
+
+  // Mark Full Title Completed
   const handleMarkCompleted = (item: LibraryItem) => {
     try {
       confetti({ particleCount: 50, spread: 70, origin: { y: 0.6 } });
     } catch (e) {
       // ignore
     }
+    const totalSeasons = item.totalSeasons || 1;
+    const allSeasons = Array.from({ length: totalSeasons }, (_, i) => i + 1);
+
     const updated: LibraryItem = {
       ...item,
       isCompleted: true,
@@ -83,7 +95,8 @@ export const StillWatchingView: React.FC<StillWatchingViewProps> = ({
       progress: {
         percentage: 100,
         currentEpisode: item.totalEpisodes || item.progress?.currentEpisode || 1,
-        currentSeason: item.totalSeasons || item.progress?.currentSeason || 1,
+        currentSeason: totalSeasons,
+        completedSeasons: allSeasons,
         watchedMinutes: item.runtimeMinutes || item.progress?.watchedMinutes || 0,
         lastWatchedAt: new Date().toISOString(),
       },
@@ -99,6 +112,7 @@ export const StillWatchingView: React.FC<StillWatchingViewProps> = ({
       progress: item.progress || {
         currentSeason: 1,
         currentEpisode: 1,
+        completedSeasons: [],
         watchedMinutes: 0,
         percentage: 0,
         lastWatchedAt: new Date().toISOString(),
@@ -116,19 +130,167 @@ export const StillWatchingView: React.FC<StillWatchingViewProps> = ({
     onUpdateItem(updated);
   };
 
-  // Update Episode for TV
-  const handleUpdateEpisode = (item: LibraryItem, ep: number) => {
+  // Helper to calculate episodes per season
+  const getSeasonEpisodeCounts = (item: LibraryItem) => {
+    const totalSeasons = Math.max(1, item.totalSeasons || 1);
+    const result: Record<number, number> = {};
+
+    if (item.episodes && item.episodes.length > 0) {
+      for (const ep of item.episodes) {
+        if (ep.seasonNumber > 0) {
+          result[ep.seasonNumber] = (result[ep.seasonNumber] || 0) + 1;
+        }
+      }
+    }
+
+    // Fill any missing seasons with sensible defaults
     const totalEp = item.totalEpisodes || 10;
-    const boundedEp = Math.max(1, Math.min(ep, totalEp));
-    const pct = Math.round((boundedEp / totalEp) * 100);
+    const avgPerSeason = Math.max(1, Math.round(totalEp / totalSeasons));
+    for (let s = 1; s <= totalSeasons; s++) {
+      if (!result[s]) {
+        result[s] = avgPerSeason;
+      }
+    }
+
+    return result;
+  };
+
+  // Overall Series Progress % calculation
+  const computeTvOverallPercentage = (
+    item: LibraryItem,
+    completedSeasons: number[],
+    currentSeason: number,
+    currentEpisode: number
+  ) => {
+    const totalEp = item.totalEpisodes || 10;
+    const seasonCounts = getSeasonEpisodeCounts(item);
+    let watchedCount = 0;
+
+    const completedSet = new Set(completedSeasons);
+    const totalSeasons = Math.max(1, item.totalSeasons || 1);
+
+    for (let s = 1; s <= totalSeasons; s++) {
+      const epInSeason = seasonCounts[s] || 10;
+      if (completedSet.has(s)) {
+        watchedCount += epInSeason;
+      } else if (s === currentSeason) {
+        watchedCount += Math.min(currentEpisode, epInSeason);
+      }
+    }
+
+    return Math.min(100, Math.round((watchedCount / Math.max(1, totalEp)) * 100));
+  };
+
+  // Clicking a Season Box (e.g. Season 4)
+  // - Marks everything before Season 4 as completed
+  // - Sets active currentSeason to 4, currentEpisode to 1
+  // - Ensures slider is open!
+  const handleSelectSeason = (item: LibraryItem, seasonNum: number) => {
+    const priorSeasons = Array.from({ length: seasonNum - 1 }, (_, i) => i + 1);
+    const currentCompleted = item.progress?.completedSeasons || [];
+    const newCompletedSeasons = Array.from(new Set([...currentCompleted, ...priorSeasons])).filter(
+      (s) => s < seasonNum
+    );
+
+    const curEp = item.progress?.currentSeason === seasonNum ? (item.progress?.currentEpisode || 1) : 1;
+    const pct = computeTvOverallPercentage(item, newCompletedSeasons, seasonNum, curEp);
 
     const updated: LibraryItem = {
       ...item,
       progress: {
-        currentSeason: item.progress?.currentSeason || 1,
-        currentEpisode: boundedEp,
-        watchedMinutes: item.progress?.watchedMinutes || 0,
+        ...item.progress,
+        currentSeason: seasonNum,
+        currentEpisode: curEp,
+        completedSeasons: newCompletedSeasons,
         percentage: pct,
+        watchedMinutes: item.progress?.watchedMinutes || 0,
+        lastWatchedAt: new Date().toISOString(),
+      },
+    };
+
+    onUpdateItem(updated);
+
+    // Expand slider for this card
+    setExpandedCardIds((prev) => ({
+      ...prev,
+      [item.id]: true,
+    }));
+  };
+
+  // Clicking the Tick Mark on a Season Box
+  // - Marks that season and all seasons before it as completed
+  const handleToggleSeasonCompleted = (item: LibraryItem, seasonNum: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    const currentCompleted = new Set(item.progress?.completedSeasons || []);
+    const isCurrentlyDone = currentCompleted.has(seasonNum);
+    const totalSeasons = Math.max(1, item.totalSeasons || 1);
+
+    let nextCompleted: number[];
+    let nextActiveSeason = item.progress?.currentSeason || 1;
+    let nextEpisode = item.progress?.currentEpisode || 1;
+
+    if (isCurrentlyDone) {
+      // Unmark this season
+      currentCompleted.delete(seasonNum);
+      nextCompleted = Array.from(currentCompleted);
+      nextActiveSeason = seasonNum;
+      nextEpisode = 1;
+    } else {
+      // Mark this season AND all prior seasons as completed
+      for (let s = 1; s <= seasonNum; s++) {
+        currentCompleted.add(s);
+      }
+      nextCompleted = Array.from(currentCompleted);
+
+      // If there is a next season, advance active to next season
+      if (seasonNum < totalSeasons) {
+        nextActiveSeason = seasonNum + 1;
+        nextEpisode = 1;
+      } else {
+        // Completed all seasons!
+        handleMarkCompleted(item);
+        return;
+      }
+    }
+
+    const pct = computeTvOverallPercentage(item, nextCompleted, nextActiveSeason, nextEpisode);
+
+    const updated: LibraryItem = {
+      ...item,
+      progress: {
+        ...item.progress,
+        currentSeason: nextActiveSeason,
+        currentEpisode: nextEpisode,
+        completedSeasons: nextCompleted,
+        percentage: pct,
+        watchedMinutes: item.progress?.watchedMinutes || 0,
+        lastWatchedAt: new Date().toISOString(),
+      },
+    };
+
+    onUpdateItem(updated);
+  };
+
+  // Update Episode for TV (within active season)
+  const handleUpdateEpisode = (item: LibraryItem, ep: number) => {
+    const curSeason = item.progress?.currentSeason || 1;
+    const seasonCounts = getSeasonEpisodeCounts(item);
+    const maxEpInSeason = seasonCounts[curSeason] || 10;
+    const boundedEp = Math.max(1, Math.min(ep, maxEpInSeason));
+
+    const completedSeasons = item.progress?.completedSeasons || [];
+    const pct = computeTvOverallPercentage(item, completedSeasons, curSeason, boundedEp);
+
+    const updated: LibraryItem = {
+      ...item,
+      progress: {
+        ...item.progress,
+        currentSeason: curSeason,
+        currentEpisode: boundedEp,
+        completedSeasons,
+        percentage: pct,
+        watchedMinutes: item.progress?.watchedMinutes || 0,
         lastWatchedAt: new Date().toISOString(),
       },
     };
@@ -144,8 +306,7 @@ export const StillWatchingView: React.FC<StillWatchingViewProps> = ({
     const updated: LibraryItem = {
       ...item,
       progress: {
-        currentSeason: item.progress?.currentSeason || 1,
-        currentEpisode: item.progress?.currentEpisode || 1,
+        ...item.progress,
         watchedMinutes: boundedMin,
         percentage: pct,
         lastWatchedAt: new Date().toISOString(),
@@ -159,14 +320,14 @@ export const StillWatchingView: React.FC<StillWatchingViewProps> = ({
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-white flex items-center gap-2">
+          <h1 className="text-2xl sm:text-3xl font-black text-white flex items-center gap-2.5">
             <span>Still Watching</span>
-            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">
-              {watchingItems.length}
+            <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">
+              {watchingItems.length} active
             </span>
           </h1>
           <p className="text-xs text-zinc-400 mt-1">
-            Pick up right where you left off. Track granular episode & runtime progress.
+            Track seasons and episodes. Click on any season to jump right in.
           </p>
         </div>
 
@@ -231,19 +392,37 @@ export const StillWatchingView: React.FC<StillWatchingViewProps> = ({
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 items-start">
           {displayItems.map((item) => {
             const isTV = item.mediaType === 'tv';
             const progress: WatchProgress = item.progress || { percentage: 0, watchedMinutes: 0 };
             const pct = progress.percentage || 0;
+            const isExpanded = !!expandedCardIds[item.id];
+
+            const totalSeasons = Math.max(1, item.totalSeasons || 1);
+            const completedSeasonsSet = new Set(progress.completedSeasons || []);
+            const currentSeason = progress.currentSeason || 1;
+            const currentEpisode = progress.currentEpisode || 1;
+
+            const seasonCounts = isTV ? getSeasonEpisodeCounts(item) : {};
+            const episodesInActiveSeason = seasonCounts[currentSeason] || 10;
 
             // Remaining runtime calculation
             let remainingText = '';
             if (isTV) {
-              const currentEp = progress.currentEpisode || 1;
               const totalEp = item.totalEpisodes || 10;
-              const remainingEp = Math.max(0, totalEp - currentEp);
-              const perEp = item.runtimeMinutes || 45;
+              // Compute remaining episodes
+              let watchedEps = 0;
+              for (let s = 1; s <= totalSeasons; s++) {
+                const count = seasonCounts[s] || 10;
+                if (completedSeasonsSet.has(s)) {
+                  watchedEps += count;
+                } else if (s === currentSeason) {
+                  watchedEps += Math.min(currentEpisode, count);
+                }
+              }
+              const remainingEp = Math.max(0, totalEp - watchedEps);
+              const perEp = item.averageEpisodeMinutes || item.runtimeMinutes || 45;
               remainingText = `${formatRuntime(remainingEp * perEp)} left (${remainingEp} eps)`;
             } else {
               const totalMin = item.runtimeMinutes || 120;
@@ -255,16 +434,21 @@ export const StillWatchingView: React.FC<StillWatchingViewProps> = ({
             return (
               <div
                 key={item.id}
-                className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-2xl p-4 flex flex-col justify-between space-y-4 shadow-lg transition-all"
+                className="bg-zinc-900/90 border border-zinc-800 hover:border-zinc-700/80 rounded-2xl p-4 flex flex-col space-y-4 shadow-xl transition-all h-fit"
               >
+                {/* Header Row: Poster + Title Info */}
                 <div className="flex gap-3">
                   {/* Poster */}
                   <div
                     onClick={() => onOpenDetail(item)}
-                    className="w-20 h-28 rounded-xl overflow-hidden bg-zinc-800 shrink-0 border border-zinc-700 cursor-pointer group relative"
+                    className="w-20 h-28 rounded-xl overflow-hidden bg-zinc-800 shrink-0 border border-zinc-700/80 cursor-pointer group relative shadow-md"
                   >
                     {item.posterPath ? (
-                      <img src={item.posterPath} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                      <img
+                        src={item.posterPath}
+                        alt=""
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-zinc-600">
                         {isTV ? <Tv className="w-8 h-8" /> : <Film className="w-8 h-8" />}
@@ -273,10 +457,10 @@ export const StillWatchingView: React.FC<StillWatchingViewProps> = ({
                   </div>
 
                   {/* Title & Metadata */}
-                  <div className="flex-1 min-w-0 space-y-1">
+                  <div className="flex-1 min-w-0 space-y-1.5">
                     <div className="flex items-center gap-1.5">
                       <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                        {item.mediaType === 'tv' ? 'Series' : 'Movie'}
+                        {isTV ? 'Series' : 'Movie'}
                       </span>
                       {item.imdbRating && (
                         <span className="text-[10px] text-amber-400 flex items-center gap-0.5 font-bold">
@@ -285,31 +469,94 @@ export const StillWatchingView: React.FC<StillWatchingViewProps> = ({
                         </span>
                       )}
                     </div>
-                    <h3
-                      onClick={() => onOpenDetail(item)}
-                      className="text-sm font-bold text-white truncate cursor-pointer hover:text-blue-400 transition-colors"
+
+                    {/* Click title to expand/collapse slider */}
+                    <div
+                      onClick={() => toggleExpand(item.id)}
+                      className="cursor-pointer group flex items-start justify-between gap-1"
+                      title="Click to adjust episode progress"
                     >
-                      {item.externalTitle || item.originalTitle}
-                    </h3>
-                    <p className="text-[11px] text-zinc-400">
+                      <h3 className="text-sm font-bold text-white group-hover:text-blue-400 transition-colors line-clamp-1">
+                        {item.externalTitle || item.originalTitle}
+                      </h3>
+                      <button
+                        type="button"
+                        className="text-zinc-500 group-hover:text-zinc-300 p-0.5 shrink-0 transition-colors"
+                      >
+                        {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </button>
+                    </div>
+
+                    <p className="text-[11px] text-zinc-300 font-medium">
                       {isTV ? (
-                        <>Season {progress.currentSeason || 1} • Episode {progress.currentEpisode || 1} / {item.totalEpisodes || '?'}</>
+                        <>Season {currentSeason} • Ep {currentEpisode} of {episodesInActiveSeason}</>
                       ) : (
                         <>{progress.watchedMinutes || 0} / {item.runtimeMinutes || 120} min</>
                       )}
                     </p>
-                    <p className="text-[11px] text-zinc-500 flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
+
+                    <p className="text-[11px] text-zinc-400 flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-zinc-500" />
                       <span>{remainingText}</span>
                     </p>
                   </div>
                 </div>
 
-                {/* Progress Bar & Slider */}
-                <div className="space-y-1.5 bg-black/40 p-3 rounded-xl border border-zinc-800/80">
+                {/* TV Season Selectors (Pills) */}
+                {isTV && totalSeasons > 0 && (
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex justify-between items-center text-[10px] text-zinc-400 uppercase font-semibold">
+                      <span>Seasons</span>
+                      <span className="text-zinc-500">{totalSeasons} total</span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
+                      {Array.from({ length: totalSeasons }, (_, i) => i + 1).map((sNum) => {
+                        const isDone = completedSeasonsSet.has(sNum);
+                        const isCurrent = currentSeason === sNum && !isDone;
+
+                        return (
+                          <div
+                            key={sNum}
+                            onClick={() => handleSelectSeason(item, sNum)}
+                            className={`group flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-all border ${
+                              isDone
+                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                                : isCurrent
+                                ? 'bg-blue-600 text-white border-blue-400 shadow-md shadow-blue-900/40'
+                                : 'bg-zinc-800/80 text-zinc-400 border-zinc-700/80 hover:bg-zinc-800 hover:text-white'
+                            }`}
+                            title={isDone ? `Season ${sNum} Completed` : `Switch to Season ${sNum}`}
+                          >
+                            <span>S{sNum}</span>
+
+                            {/* Tick Button */}
+                            <button
+                              type="button"
+                              onClick={(e) => handleToggleSeasonCompleted(item, sNum, e)}
+                              className={`p-0.5 rounded transition-transform hover:scale-125 ${
+                                isDone
+                                  ? 'text-emerald-400'
+                                  : isCurrent
+                                  ? 'text-blue-200 hover:text-white'
+                                  : 'text-zinc-500 hover:text-emerald-400'
+                              }`}
+                              title={isDone ? 'Mark season incomplete' : 'Mark season complete'}
+                            >
+                              <CheckCircle2 className={`w-3.5 h-3.5 ${isDone ? 'fill-emerald-500/20' : ''}`} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Overall Progress Bar */}
+                <div className="space-y-1">
                   <div className="flex justify-between text-[11px] font-semibold">
-                    <span className="text-zinc-400">Progress</span>
-                    <span className="text-blue-400 font-bold">{pct}%</span>
+                    <span className="text-zinc-400">Total Progress</span>
+                    <span className="text-blue-400 font-mono font-bold">{pct}%</span>
                   </div>
                   <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
                     <div
@@ -317,45 +564,65 @@ export const StillWatchingView: React.FC<StillWatchingViewProps> = ({
                       style={{ width: `${pct}%` }}
                     />
                   </div>
-
-                  {/* Interactive Slider */}
-                  <div className="pt-2">
-                    {isTV ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-zinc-400 font-medium">Ep:</span>
-                        <input
-                          type="range"
-                          min={1}
-                          max={item.totalEpisodes || 20}
-                          value={progress.currentEpisode || 1}
-                          onChange={(e) => handleUpdateEpisode(item, parseInt(e.target.value))}
-                          className="w-full accent-blue-500 h-1 bg-zinc-700 rounded-lg cursor-pointer"
-                        />
-                        <span className="text-[10px] text-zinc-300 font-bold w-6 text-right">
-                          {progress.currentEpisode || 1}
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-zinc-400 font-medium">Min:</span>
-                        <input
-                          type="range"
-                          min={0}
-                          max={item.runtimeMinutes || 120}
-                          value={progress.watchedMinutes || 0}
-                          onChange={(e) => handleUpdateMinutes(item, parseInt(e.target.value))}
-                          className="w-full accent-blue-500 h-1 bg-zinc-700 rounded-lg cursor-pointer"
-                        />
-                        <span className="text-[10px] text-zinc-300 font-bold w-8 text-right">
-                          {progress.watchedMinutes || 0}m
-                        </span>
-                      </div>
-                    )}
-                  </div>
                 </div>
 
+                {/* Expandable Slider (Only shows when title/season is clicked) */}
+                {isExpanded && (
+                  <div className="space-y-2 bg-black/60 p-3.5 rounded-xl border border-blue-500/20 animate-in fade-in duration-200">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="font-semibold text-white flex items-center gap-1.5">
+                        {isTV ? (
+                          <>
+                            <Tv className="w-3.5 h-3.5 text-blue-400" />
+                            <span>Season {currentSeason} Episodes</span>
+                          </>
+                        ) : (
+                          <>
+                            <Film className="w-3.5 h-3.5 text-blue-400" />
+                            <span>Movie Runtime</span>
+                          </>
+                        )}
+                      </span>
+                      <span className="text-[11px] font-mono font-bold text-blue-400">
+                        {isTV ? `Ep ${currentEpisode} / ${episodesInActiveSeason}` : `${progress.watchedMinutes || 0}m / ${item.runtimeMinutes || 120}m`}
+                      </span>
+                    </div>
+
+                    {/* Interactive Slider */}
+                    <div className="pt-1">
+                      {isTV ? (
+                        <div className="flex items-center gap-3">
+                          <span className="text-[10px] text-zinc-400 font-medium">Ep 1</span>
+                          <input
+                            type="range"
+                            min={1}
+                            max={episodesInActiveSeason}
+                            value={currentEpisode}
+                            onChange={(e) => handleUpdateEpisode(item, parseInt(e.target.value))}
+                            className="w-full accent-blue-500 h-1.5 bg-zinc-700 rounded-lg cursor-pointer"
+                          />
+                          <span className="text-[10px] text-zinc-400 font-medium">Ep {episodesInActiveSeason}</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-3">
+                          <span className="text-[10px] text-zinc-400 font-medium">0m</span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={item.runtimeMinutes || 120}
+                            value={progress.watchedMinutes || 0}
+                            onChange={(e) => handleUpdateMinutes(item, parseInt(e.target.value))}
+                            className="w-full accent-blue-500 h-1.5 bg-zinc-700 rounded-lg cursor-pointer"
+                          />
+                          <span className="text-[10px] text-zinc-400 font-medium">{item.runtimeMinutes || 120}m</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Actions */}
-                <div className="flex items-center justify-between gap-2 pt-1 border-t border-zinc-800/80">
+                <div className="flex items-center justify-between gap-2 pt-2 border-t border-zinc-800/80">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <a
                       href={getNetflixUrl(item)}
@@ -370,7 +637,7 @@ export const StillWatchingView: React.FC<StillWatchingViewProps> = ({
                     <button
                       onClick={() => handleMarkCompleted(item)}
                       className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-600/30 transition-colors"
-                      title="Mark Completed"
+                      title="Mark Entire Series / Movie Finished"
                     >
                       <Check className="w-3.5 h-3.5" />
                       <span>Finish</span>

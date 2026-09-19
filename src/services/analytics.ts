@@ -146,11 +146,36 @@ export function computeAnalytics(
       stillWatchingCount++;
       if (item.mediaType === 'tv') {
         stillWatchingTvCount++;
-        // Calculate remaining minutes from progress
-        const currentEp = item.progress?.currentEpisode || 1;
-        const remainingEps = Math.max(0, itemEpisodes - currentEp + 1);
-        remainingTvEpisodes += remainingEps;
+        // Calculate remaining episodes & minutes from granular season/episode progress
+        let watchedEps = 0;
+        const totalEpCount = itemEpisodes || item.totalEpisodes || 10;
+        const totalSeasons = item.totalSeasons || 1;
         const avgMin = item.averageEpisodeMinutes || 45;
+
+        if (item.episodes && item.episodes.length > 0) {
+          const completedSeasonsSet = new Set(item.progress?.completedSeasons || []);
+          const curSeason = item.progress?.currentSeason || 1;
+          const curEp = item.progress?.currentEpisode || 1;
+
+          for (const ep of item.episodes) {
+            if (completedSeasonsSet.has(ep.seasonNumber)) {
+              watchedEps++;
+            } else if (ep.seasonNumber < curSeason) {
+              watchedEps++;
+            } else if (ep.seasonNumber === curSeason && ep.episodeNumber <= curEp) {
+              watchedEps++;
+            }
+          }
+        } else {
+          // Estimate based on current season and episode
+          const curSeason = item.progress?.currentSeason || 1;
+          const curEp = item.progress?.currentEpisode || 1;
+          const epsPerSeason = Math.max(1, Math.round(totalEpCount / Math.max(1, totalSeasons)));
+          watchedEps = ((curSeason - 1) * epsPerSeason) + Math.min(curEp, epsPerSeason);
+        }
+
+        const remainingEps = Math.max(0, totalEpCount - watchedEps);
+        remainingTvEpisodes += remainingEps;
         const remMin = remainingEps * avgMin;
         remainingContentMinutes += remMin;
         stillWatchingRemainingMinutes += remMin;
