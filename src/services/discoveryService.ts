@@ -1209,6 +1209,151 @@ const TMDB_GENRE_ID_MAP: Record<number, string> = {
   10768: 'War & Politics',
 };
 
+// Curated list of known iconic Netflix India TV Series that belong in the Thriller genre
+const KNOWN_TV_THRILLER_TITLES = new Set<string>([
+  'sacred games',
+  'delhi crime',
+  'kohrra',
+  'the railway men',
+  'khakee: the bihar chapter',
+  'khakee',
+  'guns & gulaabs',
+  'aranyak',
+  'she',
+  'rana naidu',
+  'bard of blood',
+  'mai',
+  'betaal',
+  'ghoul',
+  'typewriter',
+  'scoop',
+  'breaking bad',
+  'better call saul',
+  'ozark',
+  'mindhunter',
+  'dark',
+  'squid game',
+  'stranger things',
+  'you',
+  'money heist',
+  'peaky blinders',
+  'lupin',
+  'true detective',
+  'black mirror',
+  'narcos',
+  'narcos: mexico',
+  'bodyguard',
+  'the blacklist',
+  'sherlock',
+  'dexter',
+  'fargo',
+  'bloodhounds',
+  'my name',
+  'extracurricular',
+  'sweet home',
+  'alice in borderland',
+  'all of us are dead',
+  'the glory',
+  'signal',
+  'stranger',
+  'flower of evil',
+  'beyond evil',
+  'mouse',
+  'death note',
+  'monster',
+  'psycho-pass',
+  'the serpent',
+  'broadchurch',
+  'line of duty',
+  'the fall',
+  'marcella',
+  'unbelievable',
+  'when they see us',
+  'the stranger',
+  'stay close',
+  'safe',
+  'the woods',
+  'hold tight',
+  'fool me once',
+  'baby reindeer',
+  'ripely',
+  'ripley',
+]);
+
+/**
+ * Checks if a TV series should be tagged as Thriller based on title, genre combinations, or synopsis keywords.
+ * (TMDB API does NOT have a native Thriller genre for TV shows, only for movies).
+ */
+export function inferTvThrillerGenre(title: string, genres: string[], synopsis?: string): boolean {
+  if (genres.includes('Thriller')) return true;
+
+  const normTitle = (title || '').toLowerCase().trim();
+  if (KNOWN_TV_THRILLER_TITLES.has(normTitle)) return true;
+
+  // Partial match for known thriller franchises
+  for (const known of KNOWN_TV_THRILLER_TITLES) {
+    if (normTitle.includes(known) || known.includes(normTitle)) {
+      return true;
+    }
+  }
+
+  const hasCrime = genres.includes('Crime');
+  const hasMystery = genres.includes('Mystery');
+  const hasActionAdv = genres.includes('Action & Adventure') || genres.includes('Action');
+  const hasDrama = genres.includes('Drama');
+  const hasHorror = genres.includes('Horror');
+
+  const synLower = (synopsis || '').toLowerCase();
+  const hasSuspenseKeywords =
+    synLower.includes('thrill') ||
+    synLower.includes('suspense') ||
+    synLower.includes('murder') ||
+    synLower.includes('killer') ||
+    synLower.includes('serial killer') ||
+    synLower.includes('conspiracy') ||
+    synLower.includes('hostage') ||
+    synLower.includes('investigat') ||
+    synLower.includes('detective') ||
+    synLower.includes('kidnap') ||
+    synLower.includes('heist') ||
+    synLower.includes('undercover') ||
+    synLower.includes('cop') ||
+    synLower.includes('police') ||
+    synLower.includes('cartel') ||
+    synLower.includes('revenge') ||
+    synLower.includes('blackmail') ||
+    synLower.includes('fugitive') ||
+    synLower.includes('terror') ||
+    synLower.includes('assassin') ||
+    synLower.includes('psychological');
+
+  // Any crime show or mystery show with suspense keywords or drama
+  if (hasCrime && (hasMystery || hasSuspenseKeywords || hasDrama)) return true;
+  if (hasMystery && (hasSuspenseKeywords || hasDrama || hasHorror)) return true;
+  if (hasActionAdv && hasSuspenseKeywords) return true;
+  if (hasHorror && hasSuspenseKeywords) return true;
+
+  return false;
+}
+
+/**
+ * Ensures all titles in a list have proper TV Thriller tags applied retroactively
+ */
+export function ensureTvThrillerGenres(titles: DiscoveryTitle[]): DiscoveryTitle[] {
+  return titles.map((item) => {
+    if (item.mediaType === 'tv') {
+      const genres = [...(item.genres || [])];
+      if (inferTvThrillerGenre(item.title, genres, item.synopsis)) {
+        if (!genres.includes('Thriller')) {
+          genres.push('Thriller');
+          return { ...item, genres };
+        }
+      }
+    }
+    return item;
+  });
+}
+
 /**
  * Normalizes raw TMDB item into unified DiscoveryTitle
  */
@@ -1232,24 +1377,10 @@ function normalizeTmdbToDiscovery(item: any, mediaType: 'movie' | 'tv'): Discove
   }
 
   // TMDB API TV series quirk: TMDB has NO 'Thriller' genre ID for TV shows (/genre/tv/list only has Crime, Mystery, Drama, etc.).
-  // Infer 'Thriller' tag for TV shows that combine Crime + Mystery or Crime + Drama or contain suspense overtones
-  if (!isMovie) {
-    const hasCrime = genres.includes('Crime');
-    const hasMystery = genres.includes('Mystery');
-    const hasActionAdv = genres.includes('Action & Adventure');
-    const overviewLower = (item.overview || '').toLowerCase();
-    const hasSuspenseKeywords =
-      overviewLower.includes('thrill') ||
-      overviewLower.includes('suspense') ||
-      overviewLower.includes('murder') ||
-      overviewLower.includes('conspiracy') ||
-      overviewLower.includes('hostage') ||
-      overviewLower.includes('investigat');
-
-    if ((hasCrime && (hasMystery || hasSuspenseKeywords)) || (hasActionAdv && hasSuspenseKeywords) || (hasMystery && hasSuspenseKeywords)) {
-      if (!genres.includes('Thriller')) {
-        genres.push('Thriller');
-      }
+  // Infer 'Thriller' tag using our comprehensive inferTvThrillerGenre engine
+  if (!isMovie && inferTvThrillerGenre(title || '', genres, item.overview)) {
+    if (!genres.includes('Thriller')) {
+      genres.push('Thriller');
     }
   }
 
@@ -1555,14 +1686,14 @@ export async function enrichTitleWithTMDB(
       if (res.ok) {
         detail = await res.json();
       } else if (res.status === 404) {
-        // Watchmode sometimes tags mediaType as TV when TMDB has it as movie (or vice versa)
+        // ID might belong to alternative media type or might be invalid/Watchmode ID
         const altEndpoint = isMovie ? 'tv' : 'movie';
         const altUrl = `${TMDB_BASE_URL}/${altEndpoint}/${tmdbId}?api_key=${key}&append_to_response=credits,videos,external_ids,watch/providers`;
         const altRes = await fetch(altUrl);
         if (altRes.ok) {
           detail = await altRes.json();
         } else if (titleItem.title) {
-          // Fallback: search by title
+          // Fallback: search by title across TMDB
           const sUrl = `${TMDB_BASE_URL}/search/${endpointType}?api_key=${key}&query=${encodeURIComponent(titleItem.title)}`;
           const sRes = await fetch(sUrl);
           if (sRes.ok) {
@@ -1621,23 +1752,9 @@ export async function enrichTitleWithTMDB(
   }
 
   // TV thriller inference in TMDB detail
-  if (!isMovie) {
-    const hasCrime = genres.includes('Crime');
-    const hasMystery = genres.includes('Mystery');
-    const hasActionAdv = genres.includes('Action & Adventure');
-    const overviewLower = (detail.overview || titleItem.synopsis || '').toLowerCase();
-    const hasSuspense =
-      overviewLower.includes('thrill') ||
-      overviewLower.includes('suspense') ||
-      overviewLower.includes('murder') ||
-      overviewLower.includes('conspiracy') ||
-      overviewLower.includes('hostage') ||
-      overviewLower.includes('investigat');
-
-    if ((hasCrime && (hasMystery || hasSuspense)) || (hasActionAdv && hasSuspense) || (hasMystery && hasSuspense)) {
-      if (!genres.includes('Thriller')) {
-        genres.push('Thriller');
-      }
+  if (!isMovie && inferTvThrillerGenre(titleItem.title, genres, detail.overview || titleItem.synopsis)) {
+    if (!genres.includes('Thriller')) {
+      genres.push('Thriller');
     }
   }
 

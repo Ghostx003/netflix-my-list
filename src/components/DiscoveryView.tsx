@@ -29,6 +29,7 @@ import {
   syncNetflixIndiaCatalog,
   getWatchmodeQuotaStatus,
   deduplicateDiscoveryTitles,
+  ensureTvThrillerGenres,
   SEED_NETFLIX_INDIA_TITLES,
   SyncProgressCallback,
   WatchmodeStatusResponse,
@@ -256,7 +257,9 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
           }
 
           if (localTitles && localTitles.length > 0) {
-            setCatalog(localTitles);
+            const enhanced = ensureTvThrillerGenres(localTitles);
+            setCatalog(enhanced);
+            saveDiscoveryTitles(enhanced).catch(() => {});
           } else {
             // First time: fetch on-demand live Watchmode Page 1 enriched with TMDB posters,
             // with fallback to TMDB discover and verified seed titles so Discovery is NEVER empty.
@@ -283,10 +286,12 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
 
             // Merge curated verified Netflix India seed titles with initial fetched titles
             // so rich genres (like Thriller, Crime, Drama) always have full catalogues
-            const combinedInitial = deduplicateDiscoveryTitles([
-              ...SEED_NETFLIX_INDIA_TITLES,
-              ...(initialTitles || []),
-            ]);
+            const combinedInitial = ensureTvThrillerGenres(
+              deduplicateDiscoveryTitles([
+                ...SEED_NETFLIX_INDIA_TITLES,
+                ...(initialTitles || []),
+              ])
+            );
 
             if (combinedInitial.length > 0) {
               setCatalog(combinedInitial);
@@ -403,11 +408,13 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       const freshTitles = res.titles || [];
       if (freshTitles.length > 0) {
         // Merge with seed titles and current catalog so existing enrichments and verified seeds are preserved
-        const combined = deduplicateDiscoveryTitles([
-          ...SEED_NETFLIX_INDIA_TITLES,
-          ...catalog,
-          ...freshTitles,
-        ]);
+        const combined = ensureTvThrillerGenres(
+          deduplicateDiscoveryTitles([
+            ...SEED_NETFLIX_INDIA_TITLES,
+            ...catalog,
+            ...freshTitles,
+          ])
+        );
 
         setCatalog(combined);
         await saveDiscoveryTitles(combined);
@@ -991,7 +998,10 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               <ShieldCheck className="w-3 h-3" /> Watchmode Verified
             </span>
             {quotaInfo && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 font-mono">
+              <span
+                className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 font-mono cursor-help"
+                title={`Watchmode API Request Quota: ${quotaInfo.quotaUsed} used out of ${quotaInfo.quota} allocated calls for this monthly billing cycle (${quotaInfo.quota - quotaInfo.quotaUsed} remaining).`}
+              >
                 Quota: {quotaInfo.quotaUsed} / {quotaInfo.quota}
               </span>
             )}
