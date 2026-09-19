@@ -22,6 +22,7 @@ export const ImportLibraryView: React.FC<ImportLibraryViewProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [manageSearch, setManageSearch] = useState('');
   const [manualTitle, setManualTitle] = useState('');
+  const [manualNetflixId, setManualNetflixId] = useState('');
   const [importSummary, setImportSummary] = useState<{
     added: number;
     duplicates: number;
@@ -83,8 +84,10 @@ export const ImportLibraryView: React.FC<ImportLibraryViewProps> = ({
     e.preventDefault();
     if (!manualTitle.trim()) return;
 
+    const cleanVideoId = manualNetflixId.trim() || undefined;
+
     const { newItems, duplicateCount, skippedTitles } = deduplicateAndPrepareItems(
-      [{ title: manualTitle.trim() }],
+      [{ title: manualTitle.trim(), videoId: cleanVideoId }],
       items
     );
 
@@ -96,6 +99,7 @@ export const ImportLibraryView: React.FC<ImportLibraryViewProps> = ({
         skippedTitles: [],
       });
       setManualTitle('');
+      setManualNetflixId('');
     } else {
       setImportSummary({
         added: 0,
@@ -198,17 +202,42 @@ export const ImportLibraryView: React.FC<ImportLibraryViewProps> = ({
             </p>
 
             <form onSubmit={handleManualAdd} className="mt-4 space-y-3">
-              <input
-                type="text"
-                value={manualTitle}
-                onChange={(e) => setManualTitle(e.target.value)}
-                placeholder="e.g. Plastic Beauty, Inception, or paste a netflix.com/title/... link"
-                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#E50914]"
-              />
+              <div>
+                <label className="text-[11px] font-semibold text-gray-300 block mb-1">
+                  Title or Link <span className="text-[#E50914]">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={manualTitle}
+                  onChange={(e) => setManualTitle(e.target.value)}
+                  placeholder="e.g. Stranger Things, Inception"
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#E50914]"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-semibold text-gray-300 flex items-center gap-1.5">
+                    <span>Netflix ID or URL</span>
+                    <span className="text-[10px] text-gray-500 font-normal">(Optional)</span>
+                  </label>
+                </div>
+                <input
+                  type="text"
+                  value={manualNetflixId}
+                  onChange={(e) => setManualNetflixId(e.target.value)}
+                  placeholder="e.g. 80057281 or netflix.com/title/80057281"
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#E50914] font-mono"
+                />
+                <p className="text-[10px] text-gray-500 mt-1">
+                  Directly links this title to official Netflix playback at <code className="text-gray-400">netflix.com/title/...</code>
+                </p>
+              </div>
+
               <button
                 type="submit"
                 disabled={!manualTitle.trim()}
-                className="w-full py-2.5 bg-[#E50914] hover:bg-red-700 disabled:opacity-50 text-white font-semibold rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 shadow-md"
+                className="w-full py-2.5 bg-[#E50914] hover:bg-red-700 disabled:opacity-50 text-white font-semibold rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 shadow-md mt-2"
               >
                 <Plus className="w-4 h-4" />
                 <span>Add Title to Library</span>

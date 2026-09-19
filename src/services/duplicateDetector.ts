@@ -29,6 +29,16 @@ export function deduplicateAndPrepareItems(
 
     if (!originalTitle || !originalTitle.trim()) continue;
 
+    // Clean videoId if passed directly or extract if passed in URL format
+    if (videoId) {
+      const vMatch = videoId.toString().match(/(?:title|watch)\/([a-zA-Z0-9_-]+)/i);
+      if (vMatch) {
+        videoId = vMatch[1];
+      } else {
+        videoId = videoId.toString().trim();
+      }
+    }
+
     // Detect if user pasted a Netflix URL into the title input (e.g., https://www.netflix.com/title/81234567 or netflix.com/watch/81234567)
     const netflixUrlMatch = originalTitle.match(/netflix\.com\/(?:title|watch)\/([a-zA-Z0-9_-]+)/i);
     if (netflixUrlMatch) {
