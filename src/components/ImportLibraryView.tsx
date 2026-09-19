@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { UploadCloud, Plus, FileText, CheckCircle2, Copy, Trash2, ArrowRight, Sparkles, AlertCircle } from 'lucide-react';
+import { UploadCloud, Plus, FileText, CheckCircle2, Copy, Trash2, ArrowRight, Sparkles, AlertCircle, Download, Database } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { LibraryItem, NetflixRawItem } from '../types';
 import { deduplicateAndPrepareItems } from '../services/duplicateDetector';
@@ -10,6 +10,7 @@ interface ImportLibraryViewProps {
   onClearLibrary: () => void;
   onNavigateToCatalog: () => void;
   onDeleteItem?: (id: string) => void;
+  onOpenBackup?: () => void;
 }
 
 export const ImportLibraryView: React.FC<ImportLibraryViewProps> = ({
@@ -18,6 +19,7 @@ export const ImportLibraryView: React.FC<ImportLibraryViewProps> = ({
   onClearLibrary,
   onNavigateToCatalog,
   onDeleteItem,
+  onOpenBackup,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [manageSearch, setManageSearch] = useState('');
@@ -258,6 +260,45 @@ export const ImportLibraryView: React.FC<ImportLibraryViewProps> = ({
             </button>
           </div>
         </div>
+      </div>
+
+      {/* Backup & Restore Database Banner (Especially helpful on Mobile) */}
+      <div className="p-5 rounded-2xl bg-gradient-to-r from-blue-950/40 via-[#1c1c1e] to-neutral-900 border border-blue-500/20 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0 mt-0.5 sm:mt-0">
+            <Database className="w-5 h-5" />
+          </div>
+          <div>
+            <h4 className="text-sm font-bold text-white flex items-center gap-2">
+              <span>Database Backup & Restore</span>
+              <span className="text-[10px] px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded-full font-medium">Backup Tools</span>
+            </h4>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Safely export your watchlist, cached poster thumbnails, settings, and watch states to JSON or restore from an existing backup.
+            </p>
+          </div>
+        </div>
+
+        {onOpenBackup && (
+          <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+            <button
+              type="button"
+              onClick={onOpenBackup}
+              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-xs font-bold shadow-lg shadow-blue-600/20 transition-all"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export / Backup</span>
+            </button>
+            <button
+              type="button"
+              onClick={onOpenBackup}
+              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-gray-200 border border-white/10 text-xs font-bold transition-all"
+            >
+              <UploadCloud className="w-3.5 h-3.5 text-blue-400" />
+              <span>Import Backup</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Error Message if any */}

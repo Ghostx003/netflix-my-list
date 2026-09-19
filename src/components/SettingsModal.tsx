@@ -31,29 +31,41 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200 overflow-y-auto"
+      onClick={onClose}
+    >
       <div
-        className="relative w-full max-w-lg bg-[#18181b] border border-white/10 rounded-2xl shadow-2xl p-6 text-white"
+        className="relative w-full max-w-lg bg-[#18181b] border border-white/10 rounded-2xl shadow-2xl flex flex-col max-h-[90vh] text-white my-auto overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
-        >
-          <X className="w-5 h-5" />
-        </button>
+        {/* Sticky Header with Close Button */}
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-white/10 bg-[#18181b] sticky top-0 z-20">
+          <div>
+            <h3 className="text-lg sm:text-xl font-bold flex items-center gap-2">
+              <Sliders className="w-5 h-5 text-[#E50914]" />
+              <span>Application Settings</span>
+            </h3>
+            <p className="text-[11px] sm:text-xs text-gray-400 mt-0.5">
+              Configure API credentials, series calculation, and viewing speed.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-gray-300 hover:text-white transition-colors shrink-0 ml-2"
+            title="Close Settings"
+            aria-label="Close Settings"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
 
-        <h3 className="text-xl font-bold flex items-center gap-2">
-          <Sliders className="w-5 h-5 text-[#E50914]" />
-          <span>Application Settings</span>
-        </h3>
-        <p className="text-xs text-gray-400 mt-1">
-          Configure API credentials, series episode calculation options, and viewing speed.
-        </p>
-
-        <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-          {/* Episode Capping Toggle */}
-          <div className="bg-black/30 p-4 rounded-xl border border-white/5 space-y-3">
+        {/* Scrollable Form Body */}
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
+          <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 scrollbar-thin">
+            {/* Episode Capping Toggle */}
+            <div className="bg-black/30 p-4 rounded-xl border border-white/5 space-y-3">
             <div className="flex items-center justify-between">
               <div>
                 <label className="text-xs font-semibold text-gray-300 flex items-center gap-1.5">
@@ -239,19 +251,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               />
             </div>
           </div>
+        </div>
 
-          {/* Save Button */}
-          <div className="pt-2 flex justify-end gap-3">
+          {/* Sticky Footer: Cancel and Save Buttons */}
+          <div className="p-4 sm:p-5 border-t border-white/10 bg-[#18181b] flex items-center justify-end gap-3 sticky bottom-0 z-20">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-6 py-2 bg-[#E50914] hover:bg-red-700 text-white text-xs font-bold rounded-xl transition-all shadow-lg flex items-center gap-1.5"
+              className="px-6 py-2 bg-[#E50914] hover:bg-red-700 text-white text-xs font-bold rounded-xl transition-all shadow-lg flex items-center gap-1.5 active:scale-95"
             >
               {savedSuccess ? (
                 <>

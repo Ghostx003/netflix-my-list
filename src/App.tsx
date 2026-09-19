@@ -357,6 +357,7 @@ export const App: React.FC = () => {
                 },
               });
             }}
+            onOpenBackup={() => setIsBackupOpen(true)}
           />
         )}
 
