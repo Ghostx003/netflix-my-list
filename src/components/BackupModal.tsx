@@ -1,7 +1,12 @@
 import React, { useState } from 'react';
 import { X, Save, Upload, Download, AlertTriangle, Check, RefreshCw } from 'lucide-react';
 import { LibraryItem, AppSettings, BackupData } from '../types';
-import { exportBackup, validateBackup, importBackupMerge, importBackupReplace } from '../services/backup';
+import { exportBackup } from '../services/backup';
+import {
+  readBackupFileStreaming,
+  executeStreamImport,
+  StreamBackupSummary,
+} from '../services/streamBackup';
 
 interface BackupModalProps {
   isOpen: boolean;
@@ -22,10 +27,15 @@ export const BackupModal: React.FC<BackupModalProps> = ({
   const [exportProgress, setExportProgress] = useState<{ message: string; percent: number } | null>(null);
   const [exportSuccess, setExportSuccess] = useState<string | null>(null);
 
-  const [pendingBackup, setPendingBackup] = useState<BackupData | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [pendingSummary, setPendingSummary] = useState<StreamBackupSummary | null>(null);
+  const [isReadingFile, setIsReadingFile] = useState(false);
+  const [fileReadProgress, setFileReadProgress] = useState<{ message: string; percent: number } | null>(null);
+
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<{ message: string; percent: number } | null>(null);
 
   const [includeThumbnails, setIncludeThumbnails] = useState(false);
 
@@ -54,49 +64,58 @@ export const BackupModal: React.FC<BackupModalProps> = ({
     }
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setErrorMessage(null);
     setImportSuccess(null);
+    setPendingSummary(null);
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const parsed = JSON.parse(event.target?.result as string);
-        const validation = validateBackup(parsed);
-        if (!validation.valid || !validation.data) {
-          setErrorMessage(validation.error || 'Invalid backup format.');
-          return;
-        }
-        setPendingBackup(validation.data);
-      } catch (err) {
-        setErrorMessage('Failed to parse JSON file.');
-      }
-    };
-    reader.readAsText(file);
+    setSelectedFile(file);
+    setIsReadingFile(true);
+    setFileReadProgress({ message: 'Reading file...', percent: 10 });
+
+    try {
+      const summary = await readBackupFileStreaming(file, (p) => {
+        setFileReadProgress({ message: p.message, percent: p.percent });
+      });
+      setPendingSummary(summary);
+    } catch (err: any) {
+      console.error('Backup parse error:', err);
+      setErrorMessage(err?.message || 'Failed to read backup file. Please verify JSON format.');
+      setSelectedFile(null);
+    } finally {
+      setIsReadingFile(false);
+      setFileReadProgress(null);
+    }
   };
 
   const executeImport = async (mode: 'merge' | 'replace') => {
-    if (!pendingBackup) return;
+    if (!selectedFile || !pendingSummary) return;
     setIsImporting(true);
     setErrorMessage(null);
+    setImportProgress({ message: 'Starting restoration...', percent: 5 });
+
     try {
+      const res = await executeStreamImport(selectedFile, mode, pendingSummary, (p) => {
+        setImportProgress({ message: p.message, percent: p.percent });
+      });
+
+      const discMsg = res.discoveryCount ? ` and restored ${res.discoveryCount} Discovery titles` : '';
       if (mode === 'replace') {
-        const res = await importBackupReplace(pendingBackup);
-        const discMsg = res.discoveryCount ? ` and restored ${res.discoveryCount} Discovery titles` : '';
-        setImportSuccess(`Complete library replaced with ${res.count} titles${discMsg}.${pendingBackup.cachedThumbnails ? ' Cached thumbnails restored.' : ''}`);
+        setImportSuccess(`Complete database replaced with ${res.count} titles${discMsg}.`);
       } else {
-        const res = await importBackupMerge(pendingBackup);
-        const discMsg = res.discoveryCount ? ` and restored ${res.discoveryCount} Discovery titles` : '';
-        setImportSuccess(`Merged successfully: +${res.addedCount} new, ${res.updatedCount} updated (${res.totalCount} total)${discMsg}.${pendingBackup.cachedThumbnails ? ' Cached thumbnails restored.' : ''}`);
+        setImportSuccess(`Merged successfully: ${res.count} total titles${discMsg}.`);
       }
-      setPendingBackup(null);
+      setPendingSummary(null);
+      setSelectedFile(null);
       await onRefreshLibrary();
-    } catch (err) {
-      setErrorMessage('Import failed. Please check backup format.');
+    } catch (err: any) {
+      console.error('Import error:', err);
+      setErrorMessage(`Import failed: ${err?.message || 'Please check backup format.'}`);
     } finally {
       setIsImporting(false);
+      setImportProgress(null);
     }
   };
 
@@ -197,34 +216,81 @@ export const BackupModal: React.FC<BackupModalProps> = ({
                 accept=".json,application/json"
                 onChange={handleFileSelect}
                 className="hidden"
+                disabled={isReadingFile || isImporting}
               />
             </label>
 
-            {pendingBackup && (
+            {/* Reading / Parsing File Indicator */}
+            {isReadingFile && fileReadProgress && (
+              <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 space-y-1.5">
+                <div className="flex justify-between text-xs text-blue-300">
+                  <span className="flex items-center gap-2">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>{fileReadProgress.message}</span>
+                  </span>
+                  <span className="font-mono font-bold">{fileReadProgress.percent}%</span>
+                </div>
+                <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-500 rounded-full transition-all duration-200"
+                    style={{ width: `${fileReadProgress.percent}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Import Progress Indicator */}
+            {isImporting && importProgress && (
+              <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 space-y-1.5">
+                <div className="flex justify-between text-xs text-purple-300">
+                  <span className="flex items-center gap-2">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>{importProgress.message}</span>
+                  </span>
+                  <span className="font-mono font-bold">{importProgress.percent}%</span>
+                </div>
+                <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-purple-500 rounded-full transition-all duration-200"
+                    style={{ width: `${importProgress.percent}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {pendingSummary && (
               <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 space-y-3">
                 <div className="flex items-center gap-2 text-amber-400 text-xs font-bold uppercase tracking-wider">
                   <AlertTriangle className="w-4 h-4" />
                   <span>Backup Ready to Apply</span>
                 </div>
-                <p className="text-xs text-zinc-300">
-                  Detected <span className="font-semibold text-white">{pendingBackup.items.length} items</span>
-                  {pendingBackup.discoveryCatalog?.length ? (
-                    <span> and <span className="font-semibold text-emerald-400">{pendingBackup.discoveryCatalog.length} enriched Discovery titles</span></span>
-                  ) : null}
-                  {pendingBackup.exportedAt ? ` from ${new Date(pendingBackup.exportedAt).toLocaleDateString()}` : ''}. Choose how you want to restore:
-                </p>
+                <div className="text-xs text-zinc-300 space-y-1">
+                  <p>
+                    Detected <span className="font-semibold text-white">{pendingSummary.items.length} watchlist items</span>
+                    {pendingSummary.discoveryCatalogCount > 0 ? (
+                      <span> and <span className="font-semibold text-emerald-400">{pendingSummary.discoveryCatalogCount} enriched Discovery titles</span></span>
+                    ) : null}
+                    {pendingSummary.metadataCacheCount > 0 ? (
+                      <span> with <span className="font-semibold text-blue-400">{pendingSummary.metadataCacheCount} cached API items</span></span>
+                    ) : null}
+                    {pendingSummary.exportedAt ? ` (Snapshot from ${new Date(pendingSummary.exportedAt).toLocaleDateString()})` : ''}.
+                  </p>
+                  <p className="text-[11px] text-zinc-400">
+                    File size: {(pendingSummary.fileSize / (1024 * 1024)).toFixed(1)} MB. Choose restore mode:
+                  </p>
+                </div>
                 <div className="flex flex-wrap gap-2 pt-1">
                   <button
                     disabled={isImporting}
                     onClick={() => executeImport('merge')}
-                    className="flex-1 px-4 py-2 text-xs font-bold bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors border border-zinc-700"
+                    className="flex-1 px-4 py-2 text-xs font-bold bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white rounded-lg transition-colors border border-zinc-700"
                   >
                     Merge (Keep Existing & Add New)
                   </button>
                   <button
                     disabled={isImporting}
                     onClick={() => executeImport('replace')}
-                    className="flex-1 px-4 py-2 text-xs font-bold bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors shadow-lg shadow-red-600/20"
+                    className="flex-1 px-4 py-2 text-xs font-bold bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white rounded-lg transition-colors shadow-lg shadow-red-600/20"
                   >
                     Replace Everything (Wipe & Restore)
                   </button>
