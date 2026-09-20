@@ -103,6 +103,8 @@ export interface LibraryItem {
   completedAt?: string; // ISO date string
   userStarRating?: number; // 1 to 5 stars
   timeInvestedMinutes?: number; // Total time spent watching
+  willWatchAgain?: boolean; // Pinned to "Will Watch Again" collection in completed section
+  giveAnotherChance?: boolean; // Pinned to "Give Another Chance" collection in dropped section
 
   // Cast and crew / extra metadata
   cast?: string[];

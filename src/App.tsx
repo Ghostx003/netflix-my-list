@@ -162,7 +162,7 @@ export const App: React.FC = () => {
         // Never overwrite a manual match chosen by user
         if (item.isManualMatch) continue;
 
-        // Automatically enrich items ONLY if pending or missing essential details (poster, ratings)
+        // Automatically enrich items if pending, missing essential details (poster, ratings) or missing trailer
         const hasDetails = item.status === 'matched' && !!item.posterPath && item.rottenTomatoesRating !== undefined;
         if (!hasDetails && (item.status === 'pending' || !item.posterPath || item.status === 'needs_review')) {
           try {
@@ -179,6 +179,26 @@ export const App: React.FC = () => {
             }
           } catch (err) {
             console.warn('Scan error on ' + item.originalTitle + ':', err);
+          }
+        } else if (!item.trailer) {
+          // If title already has details but missing trailer, search YouTube trailer in background (Hindi first)
+          try {
+            const { searchYouTubeTrailer } = await import('./services/youtubeTrailer');
+            const foundTrailer = await searchYouTubeTrailer(
+              item.externalTitle || item.originalTitle,
+              item.releaseYear,
+              item.mediaType
+            );
+            if (foundTrailer) {
+              updatedList[i] = {
+                ...item,
+                trailer: foundTrailer,
+                updatedAt: new Date().toISOString(),
+              };
+              hasChanges = true;
+            }
+          } catch (err) {
+            // ignore background trailer fetch error
           }
         }
       }
@@ -408,6 +428,7 @@ export const App: React.FC = () => {
             settings={settings}
             onUpdateItem={handleUpdateItem}
             onAddNewItem={handleAddNewItem}
+            onOpenDetail={(item) => setSelectedDetailItem(item)}
           />
         )}
 

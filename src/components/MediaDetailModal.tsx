@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from 'react';
-import { X, Star, Clock, Calendar, Film, Tv, Play, ExternalLink, Sparkles, Layers, Video, ChevronDown, ChevronUp, Volume2 } from 'lucide-react';
-import { AppSettings, LibraryItem, EpisodeInfo } from '../types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { X, Star, Clock, Calendar, Film, Tv, Play, ExternalLink, Sparkles, Layers, Video, ChevronDown, ChevronUp, Volume2, Loader2 } from 'lucide-react';
+import { AppSettings, LibraryItem, EpisodeInfo, TrailerInfo } from '../types';
 import { formatRuntime, calculateSeriesRuntime } from '../services/analytics';
 import { getNetflixUrl, normalizeCountryName, getPriorityLanguageBadge, itemHasLanguage } from '../services/normalizer';
+import { searchYouTubeTrailer } from '../services/youtubeTrailer';
 
 interface MediaDetailModalProps {
   item: LibraryItem | null;
@@ -24,9 +25,48 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const isMovie = item.mediaType === 'movie';
   const tvBreakdown = !isMovie ? calculateSeriesRuntime(item, settings.maxEpisodesPerSeries, settings.capSeriesEpisodes) : null;
   const displayTitle = item.externalTitle || item.originalTitle;
-  const youtubeSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(displayTitle + ' official trailer')}`;
+  const youtubeSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(displayTitle + ' hindi official trailer')}`;
   const netflixUrl = getNetflixUrl(item);
   const langBadge = getPriorityLanguageBadge(item);
+
+  // Active trailer state (either from item or dynamically fetched)
+  const [activeTrailer, setActiveTrailer] = useState<TrailerInfo | null>(item.trailer || null);
+  const [isSearchingTrailer, setIsSearchingTrailer] = useState(false);
+
+  // Keep activeTrailer synced when item changes
+  useEffect(() => {
+    setActiveTrailer(item.trailer || null);
+  }, [item.trailer, item.id]);
+
+  // If item does not have a trailer, automatically search YouTube in background with Hindi first priority
+  useEffect(() => {
+    if (activeTrailer) return;
+
+    let isMounted = true;
+    setIsSearchingTrailer(true);
+
+    searchYouTubeTrailer(displayTitle, item.releaseYear, item.mediaType).then((foundTrailer) => {
+      if (!isMounted) return;
+      setIsSearchingTrailer(false);
+      if (foundTrailer) {
+        setActiveTrailer(foundTrailer);
+        // Persist to item so subsequent opens are instant
+        if (onUpdateItem) {
+          onUpdateItem({
+            ...item,
+            trailer: foundTrailer,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+      }
+    }).catch(() => {
+      if (isMounted) setIsSearchingTrailer(false);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [item.id, displayTitle, item.releaseYear, item.mediaType]);
 
   // Group TV episodes by season
   const seasonsMap = useMemo(() => {
@@ -69,14 +109,21 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
 
         {/* Hero Backdrop / Trailer Player */}
         <div className="relative aspect-video w-full max-h-[380px] bg-black overflow-hidden group">
-          {item.trailer ? (
-            <iframe
-              src={`https://www.youtube-nocookie.com/embed/${item.trailer.key}?autoplay=1&rel=0`}
-              title={item.trailer.name || 'Trailer'}
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-              className="w-full h-full border-0"
-            />
+          {activeTrailer ? (
+            <div className="relative w-full h-full">
+              <iframe
+                src={`https://www.youtube-nocookie.com/embed/${activeTrailer.key}?autoplay=1&mute=0&rel=0`}
+                title={activeTrailer.name || 'Trailer'}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                className="w-full h-full border-0"
+              />
+              {activeTrailer.language === 'hi' && (
+                <div className="absolute top-4 left-4 z-10 px-2 py-1 bg-amber-600/90 text-white text-[10px] font-black uppercase tracking-wider rounded-md backdrop-blur-md shadow-md border border-amber-400/40 pointer-events-none">
+                  🇮🇳 Hindi Trailer
+                </div>
+              )}
+            </div>
           ) : item.backdropPath || item.posterPath ? (
             <div className="relative w-full h-full">
               <img
@@ -86,31 +133,47 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
               />
               <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-zinc-900/40 to-transparent" />
               <div className="absolute bottom-6 left-6 right-6 flex items-center justify-between">
-                <a
-                  href={youtubeSearchUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#E50914] hover:bg-red-700 text-white font-bold text-xs shadow-lg transition-all transform hover:scale-105"
-                >
-                  <Play className="w-4 h-4 fill-white" />
-                  <span>Search Trailer on YouTube</span>
-                </a>
+                {isSearchingTrailer ? (
+                  <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-black/80 text-amber-300 font-bold text-xs border border-amber-500/30 backdrop-blur-md">
+                    <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                    <span>Fetching Hindi / English trailer...</span>
+                  </div>
+                ) : (
+                  <a
+                    href={youtubeSearchUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#E50914] hover:bg-red-700 text-white font-bold text-xs shadow-lg transition-all transform hover:scale-105"
+                  >
+                    <Play className="w-4 h-4 fill-white" />
+                    <span>Watch Trailer on YouTube</span>
+                  </a>
+                )}
               </div>
             </div>
           ) : (
             <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-zinc-900 to-black gap-3 p-6 text-center">
               {isMovie ? <Film className="w-16 h-16 text-zinc-700" /> : <Tv className="w-16 h-16 text-zinc-700" />}
-              <p className="text-zinc-400 text-xs font-medium">No embedded video found for this title</p>
-              <a
-                href={youtubeSearchUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-semibold border border-zinc-700 transition-colors"
-              >
-                <Video className="w-4 h-4 text-red-500" />
-                <span>Find Official Trailer on YouTube</span>
-                <ExternalLink className="w-3.5 h-3.5 ml-1 text-zinc-400" />
-              </a>
+              {isSearchingTrailer ? (
+                <div className="flex items-center gap-2 text-amber-400 text-xs font-semibold">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Searching for Hindi / English trailer...</span>
+                </div>
+              ) : (
+                <>
+                  <p className="text-zinc-400 text-xs font-medium">No embedded video found for this title</p>
+                  <a
+                    href={youtubeSearchUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-semibold border border-zinc-700 transition-colors"
+                  >
+                    <Video className="w-4 h-4 text-red-500" />
+                    <span>Find Official Trailer on YouTube</span>
+                    <ExternalLink className="w-3.5 h-3.5 ml-1 text-zinc-400" />
+                  </a>
+                </>
+              )}
             </div>
           )}
         </div>

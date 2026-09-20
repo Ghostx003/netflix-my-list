@@ -25,6 +25,7 @@ export interface TMDBMatchCandidate {
   popularity: number;
 }
 
+// Prioritize Hindi trailer first, then English trailer, then any available trailer
 export function selectBestTrailer(videos: any[]): TrailerInfo | undefined {
   if (!videos || videos.length === 0) return undefined;
 
@@ -33,11 +34,11 @@ export function selectBestTrailer(videos: any[]): TrailerInfo | undefined {
   );
   if (validTrailers.length === 0) return undefined;
 
-  // 1. Check Hindi trailer
+  // 1. Check Hindi trailer (by language code, name keyword, or title match)
   const hindiTrailer = validTrailers.find(
     (v: any) =>
       v.iso_639_1?.toLowerCase() === 'hi' ||
-      v.name?.toLowerCase().includes('hindi')
+      /\bhindi\b/i.test(v.name || '')
   );
   if (hindiTrailer) {
     return {
@@ -53,7 +54,7 @@ export function selectBestTrailer(videos: any[]): TrailerInfo | undefined {
 
   // 2. Check English trailer / teaser
   const englishTrailers = validTrailers.filter(
-    (v: any) => v.iso_639_1?.toLowerCase() === 'en'
+    (v: any) => v.iso_639_1?.toLowerCase() === 'en' || !v.iso_639_1
   );
   if (englishTrailers.length > 0) {
     const officialTrailer = englishTrailers.find((v: any) => v.official && v.type === 'Trailer');

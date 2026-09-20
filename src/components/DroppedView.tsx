@@ -1,7 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { AlertOctagon, RotateCcw, Trash2, Search, Film, Tv, Calendar, MessageSquare, Tag, Play } from 'lucide-react';
+import { AlertOctagon, RotateCcw, Trash2, Search, Film, Tv, Calendar, MessageSquare, Tag, Play, Sparkles, X, HeartHandshake } from 'lucide-react';
 import { LibraryItem } from '../types';
-import { formatRuntime } from '../services/analytics';
 import { getNetflixUrl } from '../services/normalizer';
 
 interface DroppedViewProps {
@@ -26,6 +25,11 @@ export const DroppedView: React.FC<DroppedViewProps> = ({
   const droppedItems = useMemo(() => {
     return items.filter((x) => x.viewingStatus === 'dropped' || (!x.viewingStatus && x.droppedReason));
   }, [items]);
+
+  // Give Another Chance items (subset of droppedItems with giveAnotherChance: true)
+  const giveAnotherChanceItems = useMemo(() => {
+    return droppedItems.filter((x) => x.giveAnotherChance);
+  }, [droppedItems]);
 
   // Unique reasons for filtering
   const availableReasons = useMemo(() => {
@@ -59,11 +63,24 @@ export const DroppedView: React.FC<DroppedViewProps> = ({
     });
   }, [droppedItems, selectedReasonFilter, searchQuery]);
 
+  // Toggle Give Another Chance flag
+  const handleToggleGiveAnotherChance = (item: LibraryItem, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const updated: LibraryItem = {
+      ...item,
+      giveAnotherChance: !item.giveAnotherChance,
+      updatedAt: new Date().toISOString(),
+    };
+    onUpdateItem(updated);
+  };
+
   // Restore to library
-  const handleRestore = (item: LibraryItem) => {
+  const handleRestore = (item: LibraryItem, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     const updated: LibraryItem = {
       ...item,
       viewingStatus: 'unwatched',
+      giveAnotherChance: undefined,
       droppedReason: undefined,
       droppedNotes: undefined,
       droppedAt: undefined,
@@ -72,10 +89,12 @@ export const DroppedView: React.FC<DroppedViewProps> = ({
   };
 
   // Restore to still watching
-  const handleRestoreToWatching = (item: LibraryItem) => {
+  const handleRestoreToWatching = (item: LibraryItem, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     const updated: LibraryItem = {
       ...item,
       viewingStatus: 'still_watching',
+      giveAnotherChance: undefined,
       droppedReason: undefined,
       droppedNotes: undefined,
       droppedAt: undefined,
@@ -84,7 +103,7 @@ export const DroppedView: React.FC<DroppedViewProps> = ({
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
+    <div className="max-w-7xl mx-auto px-4 py-8 space-y-8 animate-in fade-in duration-300">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -95,10 +114,79 @@ export const DroppedView: React.FC<DroppedViewProps> = ({
             </span>
           </h1>
           <p className="text-xs text-zinc-400 mt-1">
-            Archived titles you stopped watching, complete with drop reasons and personal notes.
+            Archived titles you stopped watching, complete with drop reasons, personal notes, and a dedicated Give Another Chance section.
           </p>
         </div>
       </div>
+
+      {/* Give Another Chance Section */}
+      {giveAnotherChanceItems.length > 0 && (
+        <div className="bg-gradient-to-r from-amber-950/40 via-zinc-900 to-black border border-amber-500/30 rounded-3xl p-6 shadow-xl space-y-4">
+          <div className="flex items-center justify-between border-b border-amber-500/20 pb-3">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-amber-500/20 rounded-xl border border-amber-500/40 text-amber-400">
+                <HeartHandshake className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-lg font-black text-white flex items-center gap-2">
+                  <span>Give Another Chance</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono font-bold">
+                    {giveAnotherChanceItems.length}
+                  </span>
+                </h2>
+                <p className="text-xs text-zinc-400">
+                  Dropped shows & movies you're open to revisiting later. Click any card to view details or click the cross to remove from this section.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 pt-2">
+            {giveAnotherChanceItems.map((item) => (
+              <div
+                key={`gac-${item.id}`}
+                onClick={() => onOpenDetail(item)}
+                className="group relative bg-zinc-900 border border-amber-500/40 hover:border-amber-400 rounded-2xl p-2.5 flex flex-col justify-between shadow-lg cursor-pointer transition-all hover:-translate-y-1 hover:shadow-amber-500/10"
+              >
+                {/* Cross Button to remove from Give Another Chance */}
+                <button
+                  onClick={(e) => handleToggleGiveAnotherChance(item, e)}
+                  className="absolute top-1.5 right-1.5 z-20 w-6 h-6 rounded-full bg-black/80 hover:bg-red-600 text-zinc-300 hover:text-white flex items-center justify-center transition-colors border border-white/10 shadow-md"
+                  title="Remove from Give Another Chance (stays in Dropped)"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+
+                <div className="aspect-[2/3] w-full rounded-xl overflow-hidden bg-zinc-800 mb-2 relative">
+                  {item.posterPath ? (
+                    <img
+                      src={item.posterPath}
+                      alt={item.externalTitle || item.originalTitle}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-zinc-600">
+                      {item.mediaType === 'tv' ? <Tv className="w-6 h-6" /> : <Film className="w-6 h-6" />}
+                    </div>
+                  )}
+                  <span className="absolute bottom-1 left-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-950/90 text-amber-300 border border-amber-500/40 uppercase">
+                    2nd Chance
+                  </span>
+                </div>
+
+                <div className="min-w-0">
+                  <h4 className="text-xs font-bold text-white truncate group-hover:text-amber-400 transition-colors">
+                    {item.externalTitle || item.originalTitle}
+                  </h4>
+                  <p className="text-[10px] text-zinc-400 truncate mt-0.5">
+                    {item.droppedReason || 'Dropped'}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Filter Toolbar */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-zinc-900/60 p-3 rounded-2xl border border-zinc-800">
@@ -144,18 +232,19 @@ export const DroppedView: React.FC<DroppedViewProps> = ({
           {displayItems.map((item) => {
             const isTV = item.mediaType === 'tv';
             const dropDate = item.droppedAt ? new Date(item.droppedAt).toLocaleDateString() : null;
+            const isSecondChance = !!item.giveAnotherChance;
 
             return (
               <div
                 key={item.id}
-                className="bg-zinc-900 border border-zinc-800 hover:border-red-500/30 rounded-2xl p-4 flex flex-col justify-between space-y-4 shadow-lg transition-all"
+                onClick={() => onOpenDetail(item)}
+                className={`bg-zinc-900 border ${
+                  isSecondChance ? 'border-amber-500/40 hover:border-amber-400' : 'border-zinc-800 hover:border-red-500/30'
+                } rounded-2xl p-4 flex flex-col justify-between space-y-4 shadow-lg transition-all cursor-pointer hover:-translate-y-0.5 hover:shadow-xl group`}
               >
                 <div className="flex gap-3">
                   {/* Poster */}
-                  <div
-                    onClick={() => onOpenDetail(item)}
-                    className="w-20 h-28 rounded-xl overflow-hidden bg-zinc-800 shrink-0 border border-zinc-700 cursor-pointer group relative"
-                  >
+                  <div className="w-20 h-28 rounded-xl overflow-hidden bg-zinc-800 shrink-0 border border-zinc-700 relative">
                     {item.posterPath ? (
                       <img
                         src={item.posterPath}
@@ -171,19 +260,21 @@ export const DroppedView: React.FC<DroppedViewProps> = ({
 
                   {/* Info */}
                   <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-red-500/20 text-red-400 border border-red-500/30">
                         Dropped
                       </span>
                       <span className="text-[10px] text-zinc-400 uppercase font-semibold">
                         {item.mediaType === 'tv' ? 'Series' : 'Movie'}
                       </span>
+                      {isSecondChance && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                          2nd Chance
+                        </span>
+                      )}
                     </div>
 
-                    <h3
-                      onClick={() => onOpenDetail(item)}
-                      className="text-sm font-bold text-white truncate cursor-pointer hover:text-red-400 transition-colors"
-                    >
+                    <h3 className="text-sm font-bold text-white truncate group-hover:text-red-400 transition-colors">
                       {item.externalTitle || item.originalTitle}
                     </h3>
 
@@ -214,12 +305,30 @@ export const DroppedView: React.FC<DroppedViewProps> = ({
                 )}
 
                 {/* Actions */}
-                <div className="flex items-center justify-between gap-2 pt-2 border-t border-zinc-800/80">
+                <div
+                  className="flex items-center justify-between gap-2 pt-2 border-t border-zinc-800/80"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <div className="flex items-center gap-1.5 flex-wrap">
+                    {/* Give Another Chance button */}
+                    <button
+                      onClick={(e) => handleToggleGiveAnotherChance(item, e)}
+                      className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                        isSecondChance
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30'
+                          : 'bg-zinc-800 hover:bg-amber-950 hover:text-amber-300 text-zinc-300 border border-zinc-700'
+                      }`}
+                      title={isSecondChance ? 'Remove from Give Another Chance' : 'Give Another Chance'}
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                      <span>{isSecondChance ? 'In 2nd Chance' : 'Give Another Chance'}</span>
+                    </button>
+
                     <a
                       href={getNetflixUrl(item)}
                       target="_blank"
                       rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
                       className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-[#E50914] text-white hover:bg-red-700 transition-colors shadow-sm"
                       title="View on Netflix"
                     >
@@ -227,7 +336,7 @@ export const DroppedView: React.FC<DroppedViewProps> = ({
                       <span>Netflix</span>
                     </a>
                     <button
-                      onClick={() => handleRestore(item)}
+                      onClick={(e) => handleRestore(item, e)}
                       className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition-colors"
                       title="Restore to Unwatched Library"
                     >
@@ -235,7 +344,7 @@ export const DroppedView: React.FC<DroppedViewProps> = ({
                       <span>Restore</span>
                     </button>
                     <button
-                      onClick={() => handleRestoreToWatching(item)}
+                      onClick={(e) => handleRestoreToWatching(item, e)}
                       className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/30 transition-colors"
                       title="Move into Still Watching"
                     >
@@ -244,7 +353,10 @@ export const DroppedView: React.FC<DroppedViewProps> = ({
                   </div>
 
                   <button
-                    onClick={() => onRequestDeleteConfirm(item)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRequestDeleteConfirm(item);
+                    }}
                     className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
                     title="Permanently Delete"
                   >
