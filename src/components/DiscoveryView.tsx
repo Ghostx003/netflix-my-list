@@ -21,12 +21,16 @@ import {
   Film,
   Tv,
   Star,
+  Eye,
+  EyeOff,
+  PlusCircle,
 } from 'lucide-react';
 import { AppSettings, DiscoveryTitle, LibraryItem } from '../types';
 import {
   fetchNetflixIndiaDiscovery,
   fetchInitialWatchmodeDiscovery,
   syncNetflixIndiaCatalog,
+  syncAndEnrichLibraryItemsToDiscovery,
   getWatchmodeQuotaStatus,
   deduplicateDiscoveryTitles,
   ensureTvThrillerGenres,
@@ -192,6 +196,40 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   const [showThemeModal, setShowThemeModal] = useState(false);
   const [themeModalTab, setThemeModalTab] = useState<'include' | 'exclude'>('include');
   const [themeSearchQuery, setThemeSearchQuery] = useState('');
+
+  // Ignored / Hidden titles state (stored in localStorage for permanence)
+  const [ignoredTitleIds, setIgnoredTitleIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('netflix_discovery_ignored_titles');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const handleIgnoreTitle = useCallback((item: DiscoveryTitle) => {
+    setIgnoredTitleIds((prev) => {
+      const updated = prev.includes(item.id) ? prev : [...prev, item.id];
+      try {
+        localStorage.setItem('netflix_discovery_ignored_titles', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    setRefreshNotification(`🚫 "${item.title}" hidden from Discovery catalogue`);
+    setTimeout(() => setRefreshNotification(null), 3500);
+  }, []);
+
+  const handleUnignoreAll = useCallback(() => {
+    setIgnoredTitleIds([]);
+    try {
+      localStorage.removeItem('netflix_discovery_ignored_titles');
+    } catch {}
+    setRefreshNotification('👁️ All ignored titles are now restored & unhidden!');
+    setTimeout(() => setRefreshNotification(null), 3500);
+  }, []);
+
+  // Library Sync + TMDB Enrichment state
+  const [isSyncingLibrary, setIsSyncingLibrary] = useState(false);
 
   // Discovery Detail Modal Stack Navigation
   const [titleStack, setTitleStack] = useState<DiscoveryTitle[]>([]);
@@ -516,6 +554,49 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     }
   };
 
+  // Dedicated "Refresh With Library & Enrich via TMDB" handler:
+  // Refreshes the discovery catalogue with all items in the user's library and runs TMDB API on newly added stuff
+  const handleRefreshLibraryToDiscoveryAndEnrich = async () => {
+    if (isSyncingLibrary || isSyncing || isRefreshingApi) return;
+    if (!libraryItems || libraryItems.length === 0) {
+      setRefreshNotification('Your library is currently empty. Add items first to sync them!');
+      setTimeout(() => setRefreshNotification(null), 3000);
+      return;
+    }
+
+    setIsSyncingLibrary(true);
+    setSyncError(null);
+    setRefreshNotification(`Refreshing Discovery catalogue with ${libraryItems.length} library titles & running TMDB API...`);
+
+    try {
+      const res = await syncAndEnrichLibraryItemsToDiscovery({
+        libraryItems,
+        tmdbApiKey: settings.tmdbApiKey,
+        onProgress: (msg) => {
+          setRefreshNotification(msg);
+        },
+      });
+
+      // Reload fresh discovery titles from IndexedDB
+      const allUpdated = await getAllDiscoveryTitles();
+      if (allUpdated && allUpdated.length > 0) {
+        setCatalog(allUpdated);
+      }
+
+      setRefreshNotification(`✨ Done! ${res.syncedCount} library items synced & enriched with TMDB API.`);
+      try {
+        confetti({ particleCount: 45, spread: 65, origin: { y: 0.5 } });
+      } catch {}
+    } catch (err: any) {
+      console.error('Failed syncing & enriching library items to Discovery:', err);
+      setSyncError(err.message || 'Failed refreshing library items with TMDB.');
+    } finally {
+      setIsSyncingLibrary(false);
+      setTimeout(() => setRefreshNotification(null), 4500);
+    }
+  };
+
+
   // Dynamic genres from catalog
   const availableGenres = useMemo(() => {
     const set = new Set<string>();
@@ -706,6 +787,12 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   // Filter & Sort Logic
   const filteredCatalog = useMemo(() => {
     let result = catalog;
+
+    // Filter out user-ignored / hidden titles
+    if (ignoredTitleIds.length > 0) {
+      const ignoredSet = new Set(ignoredTitleIds);
+      result = result.filter((x) => !ignoredSet.has(x.id));
+    }
 
     // 1. Content Type (Movies / TV Shows)
     if (contentType !== 'all') {
@@ -933,6 +1020,8 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     minYear,
     maxYear,
     minRating,
+    ignoreAnime,
+    ignoredTitleIds,
     sortBy,
     sortOrder,
   ]);
@@ -1480,6 +1569,30 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                 </button>
               </div>
 
+              {/* Refresh With Library & TMDB Enrichment Action */}
+              <div className="flex items-center justify-between p-4 bg-zinc-800/60 border border-white/5 rounded-xl hover:border-emerald-500/30 transition-all">
+                <div className="space-y-0.5 max-w-[70%]">
+                  <div className="text-sm font-bold text-white flex items-center gap-2">
+                    <PlusCircle className={`w-4 h-4 text-emerald-400 ${isSyncingLibrary ? 'animate-spin' : ''}`} />
+                    <span>Refresh With Library & TMDB</span>
+                  </div>
+                  <div className="text-[11px] text-zinc-400">
+                    Sync your personal library titles directly into the Discovery catalogue and fetch full TMDB metadata & ratings.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowApiModal(false);
+                    handleRefreshLibraryToDiscoveryAndEnrich();
+                  }}
+                  disabled={isSyncingLibrary || isSyncing || isRefreshingApi || libraryItems.length === 0}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition-all active:scale-95 disabled:opacity-50"
+                >
+                  {isSyncingLibrary ? 'Syncing...' : 'Sync & Enrich'}
+                </button>
+              </div>
+
               {/* Refresh API Action */}
               <div className="flex items-center justify-between p-4 bg-zinc-800/60 border border-white/5 rounded-xl hover:border-amber-500/30 transition-all">
                 <div className="space-y-0.5 max-w-[70%]">
@@ -1984,6 +2097,20 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                 <option value="asian" className="bg-zinc-900 text-white">🌏 Asian (All)</option>
               </select>
             </div>
+
+            {/* Hidden / Ignored Titles Button (Next to All Languages dropdown) */}
+            {ignoredTitleIds.length > 0 && (
+              <button
+                type="button"
+                onClick={handleUnignoreAll}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all shrink-0 bg-red-950/70 hover:bg-red-900/90 text-red-300 hover:text-white border-red-500/50 shadow-md shadow-red-950/40 active:scale-95 ring-1 ring-red-500/30"
+                title="Click to unhide / unignore all hidden titles"
+              >
+                <Eye className="w-3.5 h-3.5 text-red-400" />
+                <span>Hidden ({ignoredTitleIds.length})</span>
+                <span className="text-[10px] text-red-400/80 font-normal underline ml-0.5">Unhide All</span>
+              </button>
+            )}
           </div>
 
           {/* Counts & Clear status row */}
@@ -2192,6 +2319,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               onAddToLibrary={onAddToLibrary}
               onStartWatching={onStartWatching}
               onMarkWatched={onMarkWatched}
+              onIgnoreTitle={handleIgnoreTitle}
             />
           ))}
         </div>

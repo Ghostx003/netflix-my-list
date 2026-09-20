@@ -1,5 +1,5 @@
-import React from 'react';
-import { Star, Clock, Film, Tv, Play, Plus, Check, Layers, ExternalLink } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Star, Clock, Film, Tv, Play, Plus, Check, Layers, ExternalLink, EyeOff } from 'lucide-react';
 import { DiscoveryTitle } from '../types';
 import { formatRuntime } from '../services/analytics';
 import { getNetflixUrl, getPriorityLanguageBadge } from '../services/normalizer';
@@ -13,6 +13,7 @@ interface DiscoveryCardProps {
   onAddToLibrary: (item: DiscoveryTitle) => void;
   onStartWatching: (item: DiscoveryTitle) => void;
   onMarkWatched?: (item: DiscoveryTitle) => void;
+  onIgnoreTitle?: (item: DiscoveryTitle) => void;
 }
 
 export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
@@ -23,8 +24,33 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
   onAddToLibrary,
   onStartWatching,
   onMarkWatched,
+  onIgnoreTitle,
 }) => {
   const isMovie = item.mediaType === 'movie';
+  const [showIgnoreButton, setShowIgnoreButton] = useState(false);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleMouseEnter = () => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = setTimeout(() => {
+      setShowIgnoreButton(true);
+    }, 4000);
+  };
+
+  const handleMouseLeave = () => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    setShowIgnoreButton(false);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    };
+  }, []);
+
   const netflixUrl = getNetflixUrl({
     videoId: item.netflixId,
     originalTitle: item.title,
@@ -51,8 +77,28 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
   return (
     <div
       onClick={onClick}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       className="group relative bg-[#181818] hover:bg-[#232323] rounded-xl overflow-hidden border border-white/5 hover:border-red-600/40 transition-all duration-300 shadow-lg hover:shadow-2xl hover:-translate-y-1.5 cursor-pointer flex flex-col"
     >
+      {/* 4-Second Hover Ignore Overlay Button */}
+      {showIgnoreButton && onIgnoreTitle && (
+        <div className="absolute top-2 left-2 z-30 animate-fade-in">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onIgnoreTitle(item);
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-zinc-900/95 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/60 shadow-2xl text-xs font-bold transition-all transform hover:scale-105 active:scale-95 ring-2 ring-red-500/40"
+            title="Ignore & hide this title from Discovery catalog"
+          >
+            <EyeOff className="w-3.5 h-3.5" />
+            <span>Ignore</span>
+          </button>
+        </div>
+      )}
+
       {/* Poster area */}
       <div className="relative aspect-[2/3] w-full overflow-hidden bg-neutral-900">
         <CachedImage

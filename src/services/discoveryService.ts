@@ -2574,8 +2574,8 @@ export function convertLibraryItemToDiscoveryTitle(item: LibraryItem): Discovery
  * Synchronizes one or more LibraryItems directly into the local Netflix Discovery Catalogue (IndexedDB).
  * Intelligently merges with any existing DiscoveryTitle to retain rich metadata while adding new library titles.
  */
-export async function syncLibraryItemsToDiscovery(libraryItems: LibraryItem[]): Promise<void> {
-  if (!libraryItems || libraryItems.length === 0) return;
+export async function syncLibraryItemsToDiscovery(libraryItems: LibraryItem[]): Promise<DiscoveryTitle[]> {
+  if (!libraryItems || libraryItems.length === 0) return [];
 
   try {
     const existingTitles = await getAllDiscoveryTitles();
@@ -2644,10 +2644,52 @@ export async function syncLibraryItemsToDiscovery(libraryItems: LibraryItem[]): 
       await saveDiscoveryTitles(titlesToSave);
       console.log(`[DiscoverySync] Synced ${titlesToSave.length} library item(s) to Discovery Catalog`);
     }
+    return titlesToSave;
   } catch (err) {
     console.error('Failed to sync library items to discovery catalog:', err);
+    return [];
   }
 }
 
+/**
+ * Refreshes the Discovery Catalog with the user's library additions/modifications,
+ * and actively runs the TMDB API to enrich those newly added/synced titles with full metadata.
+ */
+export async function syncAndEnrichLibraryItemsToDiscovery(options: {
+  libraryItems: LibraryItem[];
+  tmdbApiKey?: string;
+  onProgress?: (message: string, progress: number) => void;
+}): Promise<{ syncedCount: number; enrichedTitles: DiscoveryTitle[] }> {
+  const { libraryItems, tmdbApiKey, onProgress } = options;
+  if (!libraryItems || libraryItems.length === 0) {
+    return { syncedCount: 0, enrichedTitles: [] };
+  }
 
+  onProgress?.('Syncing library titles into Discovery catalogue...', 10);
+  const syncedTitles = await syncLibraryItemsToDiscovery(libraryItems);
+  if (syncedTitles.length === 0) {
+    return { syncedCount: 0, enrichedTitles: [] };
+  }
 
+  onProgress?.(`Enriching ${syncedTitles.length} title(s) via TMDB API...`, 30);
+  const enrichedBatch: DiscoveryTitle[] = [];
+
+  for (let i = 0; i < syncedTitles.length; i++) {
+    const item = syncedTitles[i];
+    try {
+      const enriched = await enrichTitleWithTMDB(item, tmdbApiKey || DEFAULT_PUBLIC_TMDB_KEY);
+      enrichedBatch.push(enriched);
+    } catch (e) {
+      enrichedBatch.push(item);
+    }
+    const percent = Math.round(30 + ((i + 1) / syncedTitles.length) * 60);
+    onProgress?.(`Enriching ${item.title} (${i + 1}/${syncedTitles.length})...`, percent);
+  }
+
+  if (enrichedBatch.length > 0) {
+    await saveDiscoveryTitles(enrichedBatch);
+  }
+
+  onProgress?.('Finished enriching catalogue with library titles!', 100);
+  return { syncedCount: enrichedBatch.length, enrichedTitles: enrichedBatch };
+}
