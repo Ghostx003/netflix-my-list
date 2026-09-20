@@ -185,6 +185,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   const [minYear, setMinYear] = useState<string>(initialFilters.minYear);
   const [maxYear, setMaxYear] = useState<string>(initialFilters.maxYear);
   const [minRating, setMinRating] = useState<number>(initialFilters.minRating);
+  const [ignoreAnime, setIgnoreAnime] = useState<boolean>(initialFilters.ignoreAnime ?? (initialFilters.preset === 'ignore_anime'));
 
   const [selectedThemes, setSelectedThemes] = useState<string[]>(initialFilters.selectedThemes || []);
   const [excludedThemes, setExcludedThemes] = useState<string[]>(initialFilters.excludedThemes || []);
@@ -245,6 +246,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       minYear,
       maxYear,
       minRating,
+      ignoreAnime,
     };
     syncDiscoveryFiltersToUrlAndStorage(filterState);
   }, [
@@ -266,6 +268,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     minYear,
     maxYear,
     minRating,
+    ignoreAnime,
   ]);
 
   // Handle browser back/forward buttons
@@ -289,6 +292,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       setMinYear(parsed.minYear);
       setMaxYear(parsed.maxYear);
       setMinRating(parsed.minRating);
+      setIgnoreAnime(parsed.ignoreAnime ?? (parsed.preset === 'ignore_anime'));
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -584,11 +588,9 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       setAudioFilter('all');
       setMinRating(0);
     } else if (preset === 'ignore_anime') {
-      setContentType('all');
-      setSelectedCountries([]);
-      setSelectedGenres([]);
-      setAudioFilter('all');
-      setMinRating(0);
+      // Toggle ignore anime on/off independently
+      setIgnoreAnime((prev) => !prev);
+      return;
     } else if (preset === 'european') {
       setContentType('all');
       setSelectedCountries(Array.from(EUROPEAN_COUNTRIES));
@@ -645,6 +647,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     setMinYear('');
     setMaxYear('');
     setMinRating(0);
+    setIgnoreAnime(false);
     setSortBy('netflix_newest');
     setSortOrder('desc');
     setCurrentPage(1);
@@ -744,18 +747,21 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       result = result.filter((x) => (x.countries || []).some((c) => EUROPEAN_COUNTRIES.has(normalizeCountryName(c))));
     } else if (activePreset === 'asian') {
       result = result.filter((x) => (x.countries || []).some((c) => ASIAN_COUNTRIES.has(normalizeCountryName(c))));
-    } else if (activePreset === 'ignore_anime') {
-      // Exclude titles that have Animation genre or anime keywords, but KEEP live-action Japanese titles
-      result = result.filter((x) => {
-        const isAnimation = (x.genres || []).some((g) => g.toLowerCase() === 'animation');
-        const isAnimeKeyword = (x.tmdbKeywords || []).some((k) => k.toLowerCase().includes('anime'));
-        return !isAnimation && !isAnimeKeyword;
-      });
     } else if (selectedCountries.length > 0) {
       // 4. Country include filter
       result = result.filter((x) => {
         const normalizedItemCountries = (x.countries || []).map(normalizeCountryName);
         return selectedCountries.some((c) => normalizedItemCountries.includes(c));
+      });
+    }
+
+    // 3b. Ignore Anime filter (Applies whenever activePreset is ignore_anime OR ignoreAnime toggle is ON)
+    if (ignoreAnime || activePreset === 'ignore_anime') {
+      // Exclude titles that have Animation genre or anime keywords, but KEEP live-action Japanese/Asian titles
+      result = result.filter((x) => {
+        const isAnimation = (x.genres || []).some((g) => g.toLowerCase() === 'animation');
+        const isAnimeKeyword = (x.tmdbKeywords || []).some((k) => k.toLowerCase().includes('anime'));
+        return !isAnimation && !isAnimeKeyword;
       });
     }
 
@@ -1150,6 +1156,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     if (audioFilter !== 'all') count++;
     if (minYear || maxYear) count++;
     if (minRating > 0) count++;
+    if (ignoreAnime) count++;
     if (debouncedQuery) count++;
     return count;
   }, [
@@ -1167,6 +1174,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     minYear,
     maxYear,
     minRating,
+    ignoreAnime,
     debouncedQuery,
   ]);
 
@@ -1766,7 +1774,6 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                 { id: 'bollywood', label: '🇮🇳 Bollywood' },
                 { id: 'kdramas', label: '🇰🇷 K-Dramas' },
                 { id: 'anime', label: '⚔️ Anime' },
-                { id: 'ignore_anime', label: '🚫 Ignore Anime' },
                 { id: 'european', label: '🏰 European' },
                 { id: 'asian', label: '🌏 Asian' },
               ] as const
@@ -1783,6 +1790,21 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                 {preset.label}
               </button>
             ))}
+
+            {/* Toggleable Ignore Anime Filter - Selectable with ANY filter (Asian, Hollywood, etc.) */}
+            <button
+              type="button"
+              onClick={() => setIgnoreAnime((prev) => !prev)}
+              className={`px-3 py-1 rounded-xl text-xs font-bold transition-all whitespace-nowrap border flex items-center gap-1.5 ${
+                ignoreAnime
+                  ? 'bg-red-600/25 text-red-300 border-red-500/60 shadow-md shadow-red-600/20 ring-1 ring-red-500/40'
+                  : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 border-white/5 hover:border-white/15'
+              }`}
+              title="Filter out anime and animation titles while keeping all other movies and shows"
+            >
+              <span>🚫 Ignore Anime</span>
+              {ignoreAnime && <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />}
+            </button>
 
             {/* Selectable Highly Rated Preset / Rating Threshold */}
             <div className="flex items-center gap-1 bg-zinc-900/80 border border-white/10 rounded-xl px-2 py-0.5 text-xs shrink-0">
@@ -2124,6 +2146,15 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                   }}
                   className="hover:text-white"
                 >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+
+            {ignoreAnime && (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-red-600/20 border border-red-500/30 text-red-300 text-[11px]">
+                <span>🚫 Ignore Anime</span>
+                <button onClick={() => setIgnoreAnime(false)} className="hover:text-white">
                   <X className="w-3 h-3" />
                 </button>
               </span>

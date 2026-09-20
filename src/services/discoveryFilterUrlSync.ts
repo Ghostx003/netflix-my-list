@@ -37,6 +37,7 @@ export interface DiscoveryFilterState {
   minYear: string;
   maxYear: string;
   minRating: number;
+  ignoreAnime?: boolean;
 }
 
 export const DEFAULT_DISCOVERY_FILTER_STATE: DiscoveryFilterState = {
@@ -58,6 +59,7 @@ export const DEFAULT_DISCOVERY_FILTER_STATE: DiscoveryFilterState = {
   minYear: '',
   maxYear: '',
   minRating: 0,
+  ignoreAnime: false,
 };
 
 const STORAGE_KEY = 'netflix_discovery_filters';
@@ -81,6 +83,7 @@ export function hasDiscoveryFilterParamsInUrl(search: string = window.location.s
     'dMinYear',
     'dMaxYear',
     'dMinRating',
+    'dIgnoreAnime',
   ];
   return filterKeys.some((key) => params.has(key));
 }
@@ -145,6 +148,11 @@ export function parseInitialDiscoveryFilters(): DiscoveryFilterState {
     if (params.has('dMinRating')) {
       const mr = parseFloat(params.get('dMinRating') || '0');
       if (!isNaN(mr)) filters.minRating = mr;
+    }
+    if (params.has('dIgnoreAnime')) {
+      filters.ignoreAnime = params.get('dIgnoreAnime') === '1' || params.get('dIgnoreAnime') === 'true';
+    } else if (filters.preset === 'ignore_anime') {
+      filters.ignoreAnime = true;
     }
     return filters;
   }
@@ -227,6 +235,7 @@ export function syncDiscoveryFiltersToUrlAndStorage(filters: DiscoveryFilterStat
   updateParam('dMinYear', filters.minYear);
   updateParam('dMaxYear', filters.maxYear);
   updateParam('dMinRating', filters.minRating > 0 ? filters.minRating.toString() : undefined);
+  updateParam('dIgnoreAnime', filters.ignoreAnime ? '1' : undefined);
 
   try {
     const queryString = currentParams.toString();
