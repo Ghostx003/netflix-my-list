@@ -3,6 +3,7 @@ import { AppSettings, LibraryItem, NetflixRawItem, LibraryViewingStatus } from '
 import { DEFAULT_SETTINGS, getAllLibraryItems, getSettings, saveLibraryItems, saveSettings, clearLibrary, deleteLibraryItem } from './services/db';
 import { enrichLibraryItem } from './services/tmdb';
 import { deduplicateAndPrepareItems } from './services/duplicateDetector';
+import { syncLibraryItemsToDiscovery } from './services/discoveryService';
 import { Navbar } from './components/Navbar';
 import { ImportLibraryView } from './components/ImportLibraryView';
 import { MoviesSeriesView } from './components/MoviesSeriesView';
@@ -206,6 +207,7 @@ export const App: React.FC = () => {
       if (hasChanges) {
         setItems(updatedList);
         await saveLibraryItems(updatedList);
+        syncLibraryItemsToDiscovery(updatedList).catch(() => {});
       }
       setIsRescanning(false);
     },
@@ -252,6 +254,7 @@ export const App: React.FC = () => {
     const combined = [...items, ...newItems];
     setItems(combined);
     await saveLibraryItems(combined);
+    syncLibraryItemsToDiscovery(newItems).catch((err) => console.warn('Discovery sync error:', err));
     triggerBackgroundScan(combined, settings);
   };
 
@@ -262,12 +265,14 @@ export const App: React.FC = () => {
       setSelectedDetailItem(updatedItem);
     }
     await saveLibraryItems(updated);
+    syncLibraryItemsToDiscovery([updatedItem]).catch((err) => console.warn('Discovery sync error:', err));
   };
 
   const handleAddNewItem = async (newItem: LibraryItem) => {
     const updated = [newItem, ...items];
     setItems(updated);
     await saveLibraryItems(updated);
+    syncLibraryItemsToDiscovery([newItem]).catch((err) => console.warn('Discovery sync error:', err));
   };
 
   const handleRefreshLibrary = async () => {

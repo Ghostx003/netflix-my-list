@@ -1,6 +1,6 @@
-import { DiscoveryTitle, EpisodeInfo, TrailerInfo } from '../types';
+import { DiscoveryTitle, EpisodeInfo, TrailerInfo, LibraryItem } from '../types';
 import { DEFAULT_PUBLIC_TMDB_KEY, fetchOMDBMetadata, selectBestTrailer } from './tmdb';
-import { getCachedMetadata, setCachedMetadata, saveDiscoveryTitles } from './db';
+import { getCachedMetadata, setCachedMetadata, saveDiscoveryTitles, getAllDiscoveryTitles } from './db';
 import { normalizeCountriesList, normalizeTitle, createDuplicateKey, NETFLIX_HINDI_DUBBED_TITLES } from './normalizer';
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
@@ -2489,5 +2489,165 @@ export async function fetchInitialWatchmodeDiscovery(options: {
     return [];
   }
 }
+
+/**
+ * Converts a user's LibraryItem into a unified DiscoveryTitle record
+ * preserving all metadata, episodes, ratings, trailer, and Netflix verification.
+ */
+export function convertLibraryItemToDiscoveryTitle(item: LibraryItem): DiscoveryTitle {
+  const isMovie = item.mediaType === 'movie';
+  const origLang = (item.originalLanguage || '').toLowerCase();
+  const title = item.externalTitle || item.originalTitle || 'Untitled';
+  const normTitle = normalizeTitle(title);
+  const isKnownHindiDub = NETFLIX_HINDI_DUBBED_TITLES.has(normTitle);
+
+  // Audio languages: combine original language, existing languages, and check hindi dubbed list
+  const audioLanguages: string[] = [];
+  if (origLang && !audioLanguages.includes(origLang)) {
+    audioLanguages.push(origLang);
+  }
+  if (Array.isArray(item.languages)) {
+    for (const l of item.languages) {
+      const code = l.toLowerCase();
+      if (!audioLanguages.includes(code)) audioLanguages.push(code);
+    }
+  }
+  if (isKnownHindiDub || origLang === 'hi') {
+    if (!audioLanguages.includes('hi')) audioLanguages.push('hi');
+  }
+
+  let id = '';
+  if (item.externalId && typeof item.externalId === 'number') {
+    id = `tmdb_${item.mediaType}_${item.externalId}`;
+  } else if (item.imdbId && item.imdbId.startsWith('tt')) {
+    id = `imdb_${item.imdbId}`;
+  } else if (item.videoId) {
+    id = `netflix_${item.videoId}`;
+  } else {
+    id = `lib_${item.id}`;
+  }
+
+  return {
+    id,
+    tmdbId: typeof item.externalId === 'number' ? item.externalId : undefined,
+    imdbId: item.imdbId,
+    netflixId: item.videoId,
+    title,
+    originalTitle: item.originalTitle,
+    mediaType: item.mediaType === 'tv' ? 'tv' : 'movie',
+    releaseYear: item.releaseYear,
+    releaseDate: item.releaseDate,
+    netflixAddedDate: item.netflixAddedDate || item.addedAt?.slice(0, 10),
+    posterPath: item.posterPath,
+    backdropPath: item.backdropPath,
+    rating: item.rating,
+    imdbRating: item.imdbRating,
+    rottenTomatoesRating: item.rottenTomatoesRating,
+    voteCount: item.voteCount,
+    synopsis: item.synopsis,
+    genres: Array.isArray(item.genres) ? [...item.genres] : [],
+    countries: Array.isArray(item.countries) ? [...item.countries] : [],
+    originalLanguage: origLang || undefined,
+    audioLanguages,
+    subtitleLanguages: ['en', 'hi'],
+    hindiAudio: isKnownHindiDub || origLang === 'hi' ? true : null,
+    englishAudio: origLang === 'en' || audioLanguages.includes('en') ? true : null,
+    runtimeMinutes: isMovie ? item.runtimeMinutes : undefined,
+    totalSeasons: !isMovie ? (item.totalSeasons || 1) : undefined,
+    totalEpisodes: !isMovie ? (item.totalEpisodes || item.episodes?.length || 1) : undefined,
+    averageEpisodeMinutes: !isMovie ? (item.averageEpisodeMinutes || 45) : undefined,
+    episodes: item.episodes,
+    trailer: item.trailer,
+    cast: item.cast,
+    director: item.director,
+    creator: item.creator,
+    isNetflixIndiaVerified: true,
+    netflixIndiaAvailable: true,
+    availabilityState: 'available',
+    availabilitySource: 'My Library (Netflix India)',
+    catalogUpdatedAt: new Date().toISOString(),
+    metadataUpdatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Synchronizes one or more LibraryItems directly into the local Netflix Discovery Catalogue (IndexedDB).
+ * Intelligently merges with any existing DiscoveryTitle to retain rich metadata while adding new library titles.
+ */
+export async function syncLibraryItemsToDiscovery(libraryItems: LibraryItem[]): Promise<void> {
+  if (!libraryItems || libraryItems.length === 0) return;
+
+  try {
+    const existingTitles = await getAllDiscoveryTitles();
+    const existingMap = new Map<string, DiscoveryTitle>();
+
+    for (const t of existingTitles) {
+      existingMap.set(t.id, t);
+      if (t.imdbId) existingMap.set(`imdb_${t.imdbId}`, t);
+      if (t.tmdbId) existingMap.set(`tmdb_${t.mediaType}_${t.tmdbId}`, t);
+      if (t.netflixId) existingMap.set(`netflix_${t.netflixId}`, t);
+      const titleKey = `title_${createDuplicateKey(t.title)}_${t.releaseYear || '0'}`;
+      existingMap.set(titleKey, t);
+    }
+
+    const titlesToSave: DiscoveryTitle[] = [];
+
+    for (const item of libraryItems) {
+      const converted = convertLibraryItemToDiscoveryTitle(item);
+
+      // Check if this title already exists in discovery
+      let existing: DiscoveryTitle | undefined = existingMap.get(converted.id);
+      if (!existing && converted.imdbId) existing = existingMap.get(`imdb_${converted.imdbId}`);
+      if (!existing && converted.tmdbId) existing = existingMap.get(`tmdb_${converted.mediaType}_${converted.tmdbId}`);
+      if (!existing && converted.netflixId) existing = existingMap.get(`netflix_${converted.netflixId}`);
+      if (!existing) {
+        const titleKey = `title_${createDuplicateKey(converted.title)}_${converted.releaseYear || '0'}`;
+        existing = existingMap.get(titleKey);
+      }
+
+      if (existing) {
+        // Merge - enrich existing discovery title with any new library data
+        const merged: DiscoveryTitle = {
+          ...existing,
+          ...converted,
+          // Retain richer existing metadata if available
+          id: existing.id,
+          posterPath: converted.posterPath || existing.posterPath,
+          backdropPath: converted.backdropPath || existing.backdropPath,
+          synopsis: converted.synopsis || existing.synopsis,
+          genres: converted.genres && converted.genres.length > 0 ? converted.genres : existing.genres,
+          countries: converted.countries && converted.countries.length > 0 ? converted.countries : existing.countries,
+          rating: converted.rating || existing.rating,
+          imdbRating: converted.imdbRating || existing.imdbRating,
+          rottenTomatoesRating: converted.rottenTomatoesRating || existing.rottenTomatoesRating,
+          runtimeMinutes: converted.runtimeMinutes || existing.runtimeMinutes,
+          totalSeasons: converted.totalSeasons || existing.totalSeasons,
+          totalEpisodes: converted.totalEpisodes || existing.totalEpisodes,
+          episodes: converted.episodes && converted.episodes.length > 0 ? converted.episodes : existing.episodes,
+          trailer: converted.trailer || existing.trailer,
+          cast: converted.cast && converted.cast.length > 0 ? converted.cast : existing.cast,
+          director: converted.director || existing.director,
+          creator: converted.creator || existing.creator,
+          netflixId: converted.netflixId || existing.netflixId,
+          isNetflixIndiaVerified: true,
+          netflixIndiaAvailable: true,
+          availabilityState: 'available',
+          catalogUpdatedAt: new Date().toISOString(),
+        };
+        titlesToSave.push(merged);
+      } else {
+        titlesToSave.push(converted);
+      }
+    }
+
+    if (titlesToSave.length > 0) {
+      await saveDiscoveryTitles(titlesToSave);
+      console.log(`[DiscoverySync] Synced ${titlesToSave.length} library item(s) to Discovery Catalog`);
+    }
+  } catch (err) {
+    console.error('Failed to sync library items to discovery catalog:', err);
+  }
+}
+
 
 
