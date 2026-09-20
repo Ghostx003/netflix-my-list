@@ -453,10 +453,22 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
         const isDropped = x.viewingStatus === 'dropped' || !!x.droppedReason;
         return !isDone && !isDropped;
       });
+    } else if (statusFilter === 'dropped') {
+      // Explicitly viewing dropped items
+      result = result.filter((x) => x.viewingStatus === 'dropped' || !!x.droppedReason);
     } else if (statusFilter !== 'all') {
+      // Specific status (unwatched, still_watching, completed) - also exclude dropped
       result = result.filter((x) => {
+        const isDropped = x.viewingStatus === 'dropped' || !!x.droppedReason;
+        if (isDropped) return false;
         const status = x.viewingStatus || (x.isCompleted ? 'completed' : 'unwatched');
         return status === statusFilter;
+      });
+    } else {
+      // statusFilter === 'all': Hide dropped items from the catalog view altogether unless explicitly viewing 'dropped'
+      result = result.filter((x) => {
+        const isDropped = x.viewingStatus === 'dropped' || !!x.droppedReason;
+        return !isDropped;
       });
     }
 
@@ -730,12 +742,12 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
               onChange={(e) => setStatusFilter(e.target.value as StatusFilterType)}
               className="w-full md:w-auto bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-[#E50914] cursor-pointer truncate"
             >
-              <option value="all" className="bg-zinc-900 text-white">All Titles ({items.length})</option>
+              <option value="all" className="bg-zinc-900 text-white">All Active ({items.filter(x => x.viewingStatus !== 'dropped' && !x.droppedReason).length})</option>
               <option value="active" className="bg-zinc-900 text-white">Active (Unwatched &amp; Watching)</option>
               <option value="unwatched" className="bg-zinc-900 text-white">Unwatched Only</option>
               <option value="still_watching" className="bg-zinc-900 text-white">Still Watching</option>
               <option value="completed" className="bg-zinc-900 text-white">Completed (Watched)</option>
-              <option value="dropped" className="bg-zinc-900 text-white">Dropped</option>
+              <option value="dropped" className="bg-zinc-900 text-white">Dropped ({items.filter(x => x.viewingStatus === 'dropped' || !!x.droppedReason).length})</option>
             </select>
 
             {/* Sort Dropdown */}

@@ -2587,6 +2587,57 @@ export function convertLibraryItemToDiscoveryTitle(item: LibraryItem): Discovery
 }
 
 /**
+ * Converts a DiscoveryTitle into a full LibraryItem representation.
+ */
+export function convertDiscoveryTitleToLibraryItem(discItem: DiscoveryTitle): LibraryItem {
+  const isMovie = discItem.mediaType === 'movie';
+  return {
+    id: 'disc_lib_' + discItem.id,
+    originalTitle: discItem.title,
+    normalizedTitle: discItem.title.toLowerCase().trim(),
+    videoId: discItem.netflixId,
+    mediaType: discItem.mediaType,
+    status: 'matched',
+    viewingStatus: 'unwatched',
+    externalId: discItem.tmdbId,
+    externalTitle: discItem.title,
+    releaseYear: discItem.releaseYear,
+    releaseDate: discItem.releaseDate,
+    netflixAddedDate: discItem.netflixAddedDate,
+    posterPath: discItem.posterPath,
+    backdropPath: discItem.backdropPath,
+    rating: discItem.rating,
+    imdbRating: discItem.imdbRating,
+    rottenTomatoesRating: discItem.rottenTomatoesRating,
+    voteCount: discItem.voteCount,
+    synopsis: discItem.synopsis,
+    genres: discItem.genres || [],
+    countries: discItem.countries || [],
+    languages: discItem.audioLanguages || [],
+    audioLanguages: discItem.audioLanguages,
+    subtitleLanguages: discItem.subtitleLanguages,
+    hindiAudio: discItem.hindiAudio,
+    englishAudio: discItem.englishAudio,
+    hindiSubtitles: discItem.hindiSubtitles,
+    englishSubtitles: discItem.englishSubtitles,
+    originalLanguage: discItem.originalLanguage,
+    runtimeMinutes: isMovie ? discItem.runtimeMinutes : undefined,
+    totalSeasons: !isMovie ? discItem.totalSeasons : undefined,
+    totalEpisodes: !isMovie ? discItem.totalEpisodes : undefined,
+    averageEpisodeMinutes: !isMovie ? discItem.averageEpisodeMinutes : undefined,
+    episodes: discItem.episodes,
+    trailer: discItem.trailer,
+    cast: discItem.cast,
+    director: discItem.director,
+    creator: discItem.creator,
+    tagline: discItem.tagline,
+    themes: discItem.themes,
+    addedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/**
  * Merges an enriched DiscoveryTitle into an existing LibraryItem,
  * replacing and enriching metadata (poster, synopsis, cast, director, creator, ratings, runtime, episodes, trailer, etc.)
  * while preserving user-specific library state (viewingStatus, progress, addedAt, userStarRating, etc.).
@@ -2687,6 +2738,7 @@ export function syncEnrichedDiscoveryTitlesIntoLibrary(
   }
 
   // Build quick lookup maps for discovery catalog
+  const byId = new Map<string, DiscoveryTitle>();
   const byTmdbId = new Map<number, DiscoveryTitle>();
   const byImdbId = new Map<string, DiscoveryTitle>();
   const byNetflixId = new Map<string, DiscoveryTitle>();
@@ -2694,6 +2746,7 @@ export function syncEnrichedDiscoveryTitlesIntoLibrary(
 
   for (const dt of discoveryCatalog) {
     if (!isDiscoveryTitleEnriched(dt)) continue;
+    if (dt.id) byId.set(dt.id, dt);
     if (dt.tmdbId) byTmdbId.set(dt.tmdbId, dt);
     if (dt.imdbId) byImdbId.set(dt.imdbId, dt);
     if (dt.netflixId) byNetflixId.set(dt.netflixId, dt);
@@ -2704,16 +2757,25 @@ export function syncEnrichedDiscoveryTitlesIntoLibrary(
     if (!byTitleYear.has(titleOnlyKey)) {
       byTitleYear.set(titleOnlyKey, dt);
     }
+    if (dt.originalTitle) {
+      const origKey = createDuplicateKey(dt.originalTitle);
+      if (!byTitleYear.has(origKey)) {
+        byTitleYear.set(origKey, dt);
+      }
+    }
   }
 
   let upgradedCount = 0;
   const updatedItems = currentItems.map((item) => {
-    // If manually matched and fully complete, leave as is
-    if (item.isManualMatch) return item;
-
     // Find enriched Discovery counterpart
     let matchedDisc: DiscoveryTitle | undefined;
-    if (typeof item.externalId === 'number') {
+    if (byId.has(`lib_${item.id}`)) {
+      matchedDisc = byId.get(`lib_${item.id}`);
+    }
+    if (!matchedDisc && byId.has(item.id)) {
+      matchedDisc = byId.get(item.id);
+    }
+    if (!matchedDisc && typeof item.externalId === 'number') {
       matchedDisc = byTmdbId.get(item.externalId);
     }
     if (!matchedDisc && item.imdbId) {
@@ -2723,9 +2785,16 @@ export function syncEnrichedDiscoveryTitlesIntoLibrary(
       matchedDisc = byNetflixId.get(item.videoId);
     }
     if (!matchedDisc) {
-      const title = item.externalTitle || item.originalTitle;
-      const key = `${createDuplicateKey(title)}_${item.releaseYear || '0'}`;
-      matchedDisc = byTitleYear.get(key) || byTitleYear.get(createDuplicateKey(title));
+      const extTitle = item.externalTitle ? createDuplicateKey(item.externalTitle) : '';
+      const origTitle = item.originalTitle ? createDuplicateKey(item.originalTitle) : '';
+      const year = item.releaseYear || '0';
+
+      if (extTitle) {
+        matchedDisc = byTitleYear.get(`${extTitle}_${year}`) || byTitleYear.get(extTitle);
+      }
+      if (!matchedDisc && origTitle) {
+        matchedDisc = byTitleYear.get(`${origTitle}_${year}`) || byTitleYear.get(origTitle);
+      }
     }
 
     if (matchedDisc) {

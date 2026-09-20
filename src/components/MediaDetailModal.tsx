@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, Star, Clock, Calendar, Film, Tv, Play, ExternalLink, Sparkles, Layers, Video, ChevronDown, ChevronUp, Volume2, Loader2, Clapperboard, User, Globe } from 'lucide-react';
+import { X, Star, Clock, Calendar, Film, Tv, Play, ExternalLink, Sparkles, Layers, Video, ChevronDown, ChevronUp, Volume2, Loader2, Clapperboard, User, Globe, ChevronLeft, Bookmark, Check } from 'lucide-react';
 import { AppSettings, LibraryItem, EpisodeInfo, TrailerInfo, DiscoveryTitle } from '../types';
 import { formatRuntime, calculateSeriesRuntime } from '../services/analytics';
 import { getNetflixUrl, normalizeCountryName, getPriorityLanguageBadge, itemHasLanguage } from '../services/normalizer';
 import { searchYouTubeTrailer } from '../services/youtubeTrailer';
-import { getAllDiscoveryTitles } from '../services/db';
+import { getAllDiscoveryTitles, getAllLibraryItems, saveLibraryItems } from '../services/db';
+import { convertDiscoveryTitleToLibraryItem } from '../services/discoveryService';
 import { CachedImage } from './CachedImage';
 
 interface MediaDetailModalProps {
@@ -17,14 +18,40 @@ interface MediaDetailModalProps {
 }
 
 export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
-  item,
+  item: initialItem,
   onClose,
   settings,
   onChangeMatch,
   onUpdateItem,
   onSelectItem,
 }) => {
-  if (!item) return null;
+  // Navigation stack to drill down into other titles and return back cleanly
+  const [itemStack, setItemStack] = useState<LibraryItem[]>(initialItem ? [initialItem] : []);
+
+  // Update stack when the parent changes initialItem
+  useEffect(() => {
+    if (initialItem) {
+      setItemStack([initialItem]);
+    } else {
+      setItemStack([]);
+    }
+  }, [initialItem]);
+
+  const currentItem = itemStack[itemStack.length - 1] || null;
+  const canGoBack = itemStack.length > 1;
+
+  const handlePopStack = () => {
+    setItemStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev));
+  };
+
+  const handlePushTitle = (title: DiscoveryTitle) => {
+    // Convert DiscoveryTitle to LibraryItem format for full detail presentation
+    const libItem = convertDiscoveryTitleToLibraryItem(title);
+    setItemStack((prev) => [...prev, libItem]);
+  };
+
+  if (!currentItem) return null;
+  const item = currentItem;
 
   const isMovie = item.mediaType === 'movie';
   const tvBreakdown = !isMovie ? calculateSeriesRuntime(item, settings.maxEpisodesPerSeries, settings.capSeriesEpisodes) : null;
@@ -45,6 +72,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const [selectedCreator, setSelectedCreator] = useState<string | null>(null);
   const [selectedCastMember, setSelectedCastMember] = useState<string | null>(null);
   const [isLanguagesExpanded, setIsLanguagesExpanded] = useState(false);
+  const [watchingAddedMap, setWatchingAddedMap] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let isMounted = true;
@@ -59,6 +87,49 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
       isMounted = false;
     };
   }, []);
+
+  // Handler to add any DiscoveryTitle directly to 'Still Watching'
+  const handleAddDiscoveryToWatching = async (dTitle: DiscoveryTitle, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const allLib = await getAllLibraryItems();
+      const existing = allLib.find(
+        (i) =>
+          (dTitle.imdbId && i.imdbId === dTitle.imdbId) ||
+          (dTitle.tmdbId && i.externalId === dTitle.tmdbId) ||
+          (dTitle.netflixId && i.videoId === dTitle.netflixId) ||
+          i.originalTitle.toLowerCase().trim() === dTitle.title.toLowerCase().trim()
+      );
+
+      if (existing) {
+        const updated: LibraryItem = {
+          ...existing,
+          viewingStatus: 'still_watching',
+          isCompleted: false,
+          droppedReason: undefined,
+          droppedAt: undefined,
+          progress: existing.progress || { percentage: 10, watchedMinutes: 30 },
+          updatedAt: new Date().toISOString(),
+        };
+        if (onUpdateItem) onUpdateItem(updated);
+        const remapped = allLib.map((x) => (x.id === updated.id ? updated : x));
+        await saveLibraryItems(remapped);
+      } else {
+        const converted = convertDiscoveryTitleToLibraryItem(dTitle);
+        const newLibItem: LibraryItem = {
+          ...converted,
+          viewingStatus: 'still_watching',
+          progress: { percentage: 10, watchedMinutes: 30 },
+          updatedAt: new Date().toISOString(),
+        };
+        if (onUpdateItem) onUpdateItem(newLibItem);
+        await saveLibraryItems([newLibItem, ...allLib]);
+      }
+      setWatchingAddedMap((prev) => ({ ...prev, [dTitle.id]: true }));
+    } catch (err) {
+      console.warn('Failed to add to watching:', err);
+    }
+  };
 
   // Compute other catalog titles for selected cast member
   const castTitles = useMemo(() => {
@@ -92,7 +163,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const [activeTrailer, setActiveTrailer] = useState<TrailerInfo | null>(item.trailer || null);
   const [isSearchingTrailer, setIsSearchingTrailer] = useState(false);
 
-  // Keep activeTrailer synced when item changes
+  // Keep activeTrailer synced when current item changes
   useEffect(() => {
     setActiveTrailer(item.trailer || null);
     setTrailerLang(item.trailer?.language === 'en' ? 'en' : 'hi');
@@ -156,13 +227,29 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
         className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl text-white scrollbar-thin scrollbar-thumb-zinc-700"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Close button */}
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 z-20 p-2 rounded-full bg-black/70 hover:bg-[#E50914] text-zinc-300 hover:text-white transition-colors border border-white/10 shadow-lg"
-        >
-          <X className="w-5 h-5" />
-        </button>
+        {/* Top Controls: Back button if nested stack, plus Close button */}
+        <div className="absolute top-4 left-4 right-4 z-20 flex items-center justify-between pointer-events-none">
+          {canGoBack ? (
+            <button
+              type="button"
+              onClick={handlePopStack}
+              className="pointer-events-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/80 hover:bg-zinc-800 text-white transition-all border border-white/20 shadow-lg text-xs font-bold cursor-pointer backdrop-blur-md hover:scale-105"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span>Back to Previous Title</span>
+            </button>
+          ) : (
+            <div />
+          )}
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="pointer-events-auto p-2 rounded-full bg-black/70 hover:bg-[#E50914] text-zinc-300 hover:text-white transition-colors border border-white/10 shadow-lg cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
 
         {/* Hero Backdrop / Trailer Player */}
         <div className="relative aspect-video w-full max-h-[380px] bg-black overflow-hidden group">
@@ -786,7 +873,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
             </div>
 
             <p className="text-xs text-zinc-400">
-              Found <span className="text-red-400 font-bold">{castTitles.length}</span> titles featuring <span className="text-white font-semibold">{selectedCastMember}</span> on Netflix India:
+              Found <span className="text-red-400 font-bold">{castTitles.length}</span> titles featuring <span className="text-white font-semibold">{selectedCastMember}</span> on Netflix India (click any title to view full details &amp; about):
             </p>
 
             {castTitles.length === 0 ? (
@@ -799,10 +886,15 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                   const netflixWatchUrl = cTitle.netflixId
                     ? `https://www.netflix.com/watch/${cTitle.netflixId}`
                     : `https://www.netflix.com/search?q=${encodeURIComponent(cTitle.title)}`;
+                  const isAdded = watchingAddedMap[cTitle.id];
                   return (
                     <div
                       key={cTitle.id}
-                      className="group bg-zinc-900 rounded-xl overflow-hidden border border-white/5 hover:border-red-600/50 transition-all p-2 flex flex-col gap-2"
+                      onClick={() => {
+                        setSelectedCastMember(null);
+                        handlePushTitle(cTitle);
+                      }}
+                      className="group bg-zinc-900 rounded-xl overflow-hidden border border-white/5 hover:border-red-600/50 transition-all p-2 flex flex-col gap-2 cursor-pointer hover:-translate-y-1 shadow-md"
                     >
                       <div className="relative aspect-[2/3] w-full bg-zinc-800 rounded-lg overflow-hidden">
                         <CachedImage
@@ -819,23 +911,43 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                           {cTitle.mediaType}
                         </div>
                       </div>
-                      <div className="space-y-1">
-                        <h5 className="text-xs font-bold text-white line-clamp-1 group-hover:text-red-400 transition-colors">
-                          {cTitle.title}
-                        </h5>
-                        <div className="text-[10px] text-zinc-500 flex items-center justify-between">
-                          <span>{cTitle.releaseYear || ''}</span>
-                          <span className="capitalize">{cTitle.mediaType}</span>
+                      <div className="space-y-1 flex-1 flex flex-col justify-between">
+                        <div>
+                          <h5 className="text-xs font-bold text-white line-clamp-1 group-hover:text-red-400 transition-colors">
+                            {cTitle.title}
+                          </h5>
+                          <div className="text-[10px] text-zinc-500 flex items-center justify-between mt-0.5">
+                            <span>{cTitle.releaseYear || ''}</span>
+                            <span className="capitalize">{cTitle.mediaType}</span>
+                          </div>
                         </div>
-                        <a
-                          href={netflixWatchUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="mt-1 w-full py-1 rounded bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white text-[10px] font-bold flex items-center justify-center gap-1 transition-colors"
-                        >
-                          <Play className="w-2.5 h-2.5 fill-current" />
-                          <span>Watch</span>
-                        </a>
+
+                        <div className="grid grid-cols-2 gap-1.5 mt-2 pt-1 border-t border-white/5">
+                          <button
+                            type="button"
+                            onClick={(e) => handleAddDiscoveryToWatching(cTitle, e)}
+                            className={`py-1 px-1 rounded text-[10px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer ${
+                              isAdded
+                                ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/40'
+                                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700'
+                            }`}
+                            title="Add to Still Watching list"
+                          >
+                            {isAdded ? <Check className="w-2.5 h-2.5" /> : <Bookmark className="w-2.5 h-2.5" />}
+                            <span className="truncate">{isAdded ? 'Watching' : '+ Watch'}</span>
+                          </button>
+
+                          <a
+                            href={netflixWatchUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="py-1 px-1 rounded bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white text-[10px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                          >
+                            <Play className="w-2.5 h-2.5 fill-current" />
+                            <span>Netflix</span>
+                          </a>
+                        </div>
                       </div>
                     </div>
                   );
@@ -878,7 +990,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
             </div>
 
             <p className="text-xs text-zinc-400">
-              Found <span className="text-amber-400 font-bold">{directorTitles.length}</span> movies &amp; series directed by <span className="text-white font-semibold">{selectedDirector}</span> on Netflix India:
+              Found <span className="text-amber-400 font-bold">{directorTitles.length}</span> movies &amp; series directed by <span className="text-white font-semibold">{selectedDirector}</span> on Netflix India (click any title to view full details &amp; about):
             </p>
 
             {directorTitles.length === 0 ? (
@@ -891,10 +1003,15 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                   const netflixWatchUrl = dTitle.netflixId
                     ? `https://www.netflix.com/watch/${dTitle.netflixId}`
                     : `https://www.netflix.com/search?q=${encodeURIComponent(dTitle.title)}`;
+                  const isAdded = watchingAddedMap[dTitle.id];
                   return (
                     <div
                       key={dTitle.id}
-                      className="group bg-zinc-900 rounded-xl overflow-hidden border border-white/5 hover:border-amber-500/50 transition-all p-2 flex flex-col gap-2"
+                      onClick={() => {
+                        setSelectedDirector(null);
+                        handlePushTitle(dTitle);
+                      }}
+                      className="group bg-zinc-900 rounded-xl overflow-hidden border border-white/5 hover:border-amber-500/50 transition-all p-2 flex flex-col gap-2 cursor-pointer hover:-translate-y-1 shadow-md"
                     >
                       <div className="relative aspect-[2/3] w-full bg-zinc-800 rounded-lg overflow-hidden">
                         <CachedImage
@@ -911,23 +1028,43 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                           {dTitle.mediaType}
                         </div>
                       </div>
-                      <div className="space-y-1">
-                        <h5 className="text-xs font-bold text-white line-clamp-1 group-hover:text-amber-400 transition-colors">
-                          {dTitle.title}
-                        </h5>
-                        <div className="text-[10px] text-zinc-500 flex items-center justify-between">
-                          <span>{dTitle.releaseYear || ''}</span>
-                          <span>{dTitle.genres?.[0] || ''}</span>
+                      <div className="space-y-1 flex-1 flex flex-col justify-between">
+                        <div>
+                          <h5 className="text-xs font-bold text-white line-clamp-1 group-hover:text-amber-400 transition-colors">
+                            {dTitle.title}
+                          </h5>
+                          <div className="text-[10px] text-zinc-500 flex items-center justify-between mt-0.5">
+                            <span>{dTitle.releaseYear || ''}</span>
+                            <span>{dTitle.genres?.[0] || ''}</span>
+                          </div>
                         </div>
-                        <a
-                          href={netflixWatchUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="mt-1 w-full py-1 rounded bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black text-[10px] font-bold flex items-center justify-center gap-1 transition-colors"
-                        >
-                          <Play className="w-2.5 h-2.5 fill-current" />
-                          <span>Watch</span>
-                        </a>
+
+                        <div className="grid grid-cols-2 gap-1.5 mt-2 pt-1 border-t border-white/5">
+                          <button
+                            type="button"
+                            onClick={(e) => handleAddDiscoveryToWatching(dTitle, e)}
+                            className={`py-1 px-1 rounded text-[10px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer ${
+                              isAdded
+                                ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/40'
+                                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700'
+                            }`}
+                            title="Add to Still Watching list"
+                          >
+                            {isAdded ? <Check className="w-2.5 h-2.5" /> : <Bookmark className="w-2.5 h-2.5" />}
+                            <span className="truncate">{isAdded ? 'Watching' : '+ Watch'}</span>
+                          </button>
+
+                          <a
+                            href={netflixWatchUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="py-1 px-1 rounded bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black text-[10px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                          >
+                            <Play className="w-2.5 h-2.5 fill-current" />
+                            <span>Netflix</span>
+                          </a>
+                        </div>
                       </div>
                     </div>
                   );
@@ -970,7 +1107,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
             </div>
 
             <p className="text-xs text-zinc-400">
-              Found <span className="text-purple-400 font-bold">{creatorTitles.length}</span> series &amp; movies created by <span className="text-white font-semibold">{selectedCreator}</span> on Netflix India:
+              Found <span className="text-purple-400 font-bold">{creatorTitles.length}</span> series &amp; movies created by <span className="text-white font-semibold">{selectedCreator}</span> on Netflix India (click any title to view full details &amp; about):
             </p>
 
             {creatorTitles.length === 0 ? (
@@ -983,10 +1120,15 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                   const netflixWatchUrl = crTitle.netflixId
                     ? `https://www.netflix.com/watch/${crTitle.netflixId}`
                     : `https://www.netflix.com/search?q=${encodeURIComponent(crTitle.title)}`;
+                  const isAdded = watchingAddedMap[crTitle.id];
                   return (
                     <div
                       key={crTitle.id}
-                      className="group bg-zinc-900 rounded-xl overflow-hidden border border-white/5 hover:border-purple-500/50 transition-all p-2 flex flex-col gap-2"
+                      onClick={() => {
+                        setSelectedCreator(null);
+                        handlePushTitle(crTitle);
+                      }}
+                      className="group bg-zinc-900 rounded-xl overflow-hidden border border-white/5 hover:border-purple-500/50 transition-all p-2 flex flex-col gap-2 cursor-pointer hover:-translate-y-1 shadow-md"
                     >
                       <div className="relative aspect-[2/3] w-full bg-zinc-800 rounded-lg overflow-hidden">
                         <CachedImage
@@ -1003,23 +1145,43 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                           {crTitle.mediaType}
                         </div>
                       </div>
-                      <div className="space-y-1">
-                        <h5 className="text-xs font-bold text-white line-clamp-1 group-hover:text-purple-400 transition-colors">
-                          {crTitle.title}
-                        </h5>
-                        <div className="text-[10px] text-zinc-500 flex items-center justify-between">
-                          <span>{crTitle.releaseYear || ''}</span>
-                          <span className="capitalize">{crTitle.mediaType}</span>
+                      <div className="space-y-1 flex-1 flex flex-col justify-between">
+                        <div>
+                          <h5 className="text-xs font-bold text-white line-clamp-1 group-hover:text-purple-400 transition-colors">
+                            {crTitle.title}
+                          </h5>
+                          <div className="text-[10px] text-zinc-500 flex items-center justify-between mt-0.5">
+                            <span>{crTitle.releaseYear || ''}</span>
+                            <span className="capitalize">{crTitle.mediaType}</span>
+                          </div>
                         </div>
-                        <a
-                          href={netflixWatchUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="mt-1 w-full py-1 rounded bg-purple-500/20 hover:bg-purple-500 text-purple-300 hover:text-white text-[10px] font-bold flex items-center justify-center gap-1 transition-colors"
-                        >
-                          <Play className="w-2.5 h-2.5 fill-current" />
-                          <span>Watch</span>
-                        </a>
+
+                        <div className="grid grid-cols-2 gap-1.5 mt-2 pt-1 border-t border-white/5">
+                          <button
+                            type="button"
+                            onClick={(e) => handleAddDiscoveryToWatching(crTitle, e)}
+                            className={`py-1 px-1 rounded text-[10px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer ${
+                              isAdded
+                                ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/40'
+                                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700'
+                            }`}
+                            title="Add to Still Watching list"
+                          >
+                            {isAdded ? <Check className="w-2.5 h-2.5" /> : <Bookmark className="w-2.5 h-2.5" />}
+                            <span className="truncate">{isAdded ? 'Watching' : '+ Watch'}</span>
+                          </button>
+
+                          <a
+                            href={netflixWatchUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="py-1 px-1 rounded bg-purple-500/20 hover:bg-purple-500 text-purple-300 hover:text-white text-[10px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                          >
+                            <Play className="w-2.5 h-2.5 fill-current" />
+                            <span>Netflix</span>
+                          </a>
+                        </div>
                       </div>
                     </div>
                   );
