@@ -65,7 +65,7 @@ interface MoviesSeriesViewProps {
 
 type SortField = 'rottenTomatoes' | 'imdb' | 'rating' | 'runtime' | 'title' | 'year' | 'recently_added';
 type MediaFilterType = 'all' | 'movie' | 'tv';
-type StatusFilterType = 'all' | 'unwatched' | 'still_watching' | 'completed' | 'dropped';
+type StatusFilterType = 'all' | 'active' | 'unwatched' | 'still_watching' | 'completed' | 'dropped';
 type PresetType =
   | 'all'
   | 'hollywood'
@@ -446,17 +446,17 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
     }
 
     // 2. Status
-    if (statusFilter !== 'all') {
-      result = result.filter((x) => {
-        const status = x.viewingStatus || (x.isCompleted ? 'completed' : 'unwatched');
-        return status === statusFilter;
-      });
-    } else {
-      // By default on Movies & Series catalog, do NOT show watched (completed) and dropped items
+    if (statusFilter === 'active') {
+      // Active: Unwatched and in progress (still watching), excluding completed and dropped
       result = result.filter((x) => {
         const isDone = x.isCompleted || x.viewingStatus === 'completed';
         const isDropped = x.viewingStatus === 'dropped' || !!x.droppedReason;
         return !isDone && !isDropped;
+      });
+    } else if (statusFilter !== 'all') {
+      result = result.filter((x) => {
+        const status = x.viewingStatus || (x.isCompleted ? 'completed' : 'unwatched');
+        return status === statusFilter;
       });
     }
 
@@ -730,7 +730,8 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
               onChange={(e) => setStatusFilter(e.target.value as StatusFilterType)}
               className="w-full md:w-auto bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white font-medium focus:outline-none focus:border-[#E50914] cursor-pointer truncate"
             >
-              <option value="all" className="bg-zinc-900 text-white">Active Catalog</option>
+              <option value="all" className="bg-zinc-900 text-white">All Titles ({items.length})</option>
+              <option value="active" className="bg-zinc-900 text-white">Active (Unwatched &amp; Watching)</option>
               <option value="unwatched" className="bg-zinc-900 text-white">Unwatched Only</option>
               <option value="still_watching" className="bg-zinc-900 text-white">Still Watching</option>
               <option value="completed" className="bg-zinc-900 text-white">Completed (Watched)</option>

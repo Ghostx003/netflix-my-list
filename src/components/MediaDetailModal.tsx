@@ -1,9 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, Star, Clock, Calendar, Film, Tv, Play, ExternalLink, Sparkles, Layers, Video, ChevronDown, ChevronUp, Volume2, Loader2, Clapperboard } from 'lucide-react';
-import { AppSettings, LibraryItem, EpisodeInfo, TrailerInfo } from '../types';
+import { X, Star, Clock, Calendar, Film, Tv, Play, ExternalLink, Sparkles, Layers, Video, ChevronDown, ChevronUp, Volume2, Loader2, Clapperboard, User, Globe } from 'lucide-react';
+import { AppSettings, LibraryItem, EpisodeInfo, TrailerInfo, DiscoveryTitle } from '../types';
 import { formatRuntime, calculateSeriesRuntime } from '../services/analytics';
 import { getNetflixUrl, normalizeCountryName, getPriorityLanguageBadge, itemHasLanguage } from '../services/normalizer';
 import { searchYouTubeTrailer } from '../services/youtubeTrailer';
+import { getAllDiscoveryTitles } from '../services/db';
+import { CachedImage } from './CachedImage';
 
 interface MediaDetailModalProps {
   item: LibraryItem | null;
@@ -11,6 +13,7 @@ interface MediaDetailModalProps {
   settings: AppSettings;
   onChangeMatch?: (item: LibraryItem) => void;
   onUpdateItem?: (updatedItem: LibraryItem) => void;
+  onSelectItem?: (item: LibraryItem) => void;
 }
 
 export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
@@ -19,6 +22,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   settings,
   onChangeMatch,
   onUpdateItem,
+  onSelectItem,
 }) => {
   if (!item) return null;
 
@@ -28,6 +32,54 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const youtubeSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(displayTitle + ' hindi official trailer')}`;
   const netflixUrl = getNetflixUrl(item);
   const langBadge = getPriorityLanguageBadge(item);
+
+  // Discovery catalog for director / cast / creator lookup
+  const [discoveryCatalog, setDiscoveryCatalog] = useState<DiscoveryTitle[]>([]);
+  const [selectedDirector, setSelectedDirector] = useState<string | null>(null);
+  const [selectedCreator, setSelectedCreator] = useState<string | null>(null);
+  const [selectedCastMember, setSelectedCastMember] = useState<string | null>(null);
+  const [isLanguagesExpanded, setIsLanguagesExpanded] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    getAllDiscoveryTitles().then((titles) => {
+      if (isMounted && titles) {
+        setDiscoveryCatalog(titles);
+      }
+    }).catch((err) => {
+      console.warn('Failed to load discovery titles for modal', err);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Compute other catalog titles for selected cast member
+  const castTitles = useMemo(() => {
+    if (!selectedCastMember) return [];
+    const searchName = selectedCastMember.toLowerCase().trim();
+    return discoveryCatalog.filter((t) =>
+      t.cast?.some((actor) => actor.toLowerCase().includes(searchName))
+    );
+  }, [selectedCastMember, discoveryCatalog]);
+
+  // Compute other catalog titles for selected director
+  const directorTitles = useMemo(() => {
+    if (!selectedDirector) return [];
+    const searchName = selectedDirector.toLowerCase().trim();
+    return discoveryCatalog.filter((t) =>
+      t.director?.toLowerCase().includes(searchName)
+    );
+  }, [selectedDirector, discoveryCatalog]);
+
+  // Compute other catalog titles for selected creator
+  const creatorTitles = useMemo(() => {
+    if (!selectedCreator) return [];
+    const searchName = selectedCreator.toLowerCase().trim();
+    return discoveryCatalog.filter((t) =>
+      t.creator?.toLowerCase().includes(searchName) || t.director?.toLowerCase().includes(searchName)
+    );
+  }, [selectedCreator, discoveryCatalog]);
 
   // Active trailer state (either from item or dynamically fetched)
   const [activeTrailer, setActiveTrailer] = useState<TrailerInfo | null>(item.trailer || null);
@@ -339,52 +391,106 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                 </div>
               )}
 
-              {/* Audio & Dubbing Options */}
-              <div className="mt-4 p-3.5 rounded-xl bg-zinc-950/90 border border-zinc-800 shadow-inner">
-                <div className="flex items-center justify-between mb-2.5">
-                  <span className="text-[11px] font-bold text-zinc-200 uppercase tracking-wider flex items-center gap-1.5">
-                    <Volume2 className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Audio &amp; Dubbing Tracks:</span>
-                  </span>
-                  <span className="text-[10px] text-zinc-500">Tap to toggle Hindi / English dub</span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    { code: 'hi', name: 'Hindi', label: 'हिं Hindi', activeClass: 'bg-amber-500 text-black border-amber-400 font-black shadow-md shadow-amber-500/20' },
-                    { code: 'en', name: 'English', label: 'EN English', activeClass: 'bg-blue-600 text-white border-blue-400 font-extrabold shadow-md shadow-blue-500/20' },
-                    { code: 'ko', name: 'Korean', label: 'KO Korean', activeClass: 'bg-purple-600 text-white border-purple-400 font-bold' },
-                    { code: 'ja', name: 'Japanese', label: 'JA Japanese', activeClass: 'bg-rose-600 text-white border-rose-400 font-bold' },
-                    { code: 'zh', name: 'Chinese', label: 'ZH Chinese', activeClass: 'bg-teal-600 text-white border-teal-400 font-bold' },
-                  ].map((lang) => {
-                    const isSelected = itemHasLanguage(item, lang.name.toLowerCase());
-                    return (
-                      <button
-                        key={lang.code}
-                        type="button"
-                        onClick={() => {
-                          if (!onUpdateItem) return;
-                          const currentLangs = item.languages || [];
-                          const isAlready = itemHasLanguage(item, lang.name.toLowerCase());
-                          let updatedLangs: string[];
-                          if (isAlready) {
-                            updatedLangs = currentLangs.filter(l => l.toLowerCase() !== lang.name.toLowerCase() && !l.toLowerCase().includes(lang.code));
-                          } else {
-                            updatedLangs = [...currentLangs, lang.name];
-                          }
-                          onUpdateItem({ ...item, languages: updatedLangs });
-                        }}
-                        className={`text-xs px-3 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer ${
-                          isSelected
-                            ? lang.activeClass
-                            : 'bg-zinc-900 text-zinc-400 border-zinc-700/80 hover:bg-zinc-800 hover:text-white'
-                        }`}
-                      >
-                        <span className="font-mono text-[11px]">{isSelected ? '✓' : '+'}</span>
-                        <span>{lang.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+              {/* LANGUAGE INFORMATION (COLLAPSIBLE DISCOVERY COMPATIBLE) */}
+              <div className="mt-4 bg-zinc-950/90 rounded-xl border border-zinc-800 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setIsLanguagesExpanded(!isLanguagesExpanded)}
+                  className="w-full flex items-center justify-between p-3.5 text-xs font-bold text-zinc-300 hover:text-white transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <Volume2 className="w-4 h-4 text-amber-400" />
+                    <span>Languages</span>
+                    <span className="text-[11px] font-normal text-zinc-400">
+                      {item.audioLanguages && item.audioLanguages.length > 0
+                        ? `${item.audioLanguages.slice(0, 3).map((l) => l.toUpperCase()).join(' · ')}${
+                            item.audioLanguages.length > 3 ? ` + ${item.audioLanguages.length - 3} more` : ''
+                          }`
+                        : item.languages && item.languages.length > 0
+                        ? `${item.languages.slice(0, 3).join(' · ')}${item.languages.length > 3 ? ` + ${item.languages.length - 3} more` : ''}`
+                        : 'English · Hindi available'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 text-zinc-400 text-[11px]">
+                    <span>{isLanguagesExpanded ? 'Hide' : 'Show details'}</span>
+                    {isLanguagesExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </div>
+                </button>
+
+                {isLanguagesExpanded && (
+                  <div className="p-4 pt-1 border-t border-zinc-800/80 space-y-3 text-xs">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <span className="text-zinc-500 font-medium block mb-1.5">Audio Languages:</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(item.audioLanguages && item.audioLanguages.length > 0) ? (
+                            item.audioLanguages.map((lang) => (
+                              <span
+                                key={lang}
+                                className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase ${
+                                  lang.toLowerCase() === 'hi' || lang.toLowerCase() === 'hindi'
+                                    ? 'bg-amber-500/25 text-amber-300 border border-amber-500/40'
+                                    : 'bg-zinc-800 text-zinc-300 border border-zinc-700/50'
+                                }`}
+                              >
+                                {lang.toLowerCase() === 'hi' || lang.toLowerCase() === 'hindi' ? 'हिं (Hindi)' : lang}
+                              </span>
+                            ))
+                          ) : item.languages && item.languages.length > 0 ? (
+                            item.languages.map((lang) => (
+                              <span
+                                key={lang}
+                                className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase ${
+                                  lang.toLowerCase() === 'hi' || lang.toLowerCase() === 'hindi'
+                                    ? 'bg-amber-500/25 text-amber-300 border border-amber-500/40'
+                                    : 'bg-zinc-800 text-zinc-300 border border-zinc-700/50'
+                                }`}
+                              >
+                                {lang.toLowerCase() === 'hi' || lang.toLowerCase() === 'hindi' ? 'हिं (Hindi)' : lang}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-zinc-500">Not specified</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <span className="text-zinc-500 font-medium block mb-1.5">Subtitle Languages:</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {item.subtitleLanguages && item.subtitleLanguages.length > 0 ? (
+                            item.subtitleLanguages.map((sub) => (
+                              <span
+                                key={sub}
+                                className="px-2.5 py-1 rounded-md text-[10px] bg-zinc-800 text-zinc-300 uppercase border border-zinc-700/50"
+                              >
+                                {sub}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-zinc-400">English, Hindi subtitles available on Netflix</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Country Provenance */}
+                    <div className="pt-2 border-t border-zinc-800/80 flex flex-wrap gap-4 text-[11px] text-zinc-400">
+                      {item.countries && item.countries.length > 0 && (
+                        <div>
+                          <span className="text-zinc-500">Origin: </span>
+                          <span className="text-zinc-200 font-semibold">{item.countries.join(', ')}</span>
+                        </div>
+                      )}
+                      {item.originalLanguage && (
+                        <div>
+                          <span className="text-zinc-500">Original Language: </span>
+                          <span className="text-zinc-200 uppercase font-semibold">{item.originalLanguage}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Synopsis with 2-paragraph format */}
@@ -454,21 +560,25 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                   )}
                 </div>
 
-              {/* Cast & Creators Details */}
+              {/* Cast & Creators with Interactive Actor, Director & Creator Click */}
               {(item.cast || item.director || item.creator) && (
                 <div className="mt-4 bg-black/20 p-4 rounded-xl border border-zinc-800/80 space-y-2.5 text-xs">
                   {item.director && (
                     <div>
-                      <span className="text-zinc-500 font-medium block mb-1">Director:</span>
+                      <span className="text-zinc-500 font-medium block mb-1.5">
+                        Director (click to view their movies &amp; series on Netflix India):
+                      </span>
                       <div className="flex flex-wrap gap-1.5">
                         {item.director.split(/,\s*|\s*;\s*|\s*\/\s*/).map((d) => d.trim()).filter(Boolean).map((dir) => (
-                          <span
+                          <button
                             key={dir}
-                            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-500/10 text-amber-300 border border-amber-500/30 text-[11px] font-bold"
+                            type="button"
+                            onClick={() => setSelectedDirector(dir)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border border-amber-500/30 hover:border-amber-500/60 text-[11px] font-bold transition-all shadow-sm group cursor-pointer"
                           >
-                            <Clapperboard className="w-3 h-3 text-amber-400" />
+                            <Clapperboard className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
                             <span>{dir}</span>
-                          </span>
+                          </button>
                         ))}
                       </div>
                     </div>
@@ -476,16 +586,20 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
 
                   {item.creator && (
                     <div>
-                      <span className="text-zinc-500 font-medium block mb-1">Creator:</span>
+                      <span className="text-zinc-500 font-medium block mb-1.5">
+                        Creator (click to view their series &amp; movies on Netflix India):
+                      </span>
                       <div className="flex flex-wrap gap-1.5">
                         {item.creator.split(/,\s*|\s*;\s*|\s*\/\s*/).map((c) => c.trim()).filter(Boolean).map((cr) => (
-                          <span
+                          <button
                             key={cr}
-                            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-purple-500/10 text-purple-300 border border-purple-500/30 text-[11px] font-bold"
+                            type="button"
+                            onClick={() => setSelectedCreator(cr)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 hover:text-purple-200 border border-purple-500/30 hover:border-purple-500/60 text-[11px] font-bold transition-all shadow-sm group cursor-pointer"
                           >
-                            <Sparkles className="w-3 h-3 text-purple-400" />
+                            <Sparkles className="w-3.5 h-3.5 text-purple-400 group-hover:scale-110 transition-transform" />
                             <span>{cr}</span>
-                          </span>
+                          </button>
                         ))}
                       </div>
                     </div>
@@ -493,15 +607,19 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
 
                   {item.cast && item.cast.length > 0 && (
                     <div>
-                      <span className="text-zinc-500 font-medium block mb-1">Cast:</span>
+                      <span className="text-zinc-500 font-medium block mb-1.5">
+                        Cast (click an actor to view their other movies/shows on Netflix India):
+                      </span>
                       <div className="flex flex-wrap gap-1.5">
                         {item.cast.map((actor) => (
-                          <span
+                          <button
                             key={actor}
-                            className="px-2.5 py-1 rounded-lg bg-zinc-800/80 text-zinc-300 border border-zinc-700/60 text-[11px] font-medium"
+                            type="button"
+                            onClick={() => setSelectedCastMember(actor)}
+                            className="px-2.5 py-1 rounded-lg bg-zinc-800/80 hover:bg-red-600/20 text-zinc-300 hover:text-red-300 border border-zinc-700/60 hover:border-red-500/40 text-[11px] font-medium transition-all cursor-pointer"
                           >
                             {actor}
-                          </span>
+                          </button>
                         ))}
                       </div>
                     </div>
@@ -615,6 +733,277 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Cast Member Other Titles Modal */}
+      {selectedCastMember && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-fade-in"
+          onClick={() => setSelectedCastMember(null)}
+        >
+          <div
+            className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-[#181818] border border-white/10 rounded-2xl p-5 sm:p-6 shadow-2xl text-white space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <User className="w-5 h-5 text-red-500" />
+                <h3 className="text-base sm:text-lg font-black text-white">
+                  {selectedCastMember} on Netflix India
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedCastMember(null)}
+                className="p-1.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-400">
+              Found <span className="text-red-400 font-bold">{castTitles.length}</span> titles featuring <span className="text-white font-semibold">{selectedCastMember}</span> on Netflix India:
+            </p>
+
+            {castTitles.length === 0 ? (
+              <div className="text-center py-8 text-zinc-500 text-xs">
+                No other titles found featuring {selectedCastMember} in the current catalog.
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {castTitles.map((cTitle) => {
+                  const netflixWatchUrl = cTitle.netflixId
+                    ? `https://www.netflix.com/watch/${cTitle.netflixId}`
+                    : `https://www.netflix.com/search?q=${encodeURIComponent(cTitle.title)}`;
+                  return (
+                    <div
+                      key={cTitle.id}
+                      className="group bg-zinc-900 rounded-xl overflow-hidden border border-white/5 hover:border-red-600/50 transition-all p-2 flex flex-col gap-2"
+                    >
+                      <div className="relative aspect-[2/3] w-full bg-zinc-800 rounded-lg overflow-hidden">
+                        <CachedImage
+                          src={cTitle.posterPath}
+                          alt={cTitle.title}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        />
+                        {cTitle.imdbRating && (
+                          <div className="absolute top-1 right-1 bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] font-bold text-amber-400">
+                            ⭐ {cTitle.imdbRating}
+                          </div>
+                        )}
+                        <div className="absolute top-1 left-1 bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] font-bold text-zinc-300 capitalize">
+                          {cTitle.mediaType}
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <h5 className="text-xs font-bold text-white line-clamp-1 group-hover:text-red-400 transition-colors">
+                          {cTitle.title}
+                        </h5>
+                        <div className="text-[10px] text-zinc-500 flex items-center justify-between">
+                          <span>{cTitle.releaseYear || ''}</span>
+                          <span className="capitalize">{cTitle.mediaType}</span>
+                        </div>
+                        <a
+                          href={netflixWatchUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1 w-full py-1 rounded bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white text-[10px] font-bold flex items-center justify-center gap-1 transition-colors"
+                        >
+                          <Play className="w-2.5 h-2.5 fill-current" />
+                          <span>Watch</span>
+                        </a>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Director Catalog Modal */}
+      {selectedDirector && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-fade-in"
+          onClick={() => setSelectedDirector(null)}
+        >
+          <div
+            className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-[#181818] border border-amber-500/30 rounded-2xl p-5 sm:p-6 shadow-2xl text-white space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  <Clapperboard className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black text-white">
+                    {selectedDirector}
+                  </h3>
+                  <p className="text-[11px] text-amber-400/80 font-medium">Director's Work on Netflix India</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedDirector(null)}
+                className="p-1.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-400">
+              Found <span className="text-amber-400 font-bold">{directorTitles.length}</span> movies &amp; series directed by <span className="text-white font-semibold">{selectedDirector}</span> on Netflix India:
+            </p>
+
+            {directorTitles.length === 0 ? (
+              <div className="text-center py-8 text-zinc-500 text-xs">
+                No other titles found directed by {selectedDirector} in the current catalog.
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {directorTitles.map((dTitle) => {
+                  const netflixWatchUrl = dTitle.netflixId
+                    ? `https://www.netflix.com/watch/${dTitle.netflixId}`
+                    : `https://www.netflix.com/search?q=${encodeURIComponent(dTitle.title)}`;
+                  return (
+                    <div
+                      key={dTitle.id}
+                      className="group bg-zinc-900 rounded-xl overflow-hidden border border-white/5 hover:border-amber-500/50 transition-all p-2 flex flex-col gap-2"
+                    >
+                      <div className="relative aspect-[2/3] w-full bg-zinc-800 rounded-lg overflow-hidden">
+                        <CachedImage
+                          src={dTitle.posterPath}
+                          alt={dTitle.title}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        />
+                        {dTitle.imdbRating && (
+                          <div className="absolute top-1 right-1 bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] font-bold text-amber-400">
+                            ⭐ {dTitle.imdbRating}
+                          </div>
+                        )}
+                        <div className="absolute top-1 left-1 bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] font-bold text-zinc-300 capitalize">
+                          {dTitle.mediaType}
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <h5 className="text-xs font-bold text-white line-clamp-1 group-hover:text-amber-400 transition-colors">
+                          {dTitle.title}
+                        </h5>
+                        <div className="text-[10px] text-zinc-500 flex items-center justify-between">
+                          <span>{dTitle.releaseYear || ''}</span>
+                          <span>{dTitle.genres?.[0] || ''}</span>
+                        </div>
+                        <a
+                          href={netflixWatchUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1 w-full py-1 rounded bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black text-[10px] font-bold flex items-center justify-center gap-1 transition-colors"
+                        >
+                          <Play className="w-2.5 h-2.5 fill-current" />
+                          <span>Watch</span>
+                        </a>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Creator Catalog Modal */}
+      {selectedCreator && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-fade-in"
+          onClick={() => setSelectedCreator(null)}
+        >
+          <div
+            className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-[#181818] border border-purple-500/30 rounded-2xl p-5 sm:p-6 shadow-2xl text-white space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black text-white">
+                    {selectedCreator}
+                  </h3>
+                  <p className="text-[11px] text-purple-400/80 font-medium">Creator's Work on Netflix India</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedCreator(null)}
+                className="p-1.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-400">
+              Found <span className="text-purple-400 font-bold">{creatorTitles.length}</span> series &amp; movies created by <span className="text-white font-semibold">{selectedCreator}</span> on Netflix India:
+            </p>
+
+            {creatorTitles.length === 0 ? (
+              <div className="text-center py-8 text-zinc-500 text-xs">
+                No other titles found created by {selectedCreator} in the current catalog.
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {creatorTitles.map((crTitle) => {
+                  const netflixWatchUrl = crTitle.netflixId
+                    ? `https://www.netflix.com/watch/${crTitle.netflixId}`
+                    : `https://www.netflix.com/search?q=${encodeURIComponent(crTitle.title)}`;
+                  return (
+                    <div
+                      key={crTitle.id}
+                      className="group bg-zinc-900 rounded-xl overflow-hidden border border-white/5 hover:border-purple-500/50 transition-all p-2 flex flex-col gap-2"
+                    >
+                      <div className="relative aspect-[2/3] w-full bg-zinc-800 rounded-lg overflow-hidden">
+                        <CachedImage
+                          src={crTitle.posterPath}
+                          alt={crTitle.title}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        />
+                        {crTitle.imdbRating && (
+                          <div className="absolute top-1 right-1 bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] font-bold text-amber-400">
+                            ⭐ {crTitle.imdbRating}
+                          </div>
+                        )}
+                        <div className="absolute top-1 left-1 bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] font-bold text-zinc-300 capitalize">
+                          {crTitle.mediaType}
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <h5 className="text-xs font-bold text-white line-clamp-1 group-hover:text-purple-400 transition-colors">
+                          {crTitle.title}
+                        </h5>
+                        <div className="text-[10px] text-zinc-500 flex items-center justify-between">
+                          <span>{crTitle.releaseYear || ''}</span>
+                          <span className="capitalize">{crTitle.mediaType}</span>
+                        </div>
+                        <a
+                          href={netflixWatchUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1 w-full py-1 rounded bg-purple-500/20 hover:bg-purple-500 text-purple-300 hover:text-white text-[10px] font-bold flex items-center justify-center gap-1 transition-colors"
+                        >
+                          <Play className="w-2.5 h-2.5 fill-current" />
+                          <span>Watch</span>
+                        </a>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

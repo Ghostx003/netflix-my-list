@@ -115,6 +115,12 @@ export interface LibraryItem {
   netflixAddedDate?: string;
   isNetflixIndiaVerified?: boolean;
   imdbId?: string;
+  audioLanguages?: string[];
+  subtitleLanguages?: string[];
+  hindiAudio?: boolean | null;
+  englishAudio?: boolean | null;
+  hindiSubtitles?: boolean | null;
+  englishSubtitles?: boolean | null;
 
   // Timestamps
   addedAt: string;

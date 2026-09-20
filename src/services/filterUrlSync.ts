@@ -2,7 +2,7 @@ export interface CatalogFilterState {
   searchQuery: string;
   filterType: 'all' | 'with_trailers';
   mediaTypeFilter: 'all' | 'movie' | 'tv';
-  statusFilter: 'all' | 'unwatched' | 'still_watching' | 'completed' | 'dropped';
+  statusFilter: 'all' | 'active' | 'unwatched' | 'still_watching' | 'completed' | 'dropped';
   languageFilter: string;
   sortBy: 'rottenTomatoes' | 'imdb' | 'rating' | 'runtime' | 'title' | 'year' | 'recently_added';
   sortOrder: 'asc' | 'desc';
@@ -78,7 +78,7 @@ export function parseInitialFilters(): CatalogFilterState {
     }
     if (params.has('status')) {
       const st = params.get('status') as any;
-      if (['all', 'unwatched', 'still_watching', 'completed', 'dropped'].includes(st)) filters.statusFilter = st;
+      if (['all', 'active', 'unwatched', 'still_watching', 'completed', 'dropped'].includes(st)) filters.statusFilter = st;
     }
     if (params.has('lang')) {
       filters.languageFilter = params.get('lang') || 'all';
