@@ -3050,7 +3050,7 @@ export async function syncAndEnrichLibraryItemsToDiscovery(options: {
     const progressPercent = Math.round(20 + (currentIndex / pendingEnrichment.length) * 78);
 
     onProgress?.(
-      `Enriching (${currentIndex}/${pendingEnrichment.length}): "${item.title}"...`,
+      `Enriching (${currentIndex}/${pendingEnrichment.length} pending · ${skippedCount} already up to date): "${item.title}"...`,
       progressPercent
     );
 
