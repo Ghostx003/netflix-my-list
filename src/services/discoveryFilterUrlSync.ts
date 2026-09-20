@@ -27,6 +27,8 @@ export interface DiscoveryFilterState {
   sortOrder: 'asc' | 'desc';
   selectedGenres: string[];
   excludedGenres: string[];
+  selectedThemes: string[];
+  excludedThemes: string[];
   genreMatchMode: 'any' | 'all';
   selectedCountries: string[];
   excludedCountries: string[];
@@ -46,6 +48,8 @@ export const DEFAULT_DISCOVERY_FILTER_STATE: DiscoveryFilterState = {
   sortOrder: 'desc',
   selectedGenres: [],
   excludedGenres: [],
+  selectedThemes: [],
+  excludedThemes: [],
   genreMatchMode: 'any',
   selectedCountries: [],
   excludedCountries: [],
@@ -118,6 +122,14 @@ export function parseInitialDiscoveryFilters(): DiscoveryFilterState {
       const gm = params.get('dGenreMode') as any;
       if (gm === 'all' || gm === 'any') filters.genreMatchMode = gm;
     }
+    if (params.has('dThemes')) {
+      const t = params.get('dThemes');
+      filters.selectedThemes = t ? t.split(',').map((s) => s.trim()).filter(Boolean) : [];
+    }
+    if (params.has('dExcludeThemes')) {
+      const et = params.get('dExcludeThemes');
+      filters.excludedThemes = et ? et.split(',').map((s) => s.trim()).filter(Boolean) : [];
+    }
     if (params.has('dCountries')) {
       const c = params.get('dCountries');
       filters.selectedCountries = c ? c.split(',').map((s) => s.trim()).filter(Boolean) : [];
@@ -186,6 +198,18 @@ export function syncDiscoveryFiltersToUrlAndStorage(filters: DiscoveryFilterStat
 
   updateParam('dGenreMode', filters.genreMatchMode, 'any');
 
+  if (filters.selectedThemes.length > 0) {
+    currentParams.set('dThemes', filters.selectedThemes.join(','));
+  } else {
+    currentParams.delete('dThemes');
+  }
+
+  if (filters.excludedThemes.length > 0) {
+    currentParams.set('dExcludeThemes', filters.excludedThemes.join(','));
+  } else {
+    currentParams.delete('dExcludeThemes');
+  }
+
   if (filters.selectedCountries.length > 0) {
     currentParams.set('dCountries', filters.selectedCountries.join(','));
   } else {
@@ -204,9 +228,11 @@ export function syncDiscoveryFiltersToUrlAndStorage(filters: DiscoveryFilterStat
   updateParam('dMaxYear', filters.maxYear);
   updateParam('dMinRating', filters.minRating > 0 ? filters.minRating.toString() : undefined);
 
-  const queryString = currentParams.toString();
-  const newRelativePathQuery = window.location.pathname + (queryString ? '?' + queryString : '') + window.location.hash;
-  window.history.replaceState(null, '', newRelativePathQuery);
+  try {
+    const queryString = currentParams.toString();
+    const newRelativePathQuery = window.location.pathname + (queryString ? '?' + queryString : '') + window.location.hash;
+    window.history.replaceState(null, '', newRelativePathQuery);
+  } catch {}
 }
 
 export function clearDiscoveryFiltersFromUrlAndStorage() {
@@ -224,6 +250,8 @@ export function clearDiscoveryFiltersFromUrlAndStorage() {
     'dSortOrder',
     'dGenres',
     'dExcludeGenres',
+    'dThemes',
+    'dExcludeThemes',
     'dGenreMode',
     'dCountries',
     'dExcludeCountries',

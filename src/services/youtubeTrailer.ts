@@ -3,13 +3,13 @@ import { getCachedMetadata, setCachedMetadata } from './db';
 
 /**
  * Searches YouTube for trailer with Hindi priority, then English fallback.
- * Uses Piped / Invidious public YouTube API mirrors, with client-side fallback parsing.
+ * Uses public YouTube API mirrors, with client-side fallback parsing.
  */
 const YOUTUBE_SEARCH_ENDPOINTS = [
-  'https://pipedapi.kavin.rocks/search',
   'https://api.piped.private.coffee/search',
   'https://pipedapi.leptons.xyz/search',
   'https://invidious.nerdvpn.de/api/v1/search',
+  'https://inv.nadeko.net/api/v1/search',
 ];
 
 /**
@@ -18,10 +18,11 @@ const YOUTUBE_SEARCH_ENDPOINTS = [
 export async function searchYouTubeTrailer(
   title: string,
   year?: number,
-  mediaType?: MediaType | string
+  mediaType?: MediaType | string,
+  preferredLanguage?: 'hi' | 'en'
 ): Promise<TrailerInfo | null> {
   const cleanTitle = title.replace(/[^\w\s]/gi, ' ').trim();
-  const cacheKey = `yt_trailer_${cleanTitle.toLowerCase()}_${year || ''}`;
+  const cacheKey = `yt_trailer_${cleanTitle.toLowerCase()}_${year || ''}_${preferredLanguage || 'hi'}`;
 
   // 1. Check local indexedDB cache
   const cached = await getCachedMetadata(cacheKey);
@@ -29,14 +30,21 @@ export async function searchYouTubeTrailer(
     return cached as TrailerInfo;
   }
 
-  // Priority queries:
-  // 1. "<Title> hindi trailer"
-  // 2. "<Title> official trailer"
-  const queries = [
-    { query: `${cleanTitle} ${year || ''} hindi trailer`, lang: 'hi' },
-    { query: `${cleanTitle} ${mediaType === 'tv' ? 'series' : 'movie'} official trailer`, lang: 'en' },
-    { query: `${cleanTitle} official trailer`, lang: 'en' },
-  ];
+  // Priority queries based on preference:
+  const queries =
+    preferredLanguage === 'en'
+      ? [
+          { query: `${cleanTitle} ${year || ''} official trailer english`, lang: 'en' },
+          { query: `${cleanTitle} ${mediaType === 'tv' ? 'series' : 'movie'} official trailer`, lang: 'en' },
+          { query: `${cleanTitle} official trailer`, lang: 'en' },
+          { query: `${cleanTitle} ${year || ''} hindi trailer`, lang: 'hi' },
+        ]
+      : [
+          { query: `${cleanTitle} ${year || ''} hindi trailer`, lang: 'hi' },
+          { query: `${cleanTitle} hindi trailer`, lang: 'hi' },
+          { query: `${cleanTitle} ${mediaType === 'tv' ? 'series' : 'movie'} official trailer`, lang: 'en' },
+          { query: `${cleanTitle} official trailer`, lang: 'en' },
+        ];
 
   for (const qObj of queries) {
     const trailer = await trySearchEndpoints(qObj.query, qObj.lang);

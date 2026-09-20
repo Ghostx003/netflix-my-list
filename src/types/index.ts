@@ -185,6 +185,30 @@ export interface DiscoveryTitle {
   sourceUrl?: string;
   metadataUpdatedAt?: string;
   catalogUpdatedAt?: string;
+
+  // TMDB Enrichment & Provenance
+  tagline?: string;
+  tmdbKeywords?: string[];
+  themes?: string[];
+  watchmodeOriginCountry?: string;
+  tmdbOriginCountry?: string;
+  tmdbProductionCountries?: string[];
+  productionCompanies?: string[];
+  status?: string;
+  tmdbRecommendationIds?: number[];
+  tmdbSimilarIds?: number[];
+  similarLocalIds?: string[];
+  watchmodeUserEnjoyment?: number;
+  watchmodeRelevance?: number;
+  watchmodeCriticScore?: number;
+  tmdbEnrichment?: {
+    status: 'pending' | 'processing' | 'completed' | 'failed';
+    lastFetchedAt?: string;
+    tmdbId?: number;
+    enrichmentVersion?: number;
+    fieldsFetched?: string[];
+    error?: string;
+  };
 }
 
 export interface SavedDiscoveryFilter {
@@ -196,6 +220,7 @@ export interface SavedDiscoveryFilter {
     preset: string;
     searchQuery: string;
     selectedGenres: string[];
+    selectedThemes?: string[];
     genreMatchMode: 'any' | 'all';
     selectedCountries: string[];
     selectedLanguages: string[];

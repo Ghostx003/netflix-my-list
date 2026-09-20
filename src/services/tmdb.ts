@@ -87,7 +87,12 @@ export function selectBestTrailer(videos: any[]): TrailerInfo | undefined {
 /**
  * Fetch ratings, poster, plot, runtime, genres and country from OMDB API
  */
-export async function fetchOMDBMetadata(title: string, customKey?: string): Promise<{
+export async function fetchOMDBMetadata(
+  title: string,
+  customKey?: string,
+  imdbId?: string,
+  year?: number
+): Promise<{
   imdbRating?: number;
   rottenTomatoesRating?: number;
   poster?: string;
@@ -99,13 +104,16 @@ export async function fetchOMDBMetadata(title: string, customKey?: string): Prom
   countries?: string[];
   languages?: string[];
 } | null> {
-  const cacheKey = 'omdb_' + title.toLowerCase();
+  const cacheKey = imdbId ? `omdb_id_${imdbId}` : `omdb_${title.toLowerCase()}_${year || ''}`;
   const cached = await getCachedMetadata(cacheKey);
   if (cached) return cached;
 
   const key = customKey || OMDB_KEY;
   try {
-    const url = 'https://www.omdbapi.com/?t=' + encodeURIComponent(title) + '&plot=full&apikey=' + key;
+    const queryParam = imdbId
+      ? `i=${encodeURIComponent(imdbId)}`
+      : `t=${encodeURIComponent(title)}${year ? `&y=${year}` : ''}`;
+    const url = `https://www.omdbapi.com/?${queryParam}&plot=full&apikey=${key}`;
     const res = await fetch(url);
     if (!res.ok) return null;
     const d = await res.json();

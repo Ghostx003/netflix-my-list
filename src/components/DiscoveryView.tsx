@@ -42,6 +42,12 @@ import {
 } from '../services/db';
 import { normalizeCountryName } from '../services/normalizer';
 import { DiscoveryCard } from './DiscoveryCard';
+import { DiscoveryDetailModal } from './DiscoveryDetailModal';
+import {
+  enrichCatalogWithTMDB,
+  TMDBEnrichmentProgress,
+} from '../services/tmdbEnrichmentService';
+import { CANONICAL_THEMES } from '../services/themeMapper';
 import {
   DiscoveryFilterState,
   parseInitialDiscoveryFilters,
@@ -67,6 +73,7 @@ type PresetType =
   | 'bollywood'
   | 'kdramas'
   | 'anime'
+  | 'ignore_anime'
   | 'european'
   | 'asian'
   | 'hindi_dubbed'
@@ -179,6 +186,24 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   const [maxYear, setMaxYear] = useState<string>(initialFilters.maxYear);
   const [minRating, setMinRating] = useState<number>(initialFilters.minRating);
 
+  const [selectedThemes, setSelectedThemes] = useState<string[]>(initialFilters.selectedThemes || []);
+  const [excludedThemes, setExcludedThemes] = useState<string[]>(initialFilters.excludedThemes || []);
+  const [showThemeModal, setShowThemeModal] = useState(false);
+  const [themeModalTab, setThemeModalTab] = useState<'include' | 'exclude'>('include');
+  const [themeSearchQuery, setThemeSearchQuery] = useState('');
+
+  // Discovery Detail Modal Stack Navigation
+  const [titleStack, setTitleStack] = useState<DiscoveryTitle[]>([]);
+
+  // API Manager Modal State
+  const [showApiModal, setShowApiModal] = useState(false);
+
+  // TMDB Catalog Enrichment State
+  const [showEnrichModal, setShowEnrichModal] = useState(false);
+  const [enrichmentProgress, setEnrichmentProgress] = useState<TMDBEnrichmentProgress | null>(null);
+  const [isEnriching, setIsEnriching] = useState(false);
+  const cancelEnrichmentRef = useRef(false);
+
   // Modal dialog states matching MoviesSeriesView
   const [showGenreModal, setShowGenreModal] = useState(false);
   const [genreModalTab, setGenreModalTab] = useState<'include' | 'exclude'>('include');
@@ -210,6 +235,8 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       sortOrder,
       selectedGenres,
       excludedGenres,
+      selectedThemes,
+      excludedThemes,
       genreMatchMode,
       selectedCountries,
       excludedCountries,
@@ -229,6 +256,8 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     sortOrder,
     selectedGenres,
     excludedGenres,
+    selectedThemes,
+    excludedThemes,
     genreMatchMode,
     selectedCountries,
     excludedCountries,
@@ -490,6 +519,13 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     return Array.from(set).sort();
   }, [catalog]);
 
+  // Dynamic & Canonical themes from catalog
+  const availableThemes = useMemo(() => {
+    const set = new Set<string>(CANONICAL_THEMES);
+    catalog.forEach((item) => (item.themes || []).forEach((t) => set.add(t)));
+    return Array.from(set).sort();
+  }, [catalog]);
+
   // Dynamic countries from catalog
   const availableCountries = useMemo(() => {
     const set = new Set<string>();
@@ -547,6 +583,12 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       setSelectedGenres(['Animation']);
       setAudioFilter('all');
       setMinRating(0);
+    } else if (preset === 'ignore_anime') {
+      setContentType('all');
+      setSelectedCountries([]);
+      setSelectedGenres([]);
+      setAudioFilter('all');
+      setMinRating(0);
     } else if (preset === 'european') {
       setContentType('all');
       setSelectedCountries(Array.from(EUROPEAN_COUNTRIES));
@@ -590,6 +632,10 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     setContentType('all');
     setStatusFilter('all');
     setSelectedGenres([]);
+    setExcludedGenres([]);
+    setSelectedThemes([]);
+    setExcludedThemes([]);
+    setThemeSearchQuery('');
     setGenreMatchMode('any');
     setSelectedCountries([]);
     setExcludedCountries([]);
@@ -698,6 +744,13 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       result = result.filter((x) => (x.countries || []).some((c) => EUROPEAN_COUNTRIES.has(normalizeCountryName(c))));
     } else if (activePreset === 'asian') {
       result = result.filter((x) => (x.countries || []).some((c) => ASIAN_COUNTRIES.has(normalizeCountryName(c))));
+    } else if (activePreset === 'ignore_anime') {
+      // Exclude titles that have Animation genre or anime keywords, but KEEP live-action Japanese titles
+      result = result.filter((x) => {
+        const isAnimation = (x.genres || []).some((g) => g.toLowerCase() === 'animation');
+        const isAnimeKeyword = (x.tmdbKeywords || []).some((k) => k.toLowerCase().includes('anime'));
+        return !isAnimation && !isAnimeKeyword;
+      });
     } else if (selectedCountries.length > 0) {
       // 4. Country include filter
       result = result.filter((x) => {
@@ -726,6 +779,20 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     // 5b. Genres filter (Excludes)
     if (excludedGenres.length > 0) {
       result = result.filter((x) => !(x.genres || []).some((g) => excludedGenres.includes(g)));
+    }
+
+    // 5c. Themes filter (Includes)
+    if (selectedThemes.length > 0) {
+      if (genreMatchMode === 'all') {
+        result = result.filter((x) => selectedThemes.every((t) => (x.themes || []).includes(t)));
+      } else {
+        result = result.filter((x) => selectedThemes.some((t) => (x.themes || []).includes(t)));
+      }
+    }
+
+    // 5d. Themes filter (Excludes)
+    if (excludedThemes.length > 0) {
+      result = result.filter((x) => !(x.themes || []).some((t) => excludedThemes.includes(t)));
     }
 
     // 6. Original Language / Spoken Language filter
@@ -852,6 +919,8 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     excludedCountries,
     selectedGenres,
     excludedGenres,
+    selectedThemes,
+    excludedThemes,
     genreMatchMode,
     selectedLanguage,
     audioFilter,
@@ -991,6 +1060,80 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     onOpenDetail(randomItem);
   };
 
+  // Handlers for Discovery Detail Modal Stack Navigation
+  const handleOpenDiscoveryDetail = (title: DiscoveryTitle) => {
+    setTitleStack([title]);
+  };
+
+  const handlePushDiscoveryDetail = (title: DiscoveryTitle) => {
+    setTitleStack((prev) => [...prev, title]);
+  };
+
+  const handlePopDiscoveryDetail = () => {
+    setTitleStack((prev) => (prev.length > 1 ? prev.slice(0, prev.length - 1) : []));
+  };
+
+  const handleCloseDiscoveryDetail = () => {
+    setTitleStack([]);
+  };
+
+  // TMDB Catalogue Enrichment Execution
+  const handleStartTMDBEnrichment = async (force: boolean = false) => {
+    if (isEnriching || catalog.length === 0) return;
+    setIsEnriching(true);
+    cancelEnrichmentRef.current = false;
+
+    try {
+      const result = await enrichCatalogWithTMDB({
+        titles: catalog,
+        apiKey: settings.tmdbApiKey,
+        concurrency: 2,
+        delayBetweenBatchesMs: 200,
+        forceReenrich: force,
+        shouldCancel: () => cancelEnrichmentRef.current,
+        onProgress: (p) => {
+          setEnrichmentProgress(p);
+        },
+        onBatchSaved: async (batch) => {
+          // Update catalog in memory and save to IndexedDB incrementally
+          setCatalog((prev) => {
+            const map = new Map<string, DiscoveryTitle>(prev.map((t) => [t.id, t]));
+            batch.forEach((b) => map.set(b.id, b));
+            return Array.from(map.values());
+          });
+          await saveDiscoveryTitles(batch);
+        },
+      });
+
+      // Save full enriched catalog to IndexedDB and update meta
+      setCatalog(result.enrichedTitles);
+      await saveDiscoveryTitles(result.enrichedTitles);
+
+      const syncIso = new Date().toLocaleString('en-IN', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      });
+      const currentMeta = (await getDiscoveryCatalogMeta()) || {};
+      await setDiscoveryCatalogMeta({
+        ...currentMeta,
+        lastTMDBEnrichment: syncIso,
+      });
+
+      setRefreshNotification(
+        `✨ TMDB Enrichment finished! ${result.completedCount} titles enriched, ${result.skippedCount} already up-to-date.`
+      );
+      try {
+        confetti({ particleCount: 50, spread: 70, origin: { y: 0.6 } });
+      } catch {}
+    } catch (err: any) {
+      console.error('TMDB Enrichment error:', err);
+      setSyncError(`TMDB Enrichment paused: ${err.message || 'Rate limit or network error'}`);
+    } finally {
+      setIsEnriching(false);
+      setTimeout(() => setRefreshNotification(null), 5000);
+    }
+  };
+
   // Active filters count
   const activeFiltersCount = useMemo(() => {
     let count = 0;
@@ -999,6 +1142,8 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     if (activePreset !== 'all') count++;
     if (selectedGenres.length > 0) count++;
     if (excludedGenres.length > 0) count++;
+    if (selectedThemes.length > 0) count++;
+    if (excludedThemes.length > 0) count++;
     if (selectedCountries.length > 0) count++;
     if (excludedCountries.length > 0) count++;
     if (selectedLanguage !== 'all') count++;
@@ -1013,6 +1158,8 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     activePreset,
     selectedGenres,
     excludedGenres,
+    selectedThemes,
+    excludedThemes,
     selectedCountries,
     excludedCountries,
     selectedLanguage,
@@ -1057,36 +1204,16 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
           )}
         </div>
 
-        {/* Sync, Refresh API, Analytics, Surprise Me & Filter Action Buttons */}
+        {/* API, Analytics, Surprise Me & Filter Action Buttons */}
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-          {/* Refresh from API Button */}
+          {/* Single Consolidated API Button */}
           <button
-            onClick={handleRefreshCatalogFromApi}
-            disabled={isRefreshingApi || isSyncing}
-            className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all shadow-md ${
-              isRefreshingApi
-                ? 'bg-amber-950/80 text-amber-300 border border-amber-500/50 cursor-wait'
-                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white border border-white/10 active:scale-95'
-            }`}
-            title="Refresh catalogue directly from TMDB & Watchmode APIs with latest Netflix India titles, enriched tags, and full category coverage"
+            onClick={() => setShowApiModal(true)}
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-zinc-800 hover:bg-zinc-700 text-white border border-white/10 shadow-md transition-all active:scale-95"
+            title="Open API Management: Netflix Enrichment, TMDB Enrichment, and Refresh API"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingApi ? 'animate-spin text-amber-400' : 'text-zinc-400'}`} />
-            <span>{isRefreshingApi ? 'Refreshing...' : 'Refresh API'}</span>
-          </button>
-
-          {/* Sync Netflix India Catalogue Button */}
-          <button
-            onClick={() => setShowSyncModal(true)}
-            disabled={isSyncing || isRefreshingApi}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all shadow-lg ${
-              isSyncing
-                ? 'bg-zinc-800 text-zinc-400 cursor-not-allowed border border-white/10'
-                : 'bg-[#E50914] hover:bg-red-700 text-white shadow-red-600/30 active:scale-95'
-            }`}
-            title="Configure and sync Netflix India streaming catalog from Watchmode and enrich with TMDB"
-          >
-            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-red-400' : ''}`} />
-            <span>{isSyncing ? 'Syncing...' : 'Sync Netflix India'}</span>
+            <RefreshCw className={`w-3.5 h-3.5 ${(isEnriching || isSyncing || isRefreshingApi) ? 'animate-spin text-purple-400' : 'text-zinc-400'}`} />
+            <span>API</span>
           </button>
 
           {/* Toggle Catalog Analytics Stats */}
@@ -1113,6 +1240,53 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Persistent Background TMDB Enrichment Banner (Visible when enriching even if modal is closed) */}
+      {isEnriching && enrichmentProgress && !showEnrichModal && (
+        <div className="bg-gradient-to-r from-purple-950/90 via-zinc-900 to-purple-950/90 border border-purple-500/50 rounded-2xl p-3.5 shadow-xl animate-fade-in flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="p-2 rounded-xl bg-purple-500/20 text-purple-400 shrink-0">
+              <Sparkles className="w-4 h-4 animate-spin text-purple-300" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-white">Enriching Catalogue in Background:</span>
+                <span className="text-purple-300 truncate max-w-[220px]">
+                  {enrichmentProgress.currentTitle || 'Processing queue...'}
+                </span>
+                <span className="font-mono text-purple-400 font-bold bg-purple-950/80 px-2 py-0.5 rounded border border-purple-500/30 text-[10px]">
+                  {enrichmentProgress.percentage}%
+                </span>
+              </div>
+              <div className="text-[11px] text-zinc-400 flex items-center gap-3 mt-0.5">
+                <span>Processed: {enrichmentProgress.processedCount} / {enrichmentProgress.totalTitles}</span>
+                <span className="text-emerald-400">Enriched: {enrichmentProgress.completedCount}</span>
+                <span className="text-blue-400">Skipped: {enrichmentProgress.skippedCount}</span>
+                {enrichmentProgress.failedCount > 0 && (
+                  <span className="text-red-400">Failed: {enrichmentProgress.failedCount}</span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+            <button
+              onClick={() => setShowEnrichModal(true)}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-white/10"
+            >
+              View Details
+            </button>
+            <button
+              onClick={() => {
+                cancelEnrichmentRef.current = true;
+              }}
+              className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-300 bg-red-950/80 border border-red-500/40 hover:bg-red-900"
+            >
+              Pause
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Refresh API Notification Banner */}
       {refreshNotification && (
@@ -1222,6 +1396,116 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
             <span>New: {syncProgress.newTitlesAdded.toLocaleString()}</span>
             <span>Updated: {syncProgress.titlesUpdated.toLocaleString()}</span>
             <span>Deduplicated: {syncProgress.duplicatesRemoved.toLocaleString()}</span>
+          </div>
+        </div>
+      )}
+
+      {/* API Management Modal */}
+      {showApiModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="relative w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-5">
+            <button
+              onClick={() => setShowApiModal(false)}
+              className="absolute top-4 right-4 p-1.5 rounded-full text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                <RefreshCw className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">API Management</h3>
+                <p className="text-xs text-zinc-400">
+                  Manage catalogue enrichment, external sync pipelines, and local database cache.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3 pt-2">
+              {/* TMDB Enrichment Action */}
+              <div className="flex items-center justify-between p-4 bg-zinc-800/60 border border-white/5 rounded-xl hover:border-purple-500/30 transition-all">
+                <div className="space-y-0.5 max-w-[70%]">
+                  <div className="text-sm font-bold text-white flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-purple-400" />
+                    <span>TMDB Enrichment</span>
+                  </div>
+                  <div className="text-[11px] text-zinc-400">
+                    Enrich titles with IMDb ratings, Rotten Tomatoes scores, taglines, cast, themes & similar titles.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowApiModal(false);
+                    setShowEnrichModal(true);
+                  }}
+                  disabled={isEnriching || isSyncing || catalog.length === 0}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-md transition-all active:scale-95 disabled:opacity-50"
+                >
+                  {isEnriching ? 'Enriching...' : 'Open TMDB'}
+                </button>
+              </div>
+
+              {/* Netflix Enrichment (Watchmode Sync) Action */}
+              <div className="flex items-center justify-between p-4 bg-zinc-800/60 border border-white/5 rounded-xl hover:border-red-500/30 transition-all">
+                <div className="space-y-0.5 max-w-[70%]">
+                  <div className="text-sm font-bold text-white flex items-center gap-2">
+                    <Film className="w-4 h-4 text-[#E50914]" />
+                    <span>Netflix Enrichment</span>
+                  </div>
+                  <div className="text-[11px] text-zinc-400">
+                    Sync official Netflix India catalog titles from Watchmode and cache locally.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowApiModal(false);
+                    setShowSyncModal(true);
+                  }}
+                  disabled={isSyncing || isRefreshingApi}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-[#E50914] hover:bg-red-700 text-white shadow-md transition-all active:scale-95 disabled:opacity-50"
+                >
+                  {isSyncing ? 'Syncing...' : 'Sync Netflix'}
+                </button>
+              </div>
+
+              {/* Refresh API Action */}
+              <div className="flex items-center justify-between p-4 bg-zinc-800/60 border border-white/5 rounded-xl hover:border-amber-500/30 transition-all">
+                <div className="space-y-0.5 max-w-[70%]">
+                  <div className="text-sm font-bold text-white flex items-center gap-2">
+                    <RefreshCw className={`w-4 h-4 text-amber-400 ${isRefreshingApi ? 'animate-spin' : ''}`} />
+                    <span>Refresh API</span>
+                  </div>
+                  <div className="text-[11px] text-zinc-400">
+                    Force re-pull fresh catalog updates and re-verify streaming availability directly.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowApiModal(false);
+                    handleRefreshCatalogFromApi();
+                  }}
+                  disabled={isRefreshingApi || isSyncing}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white shadow-md transition-all active:scale-95 disabled:opacity-50"
+                >
+                  {isRefreshingApi ? 'Refreshing...' : 'Refresh API'}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-white/5">
+              <button
+                type="button"
+                onClick={() => setShowApiModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1482,6 +1766,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                 { id: 'bollywood', label: '🇮🇳 Bollywood' },
                 { id: 'kdramas', label: '🇰🇷 K-Dramas' },
                 { id: 'anime', label: '⚔️ Anime' },
+                { id: 'ignore_anime', label: '🚫 Ignore Anime' },
                 { id: 'european', label: '🏰 European' },
                 { id: 'asian', label: '🌏 Asian' },
               ] as const
@@ -1576,6 +1861,31 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               {excludedGenres.length > 0 && (
                 <span className="px-1.5 py-0.2 rounded-full bg-red-500/30 text-red-200 text-[10px] font-bold">
                   -{excludedGenres.length}
+                </span>
+              )}
+            </button>
+
+            {/* Themes Multi-select Trigger */}
+            <button
+              onClick={() => setShowThemeModal(true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all shrink-0 ${
+                selectedThemes.length > 0 || excludedThemes.length > 0
+                  ? selectedThemes.length > 0
+                    ? 'bg-purple-600/20 border-purple-500/50 text-purple-300'
+                    : 'bg-red-600/20 border-red-500/50 text-red-300'
+                  : 'bg-black/40 border-white/10 text-gray-300 hover:text-white'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+              <span>Themes</span>
+              {selectedThemes.length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-purple-500/30 text-[10px] font-bold">
+                  +{selectedThemes.length}
+                </span>
+              )}
+              {excludedThemes.length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-red-500/30 text-red-200 text-[10px] font-bold">
+                  -{excludedThemes.length}
                 </span>
               )}
             </button>
@@ -1689,14 +1999,29 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               </span>
             ))}
 
-            {excludedGenres.map((g) => (
+            {selectedThemes.map((t) => (
               <span
-                key={'exc_g_' + g}
+                key={'inc_t_' + t}
+                className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-purple-600/20 border border-purple-500/30 text-purple-300 text-[11px]"
+              >
+                <span>✨ {t}</span>
+                <button
+                  onClick={() => setSelectedThemes((prev) => prev.filter((x) => x !== t))}
+                  className="hover:text-white"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+
+            {excludedThemes.map((t) => (
+              <span
+                key={'exc_t_' + t}
                 className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-red-600/20 border border-red-500/30 text-red-300 text-[11px]"
               >
-                <span>🚫 Exclude: {g}</span>
+                <span>🚫 Theme: {t}</span>
                 <button
-                  onClick={() => setExcludedGenres((prev) => prev.filter((x) => x !== g))}
+                  onClick={() => setExcludedThemes((prev) => prev.filter((x) => x !== t))}
                   className="hover:text-white"
                 >
                   <X className="w-3 h-3" />
@@ -1832,7 +2157,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               item={item}
               isInLibrary={isInLibrary(item)}
               isWatched={isWatchedInLibrary(item)}
-              onClick={() => onOpenDetail(convertToLibraryItem(item))}
+              onClick={() => handleOpenDiscoveryDetail(item)}
               onAddToLibrary={onAddToLibrary}
               onStartWatching={onStartWatching}
               onMarkWatched={onMarkWatched}
@@ -2423,6 +2748,293 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Themes Multi-select Modal with Include & Exclude */}
+      {showThemeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="relative w-full max-w-lg bg-[#1c1c1e] border border-white/15 rounded-2xl p-5 sm:p-6 shadow-2xl">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-purple-400" />
+                  <span>Cinematic Themes</span>
+                </h3>
+                <p className="text-xs text-zinc-400">
+                  Select narrative concepts and moods to include or exclude.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowThemeModal(false)}
+                className="p-1 rounded-full text-zinc-400 hover:text-white hover:bg-white/10"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Include / Exclude Tabs */}
+            <div className="grid grid-cols-2 gap-2 bg-black/40 p-1 rounded-xl mb-4 border border-white/5">
+              <button
+                type="button"
+                onClick={() => setThemeModalTab('include')}
+                className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                  themeModalTab === 'include'
+                    ? 'bg-purple-600 text-white shadow-md'
+                    : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>Include Themes</span>
+                {selectedThemes.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-black/40 text-[10px]">
+                    {selectedThemes.length}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setThemeModalTab('exclude')}
+                className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                  themeModalTab === 'exclude'
+                    ? 'bg-red-600 text-white shadow-md'
+                    : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <Ban className="w-3.5 h-3.5 text-red-200" />
+                <span>Exclude Themes</span>
+                {excludedThemes.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-black/40 text-[10px]">
+                    {excludedThemes.length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Theme Search Input */}
+            <div className="relative mb-3">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-zinc-400" />
+              <input
+                type="text"
+                value={themeSearchQuery}
+                onChange={(e) => setThemeSearchQuery(e.target.value)}
+                placeholder="Search themes (e.g. Heist, Serial Killer, Mind-Bending)..."
+                className="w-full bg-black/40 border border-white/10 rounded-xl pl-9 pr-8 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500/60"
+              />
+              {themeSearchQuery && (
+                <button
+                  onClick={() => setThemeSearchQuery('')}
+                  className="absolute right-2.5 top-2 text-zinc-400 hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto p-1">
+              {availableThemes
+                .filter((t) => t.toLowerCase().includes(themeSearchQuery.toLowerCase().trim()))
+                .map((t) => {
+                  const isChecked =
+                    themeModalTab === 'include'
+                      ? selectedThemes.includes(t)
+                      : excludedThemes.includes(t);
+                  return (
+                    <label
+                      key={t}
+                      className={`flex items-center gap-2 py-1.5 px-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                        isChecked
+                          ? themeModalTab === 'include'
+                            ? 'bg-purple-600/20 border-purple-500/40 text-purple-200 font-semibold'
+                            : 'bg-red-600/30 border-red-500/60 text-red-200 font-semibold'
+                          : 'bg-black/30 border-white/5 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {
+                          if (themeModalTab === 'include') {
+                            setSelectedThemes((prev) =>
+                              isChecked ? prev.filter((x) => x !== t) : [...prev, t]
+                            );
+                          } else {
+                            setExcludedThemes((prev) =>
+                              isChecked ? prev.filter((x) => x !== t) : [...prev, t]
+                            );
+                          }
+                        }}
+                        className="rounded bg-neutral-800 border-white/20 text-purple-600"
+                      />
+                      <span className="truncate">{t}</span>
+                    </label>
+                  );
+                })}
+            </div>
+
+            <div className="flex items-center justify-between mt-5 pt-3 border-t border-white/10">
+              <button
+                onClick={() => {
+                  if (themeModalTab === 'include') {
+                    setSelectedThemes([]);
+                  } else {
+                    setExcludedThemes([]);
+                  }
+                }}
+                className="text-xs text-gray-400 hover:text-white underline"
+              >
+                Reset {themeModalTab === 'include' ? 'Included' : 'Excluded'} Themes
+              </button>
+              <button
+                onClick={() => setShowThemeModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TMDB Catalog Enrichment Modal / Progress Monitor */}
+      {showEnrichModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="relative w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-5">
+            <button
+              onClick={() => {
+                // Closing the modal lets enrichment continue running in the background!
+                setShowEnrichModal(false);
+              }}
+              className="absolute top-4 right-4 p-1.5 rounded-full text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
+              title="Close modal (enrichment will continue running in background)"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                <Sparkles className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Enrich Catalogue with TMDB</h3>
+                <p className="text-xs text-zinc-400">
+                  Enrich titles with taglines, themes, ratings, cast, trailers, and recommendations.
+                </p>
+              </div>
+            </div>
+
+            {/* Status overview */}
+            {isEnriching && enrichmentProgress ? (
+              <div className="space-y-4 bg-black/40 p-4 rounded-xl border border-white/5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-white flex items-center gap-2">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-purple-400" />
+                    <span>Enriching: {enrichmentProgress.currentTitle || 'Processing queue...'}</span>
+                  </span>
+                  <span className="font-mono text-purple-400 font-black">
+                    {enrichmentProgress.percentage}%
+                  </span>
+                </div>
+
+                {/* Progress Bar */}
+                <div className="w-full bg-zinc-800 rounded-full h-2.5 overflow-hidden">
+                  <div
+                    className="bg-gradient-to-r from-purple-600 to-indigo-500 h-full transition-all duration-300"
+                    style={{ width: `${enrichmentProgress.percentage}%` }}
+                  />
+                </div>
+
+                {/* Counters */}
+                <div className="grid grid-cols-4 gap-2 text-center text-[10px] font-mono pt-1">
+                  <div className="bg-zinc-900 p-2 rounded-lg border border-white/5">
+                    <div className="text-zinc-500">Processed</div>
+                    <div className="text-white font-bold">{enrichmentProgress.processedCount}</div>
+                  </div>
+                  <div className="bg-zinc-900 p-2 rounded-lg border border-emerald-500/30">
+                    <div className="text-emerald-400">Enriched</div>
+                    <div className="text-emerald-300 font-bold">{enrichmentProgress.completedCount}</div>
+                  </div>
+                  <div className="bg-zinc-900 p-2 rounded-lg border border-blue-500/30">
+                    <div className="text-blue-400">Skipped</div>
+                    <div className="text-blue-300 font-bold">{enrichmentProgress.skippedCount}</div>
+                  </div>
+                  <div className="bg-zinc-900 p-2 rounded-lg border border-red-500/30">
+                    <div className="text-red-400">Failed</div>
+                    <div className="text-red-300 font-bold">{enrichmentProgress.failedCount}</div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  <span className="text-[11px] text-zinc-500">
+                    Total in Catalog: {catalog.length} titles
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      cancelEnrichmentRef.current = true;
+                    }}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-300 bg-red-950/60 border border-red-500/40 hover:bg-red-900"
+                  >
+                    Pause / Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="bg-black/30 p-4 rounded-xl border border-white/5 space-y-2 text-xs text-zinc-300">
+                  <p>
+                    This process is completely <strong className="text-white font-semibold">idempotent</strong>: it will inspect the local Netflix catalog ({catalog.length.toLocaleString()} titles) and safely enrich titles with TMDB data.
+                  </p>
+                  <p className="text-zinc-400 text-[11px]">
+                    Already enriched titles are skipped automatically to respect API quotas and rate limits.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowEnrichModal(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700"
+                  >
+                    Close
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleStartTMDBEnrichment(true)}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-300 hover:text-white bg-zinc-800 hover:bg-zinc-700 border border-white/10"
+                    title="Force re-enrichment of all titles even if already marked completed"
+                  >
+                    Force Re-Enrich All
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleStartTMDBEnrichment(false)}
+                    className="flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-600/30 transition-all active:scale-95"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span>Start Enrichment</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Discovery Detail Modal with Stack Navigation */}
+      {titleStack.length > 0 && (
+        <DiscoveryDetailModal
+          titleStack={titleStack}
+          catalog={catalog}
+          onClose={handleCloseDiscoveryDetail}
+          onPushTitle={handlePushDiscoveryDetail}
+          onPopTitle={handlePopDiscoveryDetail}
+          onAddToLibrary={onAddToLibrary}
+          onStartWatching={onStartWatching}
+          isInLibrary={isInLibrary}
+          settings={settings}
+        />
       )}
     </div>
   );

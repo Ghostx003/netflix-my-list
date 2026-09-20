@@ -80,45 +80,50 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
 
         {/* Top-Right: Ratings (Rotten Tomatoes, IMDb, TMDB) */}
         <div className="absolute top-1.5 sm:top-2 right-1.5 sm:right-2 flex flex-col gap-1 items-end z-10">
-          {item.rottenTomatoesRating !== undefined ? (
+          {item.rottenTomatoesRating !== undefined && (
             <div
-              className={`px-1.5 py-0.5 rounded text-[10px] sm:text-[11px] font-bold flex items-center gap-1 shadow-md backdrop-blur-md border ${
+              className={`px-1.5 py-0.5 rounded text-[10px] sm:text-[11px] font-black flex items-center gap-1 shadow-md backdrop-blur-md border ${
                 item.rottenTomatoesRating >= 60
-                  ? 'bg-red-950/80 border-red-500/40 text-red-400'
-                  : 'bg-green-950/80 border-green-500/40 text-green-400'
+                  ? 'bg-red-950/85 border-red-500/50 text-red-400'
+                  : 'bg-green-950/85 border-green-500/50 text-green-400'
               }`}
               title="Rotten Tomatoes Score"
             >
               <span>🍅 {item.rottenTomatoesRating}%</span>
             </div>
-          ) : null}
+          )}
 
-          {item.imdbRating ? (
+          {item.imdbRating && (
             <div
-              className="bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-amber-400 shadow-md border border-amber-500/30"
+              className="bg-black/85 backdrop-blur-md px-1.5 py-0.5 rounded flex items-center gap-1 text-[10px] sm:text-[11px] font-black text-amber-400 shadow-md border border-amber-500/40"
               title="IMDb Rating"
             >
               <span className="text-[9px] sm:text-[10px] text-amber-500 font-black">IMDb</span>
               <span>{item.imdbRating}</span>
             </div>
-          ) : item.rating ? (
-            <div className="bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-amber-400 shadow-md border border-amber-500/30">
-              <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+          )}
+
+          {item.rating && (
+            <div
+              className="bg-black/85 backdrop-blur-md px-1.5 py-0.5 rounded flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-sky-300 shadow-md border border-sky-500/30"
+              title="TMDB Score"
+            >
+              <Star className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-sky-400 text-sky-400" />
               <span>{item.rating}</span>
             </div>
-          ) : null}
+          )}
         </div>
 
-        {/* Top-Left: Release year / Season & Episodes count & Language badge (NO "Netflix IN" text) */}
+        {/* Top-Left: Year/Series info & Priority Language Badge */}
         <div className="absolute top-1.5 sm:top-2 left-1.5 sm:left-2 flex flex-col gap-1 items-start z-10">
           {isMovie ? (
             item.releaseYear ? (
-              <div className="bg-black/80 backdrop-blur-md px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-semibold text-zinc-300 border border-white/10 shadow-sm">
+              <div className="bg-black/85 backdrop-blur-md px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-bold text-zinc-200 border border-white/10 shadow-sm">
                 {item.releaseYear}
               </div>
             ) : null
           ) : (
-            <div className="bg-black/80 backdrop-blur-md px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-semibold text-zinc-300 border border-white/10 flex items-center gap-1 shadow-sm">
+            <div className="bg-black/85 backdrop-blur-md px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-bold text-zinc-200 border border-white/10 flex items-center gap-1 shadow-sm">
               <Layers className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-[#E50914]" />
               <span>
                 {item.totalSeasons ? `${item.totalSeasons}S` : ''}
@@ -130,13 +135,21 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
 
           {langBadge && (
             <div
-              className={`px-1.5 sm:px-2 py-0.5 rounded shadow-lg backdrop-blur-md border flex items-center justify-center text-[10px] sm:text-xs font-bold ${langBadge.bgClass} ${langBadge.textClass}`}
+              className={`px-1.5 sm:px-2 py-0.5 rounded shadow-lg backdrop-blur-md border flex items-center justify-center text-[10px] sm:text-xs font-black ${langBadge.bgClass} ${langBadge.textClass}`}
               title={`Available in ${langBadge.label}`}
             >
               <span>{langBadge.badge}</span>
             </div>
           )}
         </div>
+
+        {/* Bottom-Left of Thumbnail: Runtime Capsule */}
+        {displayRuntimeMinutes ? (
+          <div className="absolute bottom-1.5 left-1.5 sm:bottom-2 sm:left-2 z-10 bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-mono font-semibold text-zinc-300 border border-white/10 flex items-center gap-1 shadow-sm">
+            <Clock className="w-2.5 h-2.5 text-zinc-400" />
+            <span>{formatRuntime(displayRuntimeMinutes)}</span>
+          </div>
+        ) : null}
       </div>
 
       {/* Card Content & Action Footer */}
@@ -161,8 +174,14 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
           </div>
 
           {item.originalTitle && item.originalTitle !== item.title && (
-            <p className="text-[10px] sm:text-[11px] text-zinc-400 line-clamp-1 italic mb-1 sm:mb-1.5">
+            <p className="text-[10px] sm:text-[11px] text-zinc-400 line-clamp-1 italic mb-0.5">
               {item.originalTitle}
+            </p>
+          )}
+
+          {item.tagline && (
+            <p className="text-[10px] sm:text-[11px] text-zinc-300 font-medium italic line-clamp-1 mb-1" title={item.tagline}>
+              "{item.tagline}"
             </p>
           )}
 
@@ -189,24 +208,28 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
             </div>
           )}
 
-          {/* Compact Genre Tags */}
-          {item.genres && item.genres.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-0.5 sm:mt-1">
-              {item.genres.slice(0, 2).map((g) => (
+          {/* Genre & Theme Tags - Show all themes and genres */}
+          {(item.genres && item.genres.length > 0) || (item.themes && item.themes.length > 0) ? (
+            <div className="flex flex-wrap gap-1 mt-1.5 sm:mt-2 items-center">
+              {item.themes && item.themes.map((t) => (
                 <span
-                  key={g}
-                  className="text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 border border-zinc-700/50 font-medium truncate max-w-[90px]"
+                  key={`theme-${t}`}
+                  className="text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded bg-purple-950/70 text-purple-300 border border-purple-500/40 font-semibold"
+                  title={`Theme: ${t}`}
+                >
+                  ✨ {t}
+                </span>
+              ))}
+              {item.genres && item.genres.map((g) => (
+                <span
+                  key={`genre-${g}`}
+                  className="text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 border border-zinc-700/50 font-medium"
                 >
                   {g}
                 </span>
               ))}
-              {item.genres.length > 2 && (
-                <span className="text-[9px] sm:text-[10px] text-zinc-500 font-mono self-center">
-                  +{item.genres.length - 2}
-                </span>
-              )}
             </div>
-          )}
+          ) : null}
         </div>
 
         {/* Action Row: Total Hours / Runtime + Direct Netflix Link + Add to Library + Watch */}
