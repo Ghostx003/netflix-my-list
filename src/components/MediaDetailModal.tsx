@@ -33,6 +33,12 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const netflixUrl = getNetflixUrl(item);
   const langBadge = getPriorityLanguageBadge(item);
 
+  const handleNetflixClick = (event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    window.open(netflixUrl, '_blank', 'noopener,noreferrer');
+  };
+
   // Discovery catalog for director / cast / creator lookup
   const [discoveryCatalog, setDiscoveryCatalog] = useState<DiscoveryTitle[]>([]);
   const [selectedDirector, setSelectedDirector] = useState<string | null>(null);
@@ -81,28 +87,27 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     );
   }, [selectedCreator, discoveryCatalog]);
 
-  // Active trailer state (either from item or dynamically fetched)
+  // Active trailer state & language selection
+  const [trailerLang, setTrailerLang] = useState<'hi' | 'en'>((item.trailer?.language === 'en' ? 'en' : 'hi'));
   const [activeTrailer, setActiveTrailer] = useState<TrailerInfo | null>(item.trailer || null);
   const [isSearchingTrailer, setIsSearchingTrailer] = useState(false);
 
   // Keep activeTrailer synced when item changes
   useEffect(() => {
     setActiveTrailer(item.trailer || null);
+    setTrailerLang(item.trailer?.language === 'en' ? 'en' : 'hi');
   }, [item.trailer, item.id]);
 
-  // If item does not have a trailer, automatically search YouTube in background with Hindi first priority
+  // Automatic YouTube Hindi/English trailer lookup if missing or language toggled
   useEffect(() => {
-    if (activeTrailer) return;
-
     let isMounted = true;
     setIsSearchingTrailer(true);
 
-    searchYouTubeTrailer(displayTitle, item.releaseYear, item.mediaType).then((foundTrailer) => {
+    searchYouTubeTrailer(displayTitle, item.releaseYear, item.mediaType, trailerLang).then((foundTrailer) => {
       if (!isMounted) return;
       setIsSearchingTrailer(false);
       if (foundTrailer) {
         setActiveTrailer(foundTrailer);
-        // Persist to item so subsequent opens are instant
         if (onUpdateItem) {
           onUpdateItem({
             ...item,
@@ -118,7 +123,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [item.id, displayTitle, item.releaseYear, item.mediaType]);
+  }, [item.id, displayTitle, item.releaseYear, item.mediaType, trailerLang]);
 
   // Group TV episodes by season
   const seasonsMap = useMemo(() => {
@@ -164,17 +169,25 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
           {activeTrailer ? (
             <div className="relative w-full h-full">
               <iframe
-                src={`https://www.youtube-nocookie.com/embed/${activeTrailer.key}?autoplay=1&mute=0&rel=0`}
-                title={activeTrailer.name || 'Trailer'}
+                id="media-detail-trailer-iframe"
+                src={`https://www.youtube-nocookie.com/embed/${activeTrailer.key}?autoplay=1&mute=0&controls=1&rel=0&modestbranding=1&enablejsapi=1`}
+                title={activeTrailer.name || `${displayTitle} Trailer`}
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
+                onLoad={() => {
+                  // PostMessage to set 1.5x playback speed on YouTube player
+                  setTimeout(() => {
+                    const iframe = document.getElementById('media-detail-trailer-iframe') as HTMLIFrameElement;
+                    if (iframe && iframe.contentWindow) {
+                      iframe.contentWindow.postMessage(
+                        JSON.stringify({ event: 'command', func: 'setPlaybackRate', args: [1.5] }),
+                        '*'
+                      );
+                    }
+                  }, 600);
+                }}
                 className="w-full h-full border-0"
               />
-              {activeTrailer.language === 'hi' && (
-                <div className="absolute top-4 left-4 z-10 px-2 py-1 bg-amber-600/90 text-white text-[10px] font-black uppercase tracking-wider rounded-md backdrop-blur-md shadow-md border border-amber-400/40 pointer-events-none">
-                  🇮🇳 Hindi Trailer
-                </div>
-              )}
             </div>
           ) : item.backdropPath || item.posterPath ? (
             <div className="relative w-full h-full">
@@ -259,32 +272,44 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                     <span className="text-[10px] opacity-90">({langBadge.label})</span>
                   </span>
                 )}
-                {item.trailer ? (
-                  <span className="text-xs font-semibold px-2.5 py-0.5 rounded bg-red-600/20 text-red-400 border border-red-500/30 flex items-center gap-1">
-                    <Play className="w-3 h-3 text-red-500 fill-red-500" />
-                    <span>Trailer: {item.trailer.language.toUpperCase()}</span>
-                  </span>
-                ) : (
-                  <a
-                    href={youtubeSearchUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-xs font-medium px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center gap-1 border border-zinc-700 transition-colors"
+                {/* Trailer Toggle Capsule (HI / EN) */}
+                <div className="flex items-center rounded-full bg-zinc-800/80 border border-zinc-700/60 p-0.5 text-[10px] sm:text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setTrailerLang('hi')}
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded-full transition-colors cursor-pointer ${
+                      trailerLang === 'hi'
+                        ? 'bg-amber-500 text-black font-black'
+                        : 'text-zinc-300 hover:text-white'
+                    }`}
+                    title="Switch to Hindi Trailer"
                   >
-                    <ExternalLink className="w-3 h-3 text-red-400" />
-                    <span>Search Trailer</span>
-                  </a>
-                )}
-                <a
-                  href={netflixUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#E50914] hover:bg-red-700 text-white text-xs font-black shadow-md transition-all transform hover:scale-105 sm:ml-auto w-full sm:w-auto justify-center"
+                    <Play className="w-2.5 h-2.5 fill-current" />
+                    <span>Trailer: HI</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTrailerLang('en')}
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded-full transition-colors cursor-pointer ${
+                      trailerLang === 'en'
+                        ? 'bg-amber-500 text-black font-black'
+                        : 'text-zinc-300 hover:text-white'
+                    }`}
+                    title="Switch to English Trailer"
+                  >
+                    <Play className="w-2.5 h-2.5 fill-current" />
+                    <span>Trailer: EN</span>
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleNetflixClick}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#E50914] hover:bg-red-700 text-white text-xs font-black shadow-md transition-all transform hover:scale-105 sm:ml-auto w-full sm:w-auto justify-center cursor-pointer"
                 >
                   <Play className="w-3.5 h-3.5 fill-white" />
                   <span>Watch on Netflix</span>
                   <ExternalLink className="w-3 h-3" />
-                </a>
+                </button>
               </div>
 
               <h2 className="text-xl sm:text-3xl font-black mt-2 text-white tracking-tight">

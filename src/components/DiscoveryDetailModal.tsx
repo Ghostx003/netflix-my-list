@@ -62,6 +62,13 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
   });
   const inLib = isInLibrary(currentTitle);
 
+  const handleNetflixClick = (event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    window.open(netflixUrl, '_blank', 'noopener,noreferrer');
+    onStartWatching(currentTitle);
+  };
+
   // Active trailer state & language selection
   const [trailerLang, setTrailerLang] = useState<'hi' | 'en'>('hi');
   const [activeTrailer, setActiveTrailer] = useState<TrailerInfo | null>(currentTitle.trailer || null);
@@ -239,10 +246,23 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
         <div className="relative aspect-video w-full max-h-[400px] bg-black overflow-hidden">
           {activeTrailer ? (
             <iframe
-              src={`https://www.youtube-nocookie.com/embed/${activeTrailer.key}?autoplay=1&mute=0&controls=1&rel=0&modestbranding=1`}
+              id="discovery-detail-trailer-iframe"
+              src={`https://www.youtube-nocookie.com/embed/${activeTrailer.key}?autoplay=1&mute=0&controls=1&rel=0&modestbranding=1&enablejsapi=1`}
               title={activeTrailer.name || `${displayTitle} Trailer`}
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen
+              onLoad={() => {
+                // Set 1.5x playback speed on YouTube player
+                setTimeout(() => {
+                  const iframe = document.getElementById('discovery-detail-trailer-iframe') as HTMLIFrameElement;
+                  if (iframe && iframe.contentWindow) {
+                    iframe.contentWindow.postMessage(
+                      JSON.stringify({ event: 'command', func: 'setPlaybackRate', args: [1.5] }),
+                      '*'
+                    );
+                  }
+                }, 600);
+              }}
               className="w-full h-full border-0"
             />
           ) : currentTitle.backdropPath || currentTitle.posterPath ? (
@@ -332,16 +352,14 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
 
             {/* Direct Action Buttons */}
             <div className="flex items-center gap-2">
-              <a
-                href={netflixUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => onStartWatching(currentTitle)}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#E50914] hover:bg-red-700 text-white text-xs font-black shadow-lg shadow-red-600/30 transition-transform active:scale-95 whitespace-nowrap"
+              <button
+                type="button"
+                onClick={handleNetflixClick}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#E50914] hover:bg-red-700 text-white text-xs font-black shadow-lg shadow-red-600/30 transition-transform active:scale-95 whitespace-nowrap cursor-pointer"
               >
                 <Play className="w-4 h-4 fill-white" />
                 <span>Watch on Netflix</span>
-              </a>
+              </button>
 
               <button
                 type="button"

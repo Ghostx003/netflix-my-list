@@ -33,6 +33,11 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
   const isDropped = item.viewingStatus === 'dropped' || !!item.droppedReason;
   const isWatching = item.viewingStatus === 'still_watching';
 
+  const handleNetflixClick = (event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    window.open(netflixUrl, '_blank', 'noopener,noreferrer');
+  };
 
   return (
     <div
@@ -160,17 +165,15 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
               <span className="truncate">{formatRuntime(breakdown.includedRuntimeMinutes)}</span>
             </div>
 
-            <a
-              href={netflixUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-[#E50914] hover:bg-red-700 text-white font-black text-[10px] sm:text-[11px] flex items-center gap-1 shadow-md shadow-red-600/30 transition-transform active:scale-95 shrink-0 whitespace-nowrap"
+            <button
+              type="button"
+              onClick={handleNetflixClick}
+              className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-[#E50914] hover:bg-red-700 text-white font-black text-[10px] sm:text-[11px] flex items-center gap-1 shadow-md shadow-red-600/30 transition-transform active:scale-95 shrink-0 whitespace-nowrap cursor-pointer"
               title="Watch on Netflix (opens in new tab)"
             >
               <Play className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-white" />
               <span>Netflix</span>
-            </a>
+            </button>
           </div>
 
           {/* Quick Action Buttons: Watched, Watching, Drop & Match */}
