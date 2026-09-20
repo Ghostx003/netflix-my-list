@@ -230,6 +230,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
 
   // Library Sync + TMDB Enrichment state
   const [isSyncingLibrary, setIsSyncingLibrary] = useState(false);
+  const cancelLibrarySyncRef = useRef(false);
 
   // Discovery Detail Modal Stack Navigation
   const [titleStack, setTitleStack] = useState<DiscoveryTitle[]>([]);
@@ -564,9 +565,10 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       return;
     }
 
+    cancelLibrarySyncRef.current = false;
     setIsSyncingLibrary(true);
     setSyncError(null);
-    setRefreshNotification(`Refreshing Discovery catalogue with ${libraryItems.length} library titles & running TMDB API...`);
+    setRefreshNotification(`Matching Discovery catalogue with ${libraryItems.length} library titles...`);
 
     try {
       const res = await syncAndEnrichLibraryItemsToDiscovery({
@@ -575,6 +577,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
         onProgress: (msg) => {
           setRefreshNotification(msg);
         },
+        shouldCancel: () => cancelLibrarySyncRef.current,
       });
 
       // Reload fresh discovery titles from IndexedDB
@@ -583,16 +586,28 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
         setCatalog(allUpdated);
       }
 
-      setRefreshNotification(`✨ Done! ${res.syncedCount} library items synced & enriched with TMDB API.`);
-      try {
-        confetti({ particleCount: 45, spread: 65, origin: { y: 0.5 } });
-      } catch {}
+      if (res.wasCancelled) {
+        setRefreshNotification(
+          `⏸️ Library sync paused. Saved ${res.enrichedCount} newly enriched title(s). You can resume anytime!`
+        );
+      } else if (res.enrichedCount === 0 && res.skippedCount > 0) {
+        setRefreshNotification(
+          `✨ Done! All ${res.syncedCount} library titles were already enriched and matched.`
+        );
+      } else {
+        setRefreshNotification(
+          `✨ Done! Enriched ${res.enrichedCount} new title(s) (skimmed ${res.skippedCount} already completed) from ${res.syncedCount} library items.`
+        );
+        try {
+          confetti({ particleCount: 45, spread: 65, origin: { y: 0.5 } });
+        } catch {}
+      }
     } catch (err: any) {
       console.error('Failed syncing & enriching library items to Discovery:', err);
       setSyncError(err.message || 'Failed refreshing library items with TMDB.');
     } finally {
       setIsSyncingLibrary(false);
-      setTimeout(() => setRefreshNotification(null), 4500);
+      setTimeout(() => setRefreshNotification(null), 5000);
     }
   };
 
@@ -1385,19 +1400,29 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
         </div>
       )}
 
-      {/* Refresh API Notification Banner */}
+      {/* Refresh / Library Sync Notification Banner */}
       {refreshNotification && (
         <div className="bg-amber-950/80 border border-amber-500/50 rounded-xl p-4 flex items-center gap-3 text-amber-200 text-xs animate-fade-in shadow-lg">
-          <RefreshCw className={`w-4 h-4 text-amber-400 shrink-0 ${isRefreshingApi ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`w-4 h-4 text-amber-400 shrink-0 ${isRefreshingApi || isSyncingLibrary ? 'animate-spin' : ''}`} />
           <div className="flex-1 font-medium">{refreshNotification}</div>
-          {!isRefreshingApi && (
+          {isSyncingLibrary ? (
+            <button
+              onClick={() => {
+                cancelLibrarySyncRef.current = true;
+              }}
+              className="px-2.5 py-1 rounded-lg bg-red-600/30 hover:bg-red-600 border border-red-500/40 text-red-200 hover:text-white text-[11px] font-bold transition-all active:scale-95"
+              title="Pause / Stop TMDB enrichment. Progress will be saved!"
+            >
+              Cancel / Pause
+            </button>
+          ) : !isRefreshingApi ? (
             <button
               onClick={() => setRefreshNotification(null)}
               className="text-amber-400 hover:text-white"
             >
               <X className="w-4 h-4" />
             </button>
-          )}
+          ) : null}
         </div>
       )}
 

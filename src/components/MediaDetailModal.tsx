@@ -226,7 +226,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                 <a
                   href={netflixUrl}
                   target="_blank"
-                  rel="noreferrer"
+                  rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#E50914] hover:bg-red-700 text-white text-xs font-black shadow-md transition-all transform hover:scale-105 sm:ml-auto w-full sm:w-auto justify-center"
                 >
                   <Play className="w-3.5 h-3.5 fill-white" />

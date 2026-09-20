@@ -291,10 +291,10 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
             <a
               href={netflixUrl}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
               className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-[#E50914] hover:bg-red-700 text-white font-black text-[10px] sm:text-[11px] flex items-center gap-1 shadow-md shadow-red-600/30 transition-transform active:scale-95 shrink-0 whitespace-nowrap"
-              title="Watch on official Netflix India"
+              title="Watch on official Netflix India (opens in new tab)"
             >
               <Play className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-white" />
               <span>Netflix</span>
@@ -344,10 +344,12 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
             <button
               onClick={(e) => {
                 e.stopPropagation();
+                // Open Netflix in new tab
+                window.open(netflixUrl, '_blank', 'noopener,noreferrer');
                 onStartWatching(item);
               }}
               className="px-2 sm:px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black transition-all border border-amber-500/30 text-[10px] sm:text-[11px] font-bold flex items-center gap-1 active:scale-95"
-              title="Start Watching"
+              title="Watch on Netflix in new tab & Start Watching"
             >
               <Tv className="w-3 h-3" />
               <span>Watch</span>

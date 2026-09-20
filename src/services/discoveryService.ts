@@ -2566,13 +2566,30 @@ export function convertLibraryItemToDiscoveryTitle(item: LibraryItem): Discovery
     availabilityState: 'available',
     availabilitySource: 'My Library (Netflix India)',
     catalogUpdatedAt: new Date().toISOString(),
-    metadataUpdatedAt: new Date().toISOString(),
+    // Do not mark metadataUpdatedAt here so that un-enriched library titles are detected and enriched by TMDB
+    metadataUpdatedAt: undefined,
   };
 }
 
 /**
+ * Checks if a DiscoveryTitle has already been fully enriched by TMDB.
+ * A title is considered enriched if it has a TMDB ID, synopsis, cast members, and a valid metadataUpdatedAt timestamp.
+ */
+export function isDiscoveryTitleEnriched(title: DiscoveryTitle): boolean {
+  return Boolean(
+    title.tmdbId &&
+    title.synopsis &&
+    title.synopsis.trim().length > 0 &&
+    Array.isArray(title.cast) &&
+    title.cast.length > 0 &&
+    title.metadataUpdatedAt
+  );
+}
+
+/**
  * Synchronizes one or more LibraryItems directly into the local Netflix Discovery Catalogue (IndexedDB).
- * Intelligently merges with any existing DiscoveryTitle to retain rich metadata while adding new library titles.
+ * Matches existing catalog titles by ID, IMDb ID, TMDB ID, Netflix ID, or Normalized Title + Release Year.
+ * Prevents any duplication: if existing, merges; if new, adds.
  */
 export async function syncLibraryItemsToDiscovery(libraryItems: LibraryItem[]): Promise<DiscoveryTitle[]> {
   if (!libraryItems || libraryItems.length === 0) return [];
@@ -2590,12 +2607,12 @@ export async function syncLibraryItemsToDiscovery(libraryItems: LibraryItem[]): 
       existingMap.set(titleKey, t);
     }
 
-    const titlesToSave: DiscoveryTitle[] = [];
+    const savedMap = new Map<string, DiscoveryTitle>();
 
     for (const item of libraryItems) {
       const converted = convertLibraryItemToDiscoveryTitle(item);
 
-      // Check if this title already exists in discovery
+      // Check if this title already exists in discovery catalogue
       let existing: DiscoveryTitle | undefined = existingMap.get(converted.id);
       if (!existing && converted.imdbId) existing = existingMap.get(`imdb_${converted.imdbId}`);
       if (!existing && converted.tmdbId) existing = existingMap.get(`tmdb_${converted.mediaType}_${converted.tmdbId}`);
@@ -2606,40 +2623,49 @@ export async function syncLibraryItemsToDiscovery(libraryItems: LibraryItem[]): 
       }
 
       if (existing) {
-        // Merge - enrich existing discovery title with any new library data
+        // Retain existing stable primary ID so we don't duplicate records in IndexedDB
         const merged: DiscoveryTitle = {
           ...existing,
           ...converted,
-          // Retain richer existing metadata if available
           id: existing.id,
-          posterPath: converted.posterPath || existing.posterPath,
-          backdropPath: converted.backdropPath || existing.backdropPath,
-          synopsis: converted.synopsis || existing.synopsis,
-          genres: converted.genres && converted.genres.length > 0 ? converted.genres : existing.genres,
-          countries: converted.countries && converted.countries.length > 0 ? converted.countries : existing.countries,
-          rating: converted.rating || existing.rating,
-          imdbRating: converted.imdbRating || existing.imdbRating,
-          rottenTomatoesRating: converted.rottenTomatoesRating || existing.rottenTomatoesRating,
-          runtimeMinutes: converted.runtimeMinutes || existing.runtimeMinutes,
-          totalSeasons: converted.totalSeasons || existing.totalSeasons,
-          totalEpisodes: converted.totalEpisodes || existing.totalEpisodes,
-          episodes: converted.episodes && converted.episodes.length > 0 ? converted.episodes : existing.episodes,
-          trailer: converted.trailer || existing.trailer,
-          cast: converted.cast && converted.cast.length > 0 ? converted.cast : existing.cast,
-          director: converted.director || existing.director,
-          creator: converted.creator || existing.creator,
-          netflixId: converted.netflixId || existing.netflixId,
+          posterPath: existing.posterPath || converted.posterPath,
+          backdropPath: existing.backdropPath || converted.backdropPath,
+          synopsis: existing.synopsis || converted.synopsis,
+          genres: existing.genres && existing.genres.length > 0 ? existing.genres : converted.genres,
+          countries: existing.countries && existing.countries.length > 0 ? existing.countries : converted.countries,
+          rating: existing.rating || converted.rating,
+          imdbRating: existing.imdbRating || converted.imdbRating,
+          rottenTomatoesRating: existing.rottenTomatoesRating || converted.rottenTomatoesRating,
+          runtimeMinutes: existing.runtimeMinutes || converted.runtimeMinutes,
+          totalSeasons: existing.totalSeasons || converted.totalSeasons,
+          totalEpisodes: existing.totalEpisodes || converted.totalEpisodes,
+          episodes: existing.episodes && existing.episodes.length > 0 ? existing.episodes : converted.episodes,
+          trailer: existing.trailer || converted.trailer,
+          cast: existing.cast && existing.cast.length > 0 ? existing.cast : converted.cast,
+          director: existing.director || converted.director,
+          creator: existing.creator || converted.creator,
+          netflixId: existing.netflixId || converted.netflixId,
+          metadataUpdatedAt: existing.metadataUpdatedAt || converted.metadataUpdatedAt,
           isNetflixIndiaVerified: true,
           netflixIndiaAvailable: true,
           availabilityState: 'available',
           catalogUpdatedAt: new Date().toISOString(),
         };
-        titlesToSave.push(merged);
+
+        savedMap.set(merged.id, merged);
+        existingMap.set(merged.id, merged);
       } else {
-        titlesToSave.push(converted);
+        savedMap.set(converted.id, converted);
+        existingMap.set(converted.id, converted);
+        if (converted.imdbId) existingMap.set(`imdb_${converted.imdbId}`, converted);
+        if (converted.tmdbId) existingMap.set(`tmdb_${converted.mediaType}_${converted.tmdbId}`, converted);
+        if (converted.netflixId) existingMap.set(`netflix_${converted.netflixId}`, converted);
+        const titleKey = `title_${createDuplicateKey(converted.title)}_${converted.releaseYear || '0'}`;
+        existingMap.set(titleKey, converted);
       }
     }
 
+    const titlesToSave = Array.from(savedMap.values());
     if (titlesToSave.length > 0) {
       await saveDiscoveryTitles(titlesToSave);
       console.log(`[DiscoverySync] Synced ${titlesToSave.length} library item(s) to Discovery Catalog`);
@@ -2654,42 +2680,116 @@ export async function syncLibraryItemsToDiscovery(libraryItems: LibraryItem[]): 
 /**
  * Refreshes the Discovery Catalog with the user's library additions/modifications,
  * and actively runs the TMDB API to enrich those newly added/synced titles with full metadata.
+ *
+ * Resumable & Efficient:
+ * - If titles are already enriched with TMDB details, instantly skims past them.
+ * - Only enriches items that are actually missing TMDB data.
+ * - Saves progress after every enriched item so if cancelled/paused, work is never lost.
+ * - Next time the user triggers this, it picks up right where it left off!
  */
 export async function syncAndEnrichLibraryItemsToDiscovery(options: {
   libraryItems: LibraryItem[];
   tmdbApiKey?: string;
   onProgress?: (message: string, progress: number) => void;
-}): Promise<{ syncedCount: number; enrichedTitles: DiscoveryTitle[] }> {
-  const { libraryItems, tmdbApiKey, onProgress } = options;
+  shouldCancel?: () => boolean;
+}): Promise<{ syncedCount: number; enrichedCount: number; skippedCount: number; wasCancelled: boolean }> {
+  const { libraryItems, tmdbApiKey, onProgress, shouldCancel } = options;
   if (!libraryItems || libraryItems.length === 0) {
-    return { syncedCount: 0, enrichedTitles: [] };
+    return { syncedCount: 0, enrichedCount: 0, skippedCount: 0, wasCancelled: false };
   }
 
-  onProgress?.('Syncing library titles into Discovery catalogue...', 10);
+  if (shouldCancel?.()) {
+    return { syncedCount: 0, enrichedCount: 0, skippedCount: 0, wasCancelled: true };
+  }
+
+  onProgress?.('Matching and synchronizing library titles with Discovery catalogue...', 5);
   const syncedTitles = await syncLibraryItemsToDiscovery(libraryItems);
   if (syncedTitles.length === 0) {
-    return { syncedCount: 0, enrichedTitles: [] };
+    return { syncedCount: 0, enrichedCount: 0, skippedCount: 0, wasCancelled: false };
   }
 
-  onProgress?.(`Enriching ${syncedTitles.length} title(s) via TMDB API...`, 30);
-  const enrichedBatch: DiscoveryTitle[] = [];
+  // Divide into already-enriched vs titles needing TMDB enrichment
+  const alreadyEnriched: DiscoveryTitle[] = [];
+  const pendingEnrichment: DiscoveryTitle[] = [];
 
-  for (let i = 0; i < syncedTitles.length; i++) {
-    const item = syncedTitles[i];
+  for (const item of syncedTitles) {
+    if (isDiscoveryTitleEnriched(item)) {
+      alreadyEnriched.push(item);
+    } else {
+      pendingEnrichment.push(item);
+    }
+  }
+
+  const totalTitles = syncedTitles.length;
+  const skippedCount = alreadyEnriched.length;
+
+  if (skippedCount > 0) {
+    onProgress?.(
+      `⚡ Skimmed ${skippedCount} already-enriched title(s). ${pendingEnrichment.length} pending TMDB enrichment...`,
+      pendingEnrichment.length === 0 ? 100 : 20
+    );
+  }
+
+  if (pendingEnrichment.length === 0) {
+    onProgress?.(`✨ All ${totalTitles} library titles are already fully enriched with TMDB data!`, 100);
+    return {
+      syncedCount: totalTitles,
+      enrichedCount: 0,
+      skippedCount,
+      wasCancelled: false,
+    };
+  }
+
+  let enrichedCount = 0;
+  let wasCancelled = false;
+
+  for (let i = 0; i < pendingEnrichment.length; i++) {
+    if (shouldCancel?.()) {
+      wasCancelled = true;
+      onProgress?.(`Enrichment paused/cancelled. Saved ${enrichedCount} newly enriched titles.`, Math.round(20 + (i / pendingEnrichment.length) * 80));
+      break;
+    }
+
+    const item = pendingEnrichment[i];
+    const currentIndex = i + 1;
+    const progressPercent = Math.round(20 + (currentIndex / pendingEnrichment.length) * 78);
+
+    onProgress?.(
+      `Enriching (${currentIndex}/${pendingEnrichment.length}): "${item.title}"...`,
+      progressPercent
+    );
+
     try {
       const enriched = await enrichTitleWithTMDB(item, tmdbApiKey || DEFAULT_PUBLIC_TMDB_KEY);
-      enrichedBatch.push(enriched);
+      // Immediately persist each item so progress is never lost if cancelled
+      await saveDiscoveryTitles([enriched]);
+      enrichedCount++;
     } catch (e) {
-      enrichedBatch.push(item);
+      console.warn(`[DiscoverySync] Failed enriching "${item.title}":`, e);
     }
-    const percent = Math.round(30 + ((i + 1) / syncedTitles.length) * 60);
-    onProgress?.(`Enriching ${item.title} (${i + 1}/${syncedTitles.length})...`, percent);
+
+    // Yield control briefly to avoid blocking main UI thread and allow cancel checks
+    await new Promise((r) => setTimeout(r, 60));
   }
 
-  if (enrichedBatch.length > 0) {
-    await saveDiscoveryTitles(enrichedBatch);
+  if (wasCancelled) {
+    return {
+      syncedCount: totalTitles,
+      enrichedCount,
+      skippedCount,
+      wasCancelled: true,
+    };
   }
 
-  onProgress?.('Finished enriching catalogue with library titles!', 100);
-  return { syncedCount: enrichedBatch.length, enrichedTitles: enrichedBatch };
+  onProgress?.(
+    `✨ Finished! Enriched ${enrichedCount} new title(s), skimmed ${skippedCount} already completed.`,
+    100
+  );
+
+  return {
+    syncedCount: totalTitles,
+    enrichedCount,
+    skippedCount,
+    wasCancelled: false,
+  };
 }
