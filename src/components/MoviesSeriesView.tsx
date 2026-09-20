@@ -23,6 +23,7 @@ interface MoviesSeriesViewProps {
   onOpenSurpriseMe?: () => void;
   onUpdateItem?: (item: LibraryItem) => void;
   onOpenDropModal?: (item: LibraryItem) => void;
+  onSyncWithDiscovery?: () => Promise<void> | void;
 }
 
 type SortField = 'rottenTomatoes' | 'imdb' | 'rating' | 'runtime' | 'title' | 'year' | 'recently_added';
@@ -39,7 +40,9 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
   onOpenSurpriseMe,
   onUpdateItem,
   onOpenDropModal,
+  onSyncWithDiscovery,
 }) => {
+  const [isSyncingDiscovery, setIsSyncingDiscovery] = useState(false);
   // Load initial filters from URL search params or localStorage
   const initialFilters = useMemo(() => parseInitialFilters(), []);
 
@@ -397,6 +400,30 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {onSyncWithDiscovery && (
+            <button
+              onClick={async () => {
+                if (isSyncingDiscovery) return;
+                setIsSyncingDiscovery(true);
+                try {
+                  await onSyncWithDiscovery();
+                } finally {
+                  setIsSyncingDiscovery(false);
+                }
+              }}
+              disabled={isSyncingDiscovery}
+              title="Replace and upgrade library items with metadata enriched from the Discovery Catalog"
+              className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all shadow-md active:scale-95 ${
+                isSyncingDiscovery
+                  ? 'bg-white/5 border-white/10 text-gray-500 cursor-not-allowed'
+                  : 'bg-zinc-800/90 hover:bg-zinc-700 border-white/10 text-gray-200'
+              }`}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-blue-400 ${isSyncingDiscovery ? 'animate-spin' : ''}`} />
+              <span>{isSyncingDiscovery ? 'Syncing...' : 'Sync with Discovery'}</span>
+            </button>
+          )}
+
           {onOpenSurpriseMe && (
             <button
               onClick={onOpenSurpriseMe}

@@ -778,13 +778,12 @@ export const SeriesTrackerView: React.FC<SeriesTrackerViewProps> = ({
                       </div>
                     </div>
 
-                    {/* Official Netflix Watch Link */}
                     <a
                       href={getNetflixUrl(item)}
                       target="_blank"
-                      rel="noreferrer"
+                      rel="noopener noreferrer"
                       className="px-2.5 py-1.5 rounded-xl bg-[#E50914] hover:bg-red-700 text-white font-bold text-xs flex items-center gap-1 shadow-sm transition-all hover:scale-105"
-                      title="Watch on Netflix"
+                      title="Watch on Netflix (opens in new tab)"
                     >
                       <Play className="w-3 h-3 fill-white" />
                       <span>Netflix</span>

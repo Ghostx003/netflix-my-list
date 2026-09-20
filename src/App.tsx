@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AppSettings, LibraryItem, NetflixRawItem, LibraryViewingStatus } from './types';
-import { DEFAULT_SETTINGS, getAllLibraryItems, getSettings, saveLibraryItems, saveSettings, clearLibrary, deleteLibraryItem } from './services/db';
+import { DEFAULT_SETTINGS, getAllLibraryItems, getSettings, saveLibraryItems, saveSettings, clearLibrary, deleteLibraryItem, getAllDiscoveryTitles } from './services/db';
 import { enrichLibraryItem } from './services/tmdb';
 import { deduplicateAndPrepareItems } from './services/duplicateDetector';
-import { syncLibraryItemsToDiscovery } from './services/discoveryService';
+import { syncLibraryItemsToDiscovery, syncEnrichedDiscoveryTitlesIntoLibrary, enrichAndSyncNewLibraryItem } from './services/discoveryService';
 import { Navbar } from './components/Navbar';
 import { ImportLibraryView } from './components/ImportLibraryView';
 import { MoviesSeriesView } from './components/MoviesSeriesView';
@@ -119,6 +119,20 @@ export const App: React.FC = () => {
           return !t.includes('new arrival') && !t.includes('watch now') && !t.includes('weeks ago') && !t.includes('days ago');
         });
 
+        // Auto-enrich library items with enriched discovery catalog data if any matching items were enriched
+        try {
+          const discoveryTitles = await getAllDiscoveryTitles();
+          if (discoveryTitles && discoveryTitles.length > 0) {
+            const { updatedItems, upgradedCount } = syncEnrichedDiscoveryTitlesIntoLibrary(validItems, discoveryTitles);
+            if (upgradedCount > 0) {
+              console.log(`[App] Synced ${upgradedCount} library item(s) from Discovery Catalogue on startup.`);
+              validItems = updatedItems;
+            }
+          }
+        } catch (discErr) {
+          console.warn('[App] Discovery initial sync warning:', discErr);
+        }
+
         if (savedItems && JSON.stringify(validItems) !== JSON.stringify(savedItems)) {
           await saveLibraryItems(validItems);
         }
@@ -131,7 +145,7 @@ export const App: React.FC = () => {
             (i) => i.status === 'pending' || (!i.posterPath && !i.externalId) || i.rottenTomatoesRating === undefined
           );
           if (needsEnrichment) {
-            triggerBackgroundScan(savedItems, savedSettings);
+            triggerBackgroundScan(validItems, savedSettings || DEFAULT_SETTINGS);
           }
         } else {
           // If no items and tab wasn't explicitly set in url, switch to import
@@ -256,6 +270,28 @@ export const App: React.FC = () => {
     await saveLibraryItems(combined);
     syncLibraryItemsToDiscovery(newItems).catch((err) => console.warn('Discovery sync error:', err));
     triggerBackgroundScan(combined, settings);
+
+    // Also enrich newly added items in background and update both library & discovery immediately
+    (async () => {
+      let anyEnriched = false;
+      const currentList = [...combined];
+      for (let i = 0; i < newItems.length; i++) {
+        try {
+          const { enrichedLibraryItem } = await enrichAndSyncNewLibraryItem(newItems[i], settings.tmdbApiKey);
+          const idx = currentList.findIndex((it) => it.id === newItems[i].id);
+          if (idx !== -1) {
+            currentList[idx] = enrichedLibraryItem;
+            anyEnriched = true;
+          }
+        } catch (e) {
+          console.warn('Background instant enrich error:', e);
+        }
+      }
+      if (anyEnriched) {
+        setItems([...currentList]);
+        await saveLibraryItems(currentList);
+      }
+    })();
   };
 
   const handleUpdateItem = async (updatedItem: LibraryItem) => {
@@ -272,7 +308,51 @@ export const App: React.FC = () => {
     const updated = [newItem, ...items];
     setItems(updated);
     await saveLibraryItems(updated);
-    syncLibraryItemsToDiscovery([newItem]).catch((err) => console.warn('Discovery sync error:', err));
+
+    // Immediately enrich via TMDB, save to Discovery Catalogue, and update Library Item
+    enrichAndSyncNewLibraryItem(newItem, settings.tmdbApiKey)
+      .then(async ({ enrichedLibraryItem }) => {
+        setItems((prev) => prev.map((it) => (it.id === newItem.id ? enrichedLibraryItem : it)));
+        const currentLib = await getAllLibraryItems();
+        const remapped = currentLib.map((it) => (it.id === newItem.id ? enrichedLibraryItem : it));
+        await saveLibraryItems(remapped);
+      })
+      .catch((err) => {
+        console.warn('Instant enrich error on adding item:', err);
+        syncLibraryItemsToDiscovery([newItem]).catch(() => {});
+      });
+  };
+
+  // Explicitly sync and replace library items with discovery catalog enriched listings
+  const handleSyncWithDiscovery = async () => {
+    try {
+      const discoveryTitles = await getAllDiscoveryTitles();
+      if (!discoveryTitles || discoveryTitles.length === 0) {
+        setSyncToast({
+          message: 'Discovery catalog has no titles yet. Open Discovery to explore or sync!',
+          type: 'info',
+        });
+        setTimeout(() => setSyncToast(null), 4000);
+        return;
+      }
+      const { updatedItems, upgradedCount } = syncEnrichedDiscoveryTitlesIntoLibrary(items, discoveryTitles);
+      if (upgradedCount > 0) {
+        setItems(updatedItems);
+        await saveLibraryItems(updatedItems);
+        setSyncToast({
+          message: `Replaced and upgraded ${upgradedCount} title(s) in Movies & Series with Discovery metadata!`,
+          type: 'success',
+        });
+      } else {
+        setSyncToast({
+          message: 'All eligible titles are already up to date with Discovery metadata.',
+          type: 'info',
+        });
+      }
+      setTimeout(() => setSyncToast(null), 5000);
+    } catch (err) {
+      console.error('Failed to sync library with discovery:', err);
+    }
   };
 
   const handleRefreshLibrary = async () => {
@@ -398,6 +478,7 @@ export const App: React.FC = () => {
             onOpenSurpriseMe={() => setIsSurpriseMeOpen(true)}
             onUpdateItem={handleUpdateItem}
             onOpenDropModal={(item) => setItemToDrop(item)}
+            onSyncWithDiscovery={handleSyncWithDiscovery}
           />
         )}
 

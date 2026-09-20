@@ -627,9 +627,9 @@ export const StillWatchingView: React.FC<StillWatchingViewProps> = ({
                     <a
                       href={getNetflixUrl(item)}
                       target="_blank"
-                      rel="noreferrer"
+                      rel="noopener noreferrer"
                       className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-[#E50914] text-white hover:bg-red-700 transition-colors shadow-sm"
-                      title="Continue Watching on Netflix"
+                      title="Continue Watching on Netflix (opens in new tab)"
                     >
                       <Play className="w-3.5 h-3.5 fill-white" />
                       <span>Netflix</span>
