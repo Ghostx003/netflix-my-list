@@ -122,30 +122,34 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
               </span>
             )}
           </div>
-          {item.externalTitle && item.externalTitle !== item.originalTitle && (
-            <p className="text-[10px] sm:text-[11px] text-zinc-400 line-clamp-1 italic mb-1 sm:mb-1.5">
-              {item.originalTitle}
+          {item.tagline && (
+            <p className="text-[10px] sm:text-[11px] text-zinc-300 font-medium italic line-clamp-1 mb-1">
+              "{item.tagline}"
             </p>
           )}
 
-          {/* Compact Genre Tags */}
-          {item.genres && item.genres.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-0.5 sm:mt-1">
-              {item.genres.slice(0, 2).map((g) => (
+          {/* Genre & Theme Tags */}
+          {(item.genres && item.genres.length > 0) || (item.themes && item.themes.length > 0) ? (
+            <div className="flex flex-wrap gap-1 mt-0.5 sm:mt-1 items-center">
+              {item.themes && item.themes.map((t) => (
                 <span
-                  key={g}
-                  className="text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 border border-zinc-700/50 font-medium truncate max-w-[90px]"
+                  key={`theme-${t}`}
+                  className="text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded bg-purple-950/70 text-purple-300 border border-purple-500/40 font-semibold"
+                  title={`Theme: ${t}`}
+                >
+                  ✨ {t}
+                </span>
+              ))}
+              {item.genres && item.genres.map((g) => (
+                <span
+                  key={`genre-${g}`}
+                  className="text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 border border-zinc-700/50 font-medium"
                 >
                   {g}
                 </span>
               ))}
-              {item.genres.length > 2 && (
-                <span className="text-[9px] sm:text-[10px] text-zinc-500 font-mono self-center">
-                  +{item.genres.length - 2}
-                </span>
-              )}
             </div>
-          )}
+          ) : null}
         </div>
 
         {/* Action Row */}

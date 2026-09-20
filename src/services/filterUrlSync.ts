@@ -7,12 +7,17 @@ export interface CatalogFilterState {
   sortBy: 'rottenTomatoes' | 'imdb' | 'rating' | 'runtime' | 'title' | 'year' | 'recently_added';
   sortOrder: 'asc' | 'desc';
   selectedGenres: string[];
+  excludedGenres: string[];
+  selectedThemes: string[];
+  excludedThemes: string[];
   genreMatchMode: 'any' | 'all';
   selectedCountries: string[];
   excludedCountries: string[];
   minYear: string;
   maxYear: string;
   minRating: number;
+  activePreset: string;
+  ignoreAnime: boolean;
 }
 
 export const DEFAULT_FILTER_STATE: CatalogFilterState = {
@@ -24,12 +29,17 @@ export const DEFAULT_FILTER_STATE: CatalogFilterState = {
   sortBy: 'recently_added',
   sortOrder: 'desc',
   selectedGenres: [],
+  excludedGenres: [],
+  selectedThemes: [],
+  excludedThemes: [],
   genreMatchMode: 'any',
   selectedCountries: [],
   excludedCountries: [],
   minYear: '',
   maxYear: '',
   minRating: 0,
+  activePreset: 'all',
+  ignoreAnime: false,
 };
 
 const STORAGE_KEY = 'netflix_catalog_filters';
@@ -41,8 +51,8 @@ export function hasFilterParamsInUrl(search: string = window.location.search): b
   const params = new URLSearchParams(search);
   const filterKeys = [
     'q', 'filterType', 'mediaType', 'status', 'lang',
-    'sortBy', 'sortOrder', 'genres', 'genreMode',
-    'countries', 'excludeCountries', 'minYear', 'maxYear', 'minRating'
+    'sortBy', 'sortOrder', 'genres', 'excludeGenres', 'themes', 'excludeThemes', 'genreMode',
+    'countries', 'excludeCountries', 'minYear', 'maxYear', 'minRating', 'preset', 'ignoreAnime'
   ];
   return filterKeys.some(key => params.has(key));
 }
@@ -87,6 +97,18 @@ export function parseInitialFilters(): CatalogFilterState {
       const g = params.get('genres');
       filters.selectedGenres = g ? g.split(',').map(s => s.trim()).filter(Boolean) : [];
     }
+    if (params.has('excludeGenres')) {
+      const eg = params.get('excludeGenres');
+      filters.excludedGenres = eg ? eg.split(',').map(s => s.trim()).filter(Boolean) : [];
+    }
+    if (params.has('themes')) {
+      const t = params.get('themes');
+      filters.selectedThemes = t ? t.split(',').map(s => s.trim()).filter(Boolean) : [];
+    }
+    if (params.has('excludeThemes')) {
+      const et = params.get('excludeThemes');
+      filters.excludedThemes = et ? et.split(',').map(s => s.trim()).filter(Boolean) : [];
+    }
     if (params.has('genreMode')) {
       const gm = params.get('genreMode') as any;
       if (gm === 'all' || gm === 'any') filters.genreMatchMode = gm;
@@ -104,6 +126,12 @@ export function parseInitialFilters(): CatalogFilterState {
     if (params.has('minRating')) {
       const mr = parseFloat(params.get('minRating') || '0');
       if (!isNaN(mr)) filters.minRating = mr;
+    }
+    if (params.has('preset')) {
+      filters.activePreset = params.get('preset') || 'all';
+    }
+    if (params.has('ignoreAnime')) {
+      filters.ignoreAnime = params.get('ignoreAnime') === 'true';
     }
 
     return filters;
@@ -161,6 +189,24 @@ export function syncFiltersToUrlAndStorage(filters: CatalogFilterState) {
     currentParams.delete('genres');
   }
 
+  if (filters.excludedGenres.length > 0) {
+    currentParams.set('excludeGenres', filters.excludedGenres.join(','));
+  } else {
+    currentParams.delete('excludeGenres');
+  }
+
+  if (filters.selectedThemes.length > 0) {
+    currentParams.set('themes', filters.selectedThemes.join(','));
+  } else {
+    currentParams.delete('themes');
+  }
+
+  if (filters.excludedThemes.length > 0) {
+    currentParams.set('excludeThemes', filters.excludedThemes.join(','));
+  } else {
+    currentParams.delete('excludeThemes');
+  }
+
   updateParam('genreMode', filters.genreMatchMode, 'any');
 
   if (filters.selectedCountries.length > 0) {
@@ -178,6 +224,12 @@ export function syncFiltersToUrlAndStorage(filters: CatalogFilterState) {
   updateParam('minYear', filters.minYear);
   updateParam('maxYear', filters.maxYear);
   updateParam('minRating', filters.minRating > 0 ? filters.minRating.toString() : undefined);
+  updateParam('preset', filters.activePreset, 'all');
+  if (filters.ignoreAnime) {
+    currentParams.set('ignoreAnime', 'true');
+  } else {
+    currentParams.delete('ignoreAnime');
+  }
 
   const queryString = currentParams.toString();
   const newRelativePathQuery = window.location.pathname + (queryString ? '?' + queryString : '') + window.location.hash;
@@ -197,8 +249,8 @@ export function clearFiltersFromUrlAndStorage() {
   const currentParams = new URLSearchParams(window.location.search);
   const filterKeys = [
     'q', 'filterType', 'mediaType', 'status', 'lang',
-    'sortBy', 'sortOrder', 'genres', 'genreMode',
-    'countries', 'excludeCountries', 'minYear', 'maxYear', 'minRating'
+    'sortBy', 'sortOrder', 'genres', 'excludeGenres', 'themes', 'excludeThemes', 'genreMode',
+    'countries', 'excludeCountries', 'minYear', 'maxYear', 'minRating', 'preset', 'ignoreAnime'
   ];
   filterKeys.forEach(key => currentParams.delete(key));
 
