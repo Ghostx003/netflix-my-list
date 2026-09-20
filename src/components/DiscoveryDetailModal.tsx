@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { AppSettings, DiscoveryTitle, EpisodeInfo, TrailerInfo } from '../types';
 import { formatRuntime } from '../services/analytics';
-import { getNetflixUrl, getPriorityLanguageBadge } from '../services/normalizer';
+import { getNetflixUrl, getPriorityLanguageBadge, openNetflixInNewTab } from '../services/normalizer';
 import { searchYouTubeTrailer } from '../services/youtubeTrailer';
 import { findLocalSimilarTitles } from '../services/discoverySimilarity';
 import { CachedImage } from './CachedImage';
@@ -352,7 +352,7 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => {
-                  e.stopPropagation();
+                  openNetflixInNewTab(netflixUrl, e);
                   onStartWatching(currentTitle);
                 }}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#E50914] hover:bg-red-700 text-white text-xs font-black shadow-lg shadow-red-600/30 transition-transform active:scale-95 whitespace-nowrap cursor-pointer no-underline"
@@ -766,7 +766,9 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                           href={epWatchUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="absolute inset-0 bg-black/40 opacity-0 group-hover/ep:opacity-100 transition-opacity flex items-center justify-center"
+                          onClick={(e) => openNetflixInNewTab(epWatchUrl, e)}
+                          className="absolute inset-0 bg-black/40 opacity-0 group-hover/ep:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
+                          title="Watch episode on Netflix (opens in new tab)"
                         >
                           <Play className="w-4 h-4 fill-white text-white" />
                         </a>

@@ -3,7 +3,7 @@ import { Play, Check, Trash2, Clock, Film, Tv, Search, Star, ChevronDown, Chevro
 import confetti from 'canvas-confetti';
 import { LibraryItem, WatchProgress } from '../types';
 import { formatRuntime } from '../services/analytics';
-import { getNetflixUrl } from '../services/normalizer';
+import { getNetflixUrl, openNetflixInNewTab } from '../services/normalizer';
 
 interface StillWatchingViewProps {
   items: LibraryItem[];
@@ -628,6 +628,7 @@ export const StillWatchingView: React.FC<StillWatchingViewProps> = ({
                       href={getNetflixUrl(item)}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={(e) => openNetflixInNewTab(getNetflixUrl(item), e)}
                       className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-[#E50914] text-white hover:bg-red-700 transition-colors shadow-sm"
                       title="Continue Watching on Netflix (opens in new tab)"
                     >

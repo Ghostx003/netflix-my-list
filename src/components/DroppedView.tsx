@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { AlertOctagon, RotateCcw, Trash2, Search, Film, Tv, Calendar, MessageSquare, Tag, Play, Sparkles, X, HeartHandshake } from 'lucide-react';
 import { LibraryItem } from '../types';
-import { getNetflixUrl } from '../services/normalizer';
+import { getNetflixUrl, openNetflixInNewTab } from '../services/normalizer';
 
 interface DroppedViewProps {
   items: LibraryItem[];
@@ -328,8 +328,8 @@ export const DroppedView: React.FC<DroppedViewProps> = ({
                       href={getNetflixUrl(item)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-[#E50914] text-white hover:bg-red-700 transition-colors shadow-sm"
+                      onClick={(e) => openNetflixInNewTab(getNetflixUrl(item), e)}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-[#E50914] text-white hover:bg-red-700 transition-colors shadow-sm cursor-pointer"
                       title="Watch on Netflix (opens in new tab)"
                     >
                       <Play className="w-3.5 h-3.5 fill-white" />

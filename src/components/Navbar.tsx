@@ -1,6 +1,7 @@
 import React from 'react';
-import { Film, Tv, BarChart3, UploadCloud, Settings as SettingsIcon, RefreshCw, CheckSquare, Info, Compass } from 'lucide-react';
+import { Film, Tv, BarChart3, UploadCloud, Settings as SettingsIcon, RefreshCw, CheckSquare, Info, Compass, Play } from 'lucide-react';
 import { AppSettings, LibraryItem } from '../types';
+import { openNetflixInNewTab } from '../services/normalizer';
 
 interface NavbarProps {
   activeTab: 'import' | 'movies-series' | 'still-watching' | 'dropped' | 'tracker' | 'discovery' | 'analytics' | 'info';
@@ -47,14 +48,22 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Row 1: Brand + Action Buttons */}
           <div className="px-3 sm:px-6 lg:px-10 xl:px-14 py-2 flex items-center justify-between gap-3">
             {/* Brand */}
-            <div
-              onClick={() => setActiveTab('analytics')}
-              className="cursor-pointer flex items-center gap-2 group flex-shrink-0"
-            >
-              <span className="text-[#E50914] font-black text-xl sm:text-2xl tracking-tighter uppercase font-sans drop-shadow-sm group-hover:scale-105 transition-transform">
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <a
+                href="https://www.netflix.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => openNetflixInNewTab('https://www.netflix.com', e)}
+                className="text-[#E50914] font-black text-xl sm:text-2xl tracking-tighter uppercase font-sans drop-shadow-sm hover:scale-105 transition-transform cursor-pointer no-underline"
+                title="Open Netflix (opens in new tab)"
+              >
                 Netflix
-              </span>
-              <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider bg-white/10 px-2 py-0.5 rounded-md text-gray-300 border border-white/5 whitespace-nowrap">
+              </a>
+              <span
+                onClick={() => setActiveTab('analytics')}
+                className="cursor-pointer text-[10px] sm:text-xs font-semibold uppercase tracking-wider bg-white/10 hover:bg-white/20 px-2 py-0.5 rounded-md text-gray-300 border border-white/5 whitespace-nowrap transition-colors"
+                title="Watchlist Analytics Dashboard"
+              >
                 Watchlist
               </span>
             </div>
@@ -198,6 +207,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               <UploadCloud className="w-3.5 h-3.5 text-blue-400" />
               <span className="hidden sm:inline">Backup</span>
             </button>
+
+            <a
+              href="https://www.netflix.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => openNetflixInNewTab('https://www.netflix.com', e)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#E50914] hover:bg-red-700 text-white border border-red-600/40 transition-all text-xs font-bold whitespace-nowrap shadow-md shadow-red-600/20 active:scale-95 cursor-pointer no-underline"
+              title="Open Netflix (opens in new tab)"
+            >
+              <Play className="w-3.5 h-3.5 fill-white" />
+              <span>Netflix</span>
+            </a>
 
             <button
               onClick={onOpenSettings}
@@ -428,6 +449,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="absolute -bottom-1 w-4 h-0.5 bg-[#E50914] rounded-full" />
           )}
         </button>
+
+        <a
+          href="https://www.netflix.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => openNetflixInNewTab('https://www.netflix.com', e)}
+          className="flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all relative text-[#E50914] hover:text-red-400 no-underline cursor-pointer"
+          title="Open Netflix (opens in new tab)"
+        >
+          <Play className="w-5 h-5 mb-0.5 fill-current" />
+          <span className="text-[10px] tracking-tight font-bold">Netflix</span>
+        </a>
 
         {isAndroid && (
           <button

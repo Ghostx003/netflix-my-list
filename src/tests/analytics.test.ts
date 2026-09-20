@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeTitle, createDuplicateKey } from '../services/normalizer';
+import { normalizeTitle, createDuplicateKey, getNetflixUrl } from '../services/normalizer';
 import { deduplicateAndPrepareItems } from '../services/duplicateDetector';
 import {
   calculateSeriesRuntime,
@@ -213,6 +213,23 @@ describe('Netflix Watchlist Analytics Test Suite', () => {
       const selectedEn = selectBestTrailer([videos[0], videos[2]]);
       expect(selectedEn?.language).toBe('en');
       expect(selectedEn?.key).toBe('eng_key');
+    });
+  });
+
+  describe('7. Netflix Direct Playback URL Generator', () => {
+    it('generates direct /watch/ URL for items with numeric videoId', () => {
+      const url = getNetflixUrl({ videoId: '80057281', originalTitle: 'Stranger Things' });
+      expect(url).toBe('https://www.netflix.com/watch/80057281');
+    });
+
+    it('extracts ID from full Netflix URLs in videoId', () => {
+      const url = getNetflixUrl({ videoId: 'https://www.netflix.com/title/81234567', originalTitle: 'Dark' });
+      expect(url).toBe('https://www.netflix.com/watch/81234567');
+    });
+
+    it('falls back to search URL when videoId is not provided', () => {
+      const url = getNetflixUrl({ originalTitle: 'Squid Game (Season 1)' });
+      expect(url).toBe('https://www.netflix.com/search?q=Squid%20Game');
     });
   });
 });

@@ -18,34 +18,94 @@ export function createDuplicateKey(title: string): string {
 }
 
 /**
- * Generates the official direct Netflix link for an item.
- * If videoId exists (e.g. numeric ID '80057281' or slug), direct title/watch URL is used:
- * https://www.netflix.com/title/{videoId}
+ * Generates the official direct Netflix playback link for an item.
+ * If videoId exists (e.g. numeric ID '80057281' or slug), direct playback watch URL is used:
+ * https://www.netflix.com/watch/{videoId}
  * Otherwise falls back to official Netflix search:
  * https://www.netflix.com/search?q={query}
  */
-export function getNetflixUrl(item: { videoId?: string; originalTitle: string; externalTitle?: string }): string {
+export function getNetflixUrl(item: { videoId?: string; originalTitle?: string; externalTitle?: string; title?: string }): string {
   if (item.videoId) {
-    const cleanId = item.videoId.toString().trim();
+    let cleanId = item.videoId.toString().trim();
+    // In case videoId contains a full url like netflix.com/watch/12345 or netflix.com/title/12345
+    const urlMatch = cleanId.match(/netflix\.com\/(?:title|watch)\/([a-zA-Z0-9_-]+)/i);
+    if (urlMatch) {
+      cleanId = urlMatch[1];
+    }
     // Pure numeric or alphanumeric Netflix video ID
     if (/^\d+$/.test(cleanId)) {
-      return `https://www.netflix.com/title/${cleanId}`;
+      return `https://www.netflix.com/watch/${cleanId}`;
     }
     // If it has letters/numbers or hyphens (slug or ID)
     if (/^[a-zA-Z0-9_-]+$/.test(cleanId) && cleanId.length >= 4) {
-      return `https://www.netflix.com/title/${cleanId}`;
+      return `https://www.netflix.com/watch/${cleanId}`;
     }
   }
 
   // Use the best available title, cleaned of extraneous parentheticals for accurate Netflix landing
-  const rawQuery = item.externalTitle || item.originalTitle || '';
+  const rawQuery = item.externalTitle || item.originalTitle || item.title || '';
   const cleanQuery = rawQuery
     .replace(/\s*\([^)]*\)/g, '') // remove (2023), (US), etc.
     .replace(/\s*:\s*season\s*\d+/i, '') // remove : Season 1
     .replace(/\s*season\s*\d+/i, '')
     .trim() || rawQuery.trim();
 
-  return `https://www.netflix.com/search?q=${encodeURIComponent(cleanQuery)}`;
+  if (cleanQuery) {
+    return `https://www.netflix.com/search?q=${encodeURIComponent(cleanQuery)}`;
+  }
+
+  return 'https://www.netflix.com';
+}
+
+/**
+ * Reliably opens a Netflix URL in a brand new tab/window,
+ * stopping any event propagation to parent elements or SPA routers.
+ *
+ * If invoked from a native <a target="_blank"> click, it lets the browser
+ * perform the navigation natively (exact same behavior as middle-mouse).
+ * Calling window.open() inside an <a> click causes Chrome/Edge to detect
+ * a scripted pop-up and block it.
+ */
+export function openNetflixInNewTab(
+  url: string,
+  e?: { stopPropagation?: () => void; preventDefault?: () => void; currentTarget?: any; target?: any }
+): void {
+  if (e && typeof e.stopPropagation === 'function') {
+    e.stopPropagation();
+  }
+
+  // If this click is triggered on an <a target="_blank">, let the browser
+  // handle the navigation natively so Chrome/Edge popup blocker is never invoked!
+  const currentTarget = e?.currentTarget as HTMLElement | null;
+  const target = e?.target as HTMLElement | null;
+  const isInsideBlankAnchor =
+    (currentTarget && currentTarget.tagName === 'A' && currentTarget.getAttribute('target') === '_blank') ||
+    (target && typeof target.closest === 'function' && target.closest('a[target="_blank"]') != null);
+
+  if (isInsideBlankAnchor) {
+    // Native browser click does exactly what middle-mouse does!
+    return;
+  }
+
+  const finalUrl = url && url.trim() ? url.trim() : 'https://www.netflix.com';
+
+  try {
+    const a = document.createElement('a');
+    a.href = finalUrl;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      if (a.parentNode) {
+        a.parentNode.removeChild(a);
+      }
+    }, 100);
+  } catch (err) {
+    console.warn('[openNetflixInNewTab] Fallback to window.open:', err);
+    window.open(finalUrl, '_blank', 'noopener,noreferrer');
+  }
 }
 
 export interface LanguageBadgeInfo {

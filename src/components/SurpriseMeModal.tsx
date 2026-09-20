@@ -15,8 +15,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { LibraryItem, DiscoveryTitle } from '../types';
-import { formatRuntime } from '../services/analytics';
-import { getNetflixUrl } from '../services/normalizer';
+import { getNetflixUrl, openNetflixInNewTab } from '../services/normalizer';
 
 interface SurpriseMeModalProps {
   isOpen: boolean;
@@ -388,16 +387,21 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
                     <span>{isResultWatched ? 'Watched ✓' : 'Watched'}</span>
                   </button>
 
-                  <button
-                    onClick={() => {
+                  <a
+                    href={netflixLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => {
+                      openNetflixInNewTab(netflixLink, e);
                       onWatchNow(result);
                       onClose();
                     }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-[#E50914] hover:bg-red-700 text-white rounded-lg transition-colors shadow-md shadow-red-600/30 active:scale-95 cursor-pointer no-underline"
+                    title="Start watching on Netflix (opens in new tab)"
                   >
-                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <Play className="w-3.5 h-3.5 fill-white" />
                     <span>Watch Now</span>
-                  </button>
+                  </a>
                   <button
                     onClick={() => {
                       onOpenDetail(result);
@@ -448,12 +452,14 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
                 <a
                   href={netflixLink}
                   target="_blank"
-                  rel="noreferrer"
-                  onClick={() => {
+                  rel="noopener noreferrer"
+                  onClick={(e) => {
+                    openNetflixInNewTab(netflixLink, e);
                     setShowAddChoiceModal(false);
                     onClose();
                   }}
-                  className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-[#E50914] hover:bg-red-700 text-white flex items-center justify-center gap-2 shadow-lg shadow-red-600/30 transition-all active:scale-95"
+                  className="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-[#E50914] hover:bg-red-700 text-white flex items-center justify-center gap-2 shadow-lg shadow-red-600/30 transition-all active:scale-95 cursor-pointer no-underline"
+                  title="Watch on Netflix (opens in new tab)"
                 >
                   <ExternalLink className="w-4 h-4" />
                   <span>1. Go to that on Netflix</span>

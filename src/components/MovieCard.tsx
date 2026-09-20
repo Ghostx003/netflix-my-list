@@ -2,7 +2,7 @@ import React from 'react';
 import { Star, Clock, Film, Play, CheckCircle2, UserX, Tv } from 'lucide-react';
 import { LibraryItem } from '../types';
 import { formatRuntime } from '../services/analytics';
-import { getNetflixUrl, getPriorityLanguageBadge } from '../services/normalizer';
+import { getNetflixUrl, getPriorityLanguageBadge, openNetflixInNewTab } from '../services/normalizer';
 import { CachedImage } from './CachedImage';
 
 interface MovieCardProps {
@@ -49,10 +49,17 @@ export const MovieCard: React.FC<MovieCardProps> = ({
         />
 
         {/* Hover play icon overlay like Netflix */}
-        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-          <div className="w-11 h-11 rounded-full bg-red-600/90 text-white flex items-center justify-center shadow-xl shadow-red-600/50 transform scale-75 group-hover:scale-100 transition-transform">
+        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+          <a
+            href={netflixUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => openNetflixInNewTab(netflixUrl, e)}
+            className="pointer-events-auto w-11 h-11 rounded-full bg-red-600/90 hover:bg-red-600 text-white flex items-center justify-center shadow-xl shadow-red-600/50 transform scale-75 group-hover:scale-100 hover:scale-110 active:scale-95 transition-all cursor-pointer"
+            title="Watch on Netflix (opens in new tab)"
+          >
             <Play className="w-5 h-5 fill-white ml-0.5" />
-          </div>
+          </a>
         </div>
 
         {/* Ratings Pills */}
@@ -166,7 +173,7 @@ export const MovieCard: React.FC<MovieCardProps> = ({
               href={netflixUrl}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => openNetflixInNewTab(netflixUrl, e)}
               className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-[#E50914] hover:bg-red-700 text-white font-black text-[10px] sm:text-[11px] flex items-center gap-1 shadow-md shadow-red-600/30 transition-transform active:scale-95 shrink-0 whitespace-nowrap cursor-pointer no-underline"
               title="Watch on Netflix (opens in new tab)"
             >

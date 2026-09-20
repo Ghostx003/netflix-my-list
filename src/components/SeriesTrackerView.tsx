@@ -24,7 +24,7 @@ import confetti from 'canvas-confetti';
 import { AppSettings, LibraryItem } from '../types';
 import { formatRuntime, calculateSeriesRuntime } from '../services/analytics';
 import { searchTMDB, enrichLibraryItem } from '../services/tmdb';
-import { getNetflixUrl } from '../services/normalizer';
+import { getNetflixUrl, openNetflixInNewTab } from '../services/normalizer';
 
 interface SeriesTrackerViewProps {
   items: LibraryItem[];
@@ -782,7 +782,8 @@ export const SeriesTrackerView: React.FC<SeriesTrackerViewProps> = ({
                       href={getNetflixUrl(item)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-2.5 py-1.5 rounded-xl bg-[#E50914] hover:bg-red-700 text-white font-bold text-xs flex items-center gap-1 shadow-sm transition-all hover:scale-105"
+                      onClick={(e) => openNetflixInNewTab(getNetflixUrl(item), e)}
+                      className="px-2.5 py-1.5 rounded-xl bg-[#E50914] hover:bg-red-700 text-white font-bold text-xs flex items-center gap-1 shadow-sm transition-all hover:scale-105 cursor-pointer"
                       title="Watch on Netflix (opens in new tab)"
                     >
                       <Play className="w-3 h-3 fill-white" />

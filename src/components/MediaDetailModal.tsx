@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { X, Star, Clock, Calendar, Film, Tv, Play, ExternalLink, Sparkles, Layers, Video, ChevronDown, ChevronUp, Volume2, Loader2, Clapperboard, User, Globe, ChevronLeft, Bookmark, Check } from 'lucide-react';
 import { AppSettings, LibraryItem, EpisodeInfo, TrailerInfo, DiscoveryTitle } from '../types';
 import { formatRuntime, calculateSeriesRuntime } from '../services/analytics';
-import { getNetflixUrl, normalizeCountryName, getPriorityLanguageBadge, itemHasLanguage } from '../services/normalizer';
+import { getNetflixUrl, normalizeCountryName, getPriorityLanguageBadge, itemHasLanguage, openNetflixInNewTab } from '../services/normalizer';
 import { searchYouTubeTrailer } from '../services/youtubeTrailer';
 import { getAllDiscoveryTitles, getAllLibraryItems, saveLibraryItems } from '../services/db';
 import { convertDiscoveryTitleToLibraryItem } from '../services/discoveryService';
@@ -392,7 +392,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                   href={netflixUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
+                  onClick={(e) => openNetflixInNewTab(netflixUrl, e)}
                   className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#E50914] hover:bg-red-700 text-white text-xs font-black shadow-md transition-all transform hover:scale-105 sm:ml-auto w-full sm:w-auto justify-center cursor-pointer no-underline"
                   title="Watch on Netflix (opens in new tab)"
                 >
@@ -944,7 +944,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                             href={netflixWatchUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
+                            onClick={(e) => openNetflixInNewTab(netflixWatchUrl, e)}
                             className="py-1 px-1 rounded bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white text-[10px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
                           >
                             <Play className="w-2.5 h-2.5 fill-current" />
@@ -1061,7 +1061,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                             href={netflixWatchUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
+                            onClick={(e) => openNetflixInNewTab(netflixWatchUrl, e)}
                             className="py-1 px-1 rounded bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black text-[10px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
                           >
                             <Play className="w-2.5 h-2.5 fill-current" />
@@ -1178,7 +1178,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                             href={netflixWatchUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
+                            onClick={(e) => openNetflixInNewTab(netflixWatchUrl, e)}
                             className="py-1 px-1 rounded bg-purple-500/20 hover:bg-purple-500 text-purple-300 hover:text-white text-[10px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
                           >
                             <Play className="w-2.5 h-2.5 fill-current" />

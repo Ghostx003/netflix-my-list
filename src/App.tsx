@@ -585,7 +585,6 @@ export const App: React.FC = () => {
                   updatedAt: new Date().toISOString(),
                 };
                 await handleUpdateItem(updated);
-                setSelectedDetailItem(updated);
               } else {
                 const newLibItem: LibraryItem = {
                   id: 'item_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
@@ -624,9 +623,7 @@ export const App: React.FC = () => {
                   updatedAt: new Date().toISOString(),
                 };
                 await handleAddNewItem(newLibItem);
-                setSelectedDetailItem(newLibItem);
               }
-              handleTabChange('still-watching');
             }}
             onMarkWatched={async (discItem) => {
               const existing = items.find(

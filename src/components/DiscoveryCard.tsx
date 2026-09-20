@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Star, Clock, Film, Tv, Play, Plus, Check, Layers, ExternalLink, EyeOff } from 'lucide-react';
 import { DiscoveryTitle } from '../types';
 import { formatRuntime } from '../services/analytics';
-import { getNetflixUrl, getPriorityLanguageBadge } from '../services/normalizer';
+import { getNetflixUrl, getPriorityLanguageBadge, openNetflixInNewTab } from '../services/normalizer';
 import { CachedImage } from './CachedImage';
 
 interface DiscoveryCardProps {
@@ -120,10 +120,17 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
         />
 
         {/* Hover play icon overlay like Netflix */}
-        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-          <div className="w-11 h-11 rounded-full bg-red-600/90 text-white flex items-center justify-center shadow-xl shadow-red-600/50 transform scale-75 group-hover:scale-100 transition-transform">
+        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+          <a
+            href={netflixUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => openNetflixInNewTab(netflixUrl, e)}
+            className="pointer-events-auto w-11 h-11 rounded-full bg-red-600/90 hover:bg-red-600 text-white flex items-center justify-center shadow-xl shadow-red-600/50 transform scale-75 group-hover:scale-100 hover:scale-110 active:scale-95 transition-all cursor-pointer"
+            title="Watch on Netflix (opens in new tab)"
+          >
             <Play className="w-5 h-5 fill-white ml-0.5" />
-          </div>
+          </a>
         </div>
 
         {/* Top-Right: Ratings (Rotten Tomatoes, IMDb, TMDB) */}
@@ -294,7 +301,7 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
               href={netflixUrl}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => openNetflixInNewTab(netflixUrl, e)}
               className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-[#E50914] hover:bg-red-700 text-white font-black text-[10px] sm:text-[11px] flex items-center gap-1 shadow-md shadow-red-600/30 transition-transform active:scale-95 shrink-0 whitespace-nowrap cursor-pointer no-underline"
               title="Watch on official Netflix India (opens in new tab)"
             >
@@ -343,19 +350,20 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
               </button>
             )}
 
-            <button
+            <a
+              href={netflixUrl}
+              target="_blank"
+              rel="noopener noreferrer"
               onClick={(e) => {
-                e.stopPropagation();
-                // Open Netflix in new tab
-                window.open(netflixUrl, '_blank', 'noopener,noreferrer');
+                openNetflixInNewTab(netflixUrl, e);
                 onStartWatching(item);
               }}
-              className="px-2 sm:px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black transition-all border border-amber-500/30 text-[10px] sm:text-[11px] font-bold flex items-center gap-1 active:scale-95"
+              className="px-2 sm:px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black transition-all border border-amber-500/30 text-[10px] sm:text-[11px] font-bold flex items-center gap-1 active:scale-95 cursor-pointer no-underline"
               title="Watch on Netflix in new tab & Start Watching"
             >
               <Tv className="w-3 h-3" />
               <span>Watch</span>
-            </button>
+            </a>
           </div>
         </div>
       </div>
