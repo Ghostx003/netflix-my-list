@@ -1800,14 +1800,14 @@ export async function enrichTitleWithTMDB(
 
   if (!detail) {
     try {
-      let detailUrl = `${TMDB_BASE_URL}/${endpointType}/${tmdbId}?api_key=${key}&append_to_response=credits,videos,external_ids,watch/providers`;
+      let detailUrl = `${TMDB_BASE_URL}/${endpointType}/${tmdbId}?api_key=${key}&append_to_response=credits,videos,external_ids,watch/providers,keywords`;
       let res = await fetch(detailUrl);
       if (res.ok) {
         detail = await res.json();
       } else if (res.status === 404) {
         // ID might belong to alternative media type or might be invalid/Watchmode ID
         const altEndpoint = isMovie ? 'tv' : 'movie';
-        const altUrl = `${TMDB_BASE_URL}/${altEndpoint}/${tmdbId}?api_key=${key}&append_to_response=credits,videos,external_ids,watch/providers`;
+        const altUrl = `${TMDB_BASE_URL}/${altEndpoint}/${tmdbId}?api_key=${key}&append_to_response=credits,videos,external_ids,watch/providers,keywords`;
         const altRes = await fetch(altUrl);
         if (altRes.ok) {
           detail = await altRes.json();
@@ -1819,7 +1819,7 @@ export async function enrichTitleWithTMDB(
             const sData = await sRes.json();
             if (sData.results && sData.results.length > 0) {
               const matchedId = sData.results[0].id;
-              const fUrl = `${TMDB_BASE_URL}/${endpointType}/${matchedId}?api_key=${key}&append_to_response=credits,videos,external_ids,watch/providers`;
+              const fUrl = `${TMDB_BASE_URL}/${endpointType}/${matchedId}?api_key=${key}&append_to_response=credits,videos,external_ids,watch/providers,keywords`;
               const fRes = await fetch(fUrl);
               if (fRes.ok) {
                 detail = await fRes.json();
@@ -1936,6 +1936,16 @@ export async function enrichTitleWithTMDB(
     englishAudio = true;
   }
 
+  // Tagline & themes/keywords
+  const tagline = (detail.tagline || '').trim() || titleItem.tagline;
+  const rawKeywords = Array.isArray(detail.keywords?.keywords)
+    ? detail.keywords.keywords
+    : Array.isArray(detail.keywords?.results)
+    ? detail.keywords.results
+    : [];
+  const keywordNames: string[] = rawKeywords.map((k: any) => k.name).filter(Boolean);
+  const themes = keywordNames.length > 0 ? keywordNames.slice(0, 10) : titleItem.themes;
+
   return {
     ...titleItem,
     tmdbId,
@@ -1963,6 +1973,9 @@ export async function enrichTitleWithTMDB(
     cast: cast && cast.length > 0 ? cast : titleItem.cast,
     director,
     creator,
+    tagline,
+    themes,
+    tmdbKeywords: keywordNames.length > 0 ? keywordNames : titleItem.tmdbKeywords,
     metadataUpdatedAt: new Date().toISOString(),
   };
 }
@@ -2561,13 +2574,15 @@ export function convertLibraryItemToDiscoveryTitle(item: LibraryItem): Discovery
     cast: item.cast,
     director: item.director,
     creator: item.creator,
+    tagline: item.tagline,
+    themes: item.themes,
     isNetflixIndiaVerified: true,
     netflixIndiaAvailable: true,
     availabilityState: 'available',
     availabilitySource: 'My Library (Netflix India)',
     catalogUpdatedAt: new Date().toISOString(),
-    // Do not mark metadataUpdatedAt here so that un-enriched library titles are detected and enriched by TMDB
-    metadataUpdatedAt: undefined,
+    // If item was already enriched in library (has synopsis and cast), propagate metadataUpdatedAt
+    metadataUpdatedAt: (item.synopsis && item.cast && item.cast.length > 0) ? (item.updatedAt || new Date().toISOString()) : undefined,
   };
 }
 
@@ -2631,6 +2646,8 @@ export function mergeDiscoveryTitleIntoLibraryItem(
     cast: discoveryTitle.cast && discoveryTitle.cast.length > 0 ? discoveryTitle.cast : libraryItem.cast,
     director: discoveryTitle.director || libraryItem.director,
     creator: discoveryTitle.creator || libraryItem.creator,
+    tagline: discoveryTitle.tagline || libraryItem.tagline,
+    themes: discoveryTitle.themes && discoveryTitle.themes.length > 0 ? discoveryTitle.themes : libraryItem.themes,
     status: 'matched',
     updatedAt: new Date().toISOString(),
   };
@@ -2728,14 +2745,35 @@ export async function enrichAndSyncNewLibraryItem(
   // First convert raw item into a discovery title representation
   const initialDiscovery = convertLibraryItemToDiscoveryTitle(rawItem);
 
-  let enrichedDiscovery = initialDiscovery;
-  try {
-    enrichedDiscovery = await enrichTitleWithTMDB(
-      initialDiscovery,
-      tmdbApiKey || DEFAULT_PUBLIC_TMDB_KEY
-    );
-  } catch (err) {
-    console.warn(`[enrichAndSyncNewLibraryItem] TMDB enrichment failed for "${rawItem.originalTitle}":`, err);
+  // Check if this title already exists in Discovery Catalog in IndexedDB
+  const existingTitles = await getAllDiscoveryTitles();
+  let existing = existingTitles.find((t) => {
+    if (t.id === initialDiscovery.id) return true;
+    if (initialDiscovery.imdbId && t.imdbId === initialDiscovery.imdbId) return true;
+    if (initialDiscovery.tmdbId && t.tmdbId === initialDiscovery.tmdbId) return true;
+    if (initialDiscovery.netflixId && t.netflixId === initialDiscovery.netflixId) return true;
+    const itemKey = createDuplicateKey(initialDiscovery.title);
+    const existingKey = createDuplicateKey(t.title);
+    if (itemKey === existingKey) {
+      if (!initialDiscovery.releaseYear || !t.releaseYear || Math.abs(initialDiscovery.releaseYear - t.releaseYear) <= 1) {
+        return true;
+      }
+    }
+    return false;
+  });
+
+  let enrichedDiscovery = existing ? { ...existing, ...initialDiscovery, id: existing.id } : initialDiscovery;
+
+  // Only run TMDB enrichment if not already enriched
+  if (!isDiscoveryTitleEnriched(enrichedDiscovery)) {
+    try {
+      enrichedDiscovery = await enrichTitleWithTMDB(
+        enrichedDiscovery,
+        tmdbApiKey || DEFAULT_PUBLIC_TMDB_KEY
+      );
+    } catch (err) {
+      console.warn(`[enrichAndSyncNewLibraryItem] TMDB enrichment failed for "${rawItem.originalTitle}":`, err);
+    }
   }
 
   // Ensure it is marked as verified & available on Netflix India
@@ -2769,8 +2807,12 @@ export async function syncLibraryItemsToDiscovery(libraryItems: LibraryItem[]): 
       if (t.imdbId) existingMap.set(`imdb_${t.imdbId}`, t);
       if (t.tmdbId) existingMap.set(`tmdb_${t.mediaType}_${t.tmdbId}`, t);
       if (t.netflixId) existingMap.set(`netflix_${t.netflixId}`, t);
-      const titleKey = `title_${createDuplicateKey(t.title)}_${t.releaseYear || '0'}`;
-      existingMap.set(titleKey, t);
+      const titleYearKey = `title_${createDuplicateKey(t.title)}_${t.releaseYear || '0'}`;
+      existingMap.set(titleYearKey, t);
+      const titleOnlyKey = `title_${createDuplicateKey(t.title)}`;
+      if (!existingMap.has(titleOnlyKey)) {
+        existingMap.set(titleOnlyKey, t);
+      }
     }
 
     const savedMap = new Map<string, DiscoveryTitle>();
@@ -2784,19 +2826,24 @@ export async function syncLibraryItemsToDiscovery(libraryItems: LibraryItem[]): 
       if (!existing && converted.tmdbId) existing = existingMap.get(`tmdb_${converted.mediaType}_${converted.tmdbId}`);
       if (!existing && converted.netflixId) existing = existingMap.get(`netflix_${converted.netflixId}`);
       if (!existing) {
-        const titleKey = `title_${createDuplicateKey(converted.title)}_${converted.releaseYear || '0'}`;
-        existing = existingMap.get(titleKey);
+        const titleYearKey = `title_${createDuplicateKey(converted.title)}_${converted.releaseYear || '0'}`;
+        existing = existingMap.get(titleYearKey);
+      }
+      if (!existing) {
+        const titleOnlyKey = `title_${createDuplicateKey(converted.title)}`;
+        existing = existingMap.get(titleOnlyKey);
       }
 
       if (existing) {
         // Retain existing stable primary ID so we don't duplicate records in IndexedDB
+        // Prefer rich data from either existing discovery or converted library
         const merged: DiscoveryTitle = {
           ...existing,
           ...converted,
           id: existing.id,
           posterPath: existing.posterPath || converted.posterPath,
           backdropPath: existing.backdropPath || converted.backdropPath,
-          synopsis: existing.synopsis || converted.synopsis,
+          synopsis: (existing.synopsis && existing.synopsis.length > 20) ? existing.synopsis : (converted.synopsis || existing.synopsis),
           genres: existing.genres && existing.genres.length > 0 ? existing.genres : converted.genres,
           countries: existing.countries && existing.countries.length > 0 ? existing.countries : converted.countries,
           rating: existing.rating || converted.rating,
@@ -2810,8 +2857,13 @@ export async function syncLibraryItemsToDiscovery(libraryItems: LibraryItem[]): 
           cast: existing.cast && existing.cast.length > 0 ? existing.cast : converted.cast,
           director: existing.director || converted.director,
           creator: existing.creator || converted.creator,
+          tagline: existing.tagline || converted.tagline,
+          themes: existing.themes && existing.themes.length > 0 ? existing.themes : converted.themes,
           netflixId: existing.netflixId || converted.netflixId,
-          metadataUpdatedAt: existing.metadataUpdatedAt || converted.metadataUpdatedAt,
+          // Preserve existing enriched metadata timestamp if already enriched
+          metadataUpdatedAt: isDiscoveryTitleEnriched(existing)
+            ? existing.metadataUpdatedAt
+            : (converted.metadataUpdatedAt || existing.metadataUpdatedAt),
           isNetflixIndiaVerified: true,
           netflixIndiaAvailable: true,
           availabilityState: 'available',
@@ -2826,8 +2878,10 @@ export async function syncLibraryItemsToDiscovery(libraryItems: LibraryItem[]): 
         if (converted.imdbId) existingMap.set(`imdb_${converted.imdbId}`, converted);
         if (converted.tmdbId) existingMap.set(`tmdb_${converted.mediaType}_${converted.tmdbId}`, converted);
         if (converted.netflixId) existingMap.set(`netflix_${converted.netflixId}`, converted);
-        const titleKey = `title_${createDuplicateKey(converted.title)}_${converted.releaseYear || '0'}`;
-        existingMap.set(titleKey, converted);
+        const titleYearKey = `title_${createDuplicateKey(converted.title)}_${converted.releaseYear || '0'}`;
+        existingMap.set(titleYearKey, converted);
+        const titleOnlyKey = `title_${createDuplicateKey(converted.title)}`;
+        existingMap.set(titleOnlyKey, converted);
       }
     }
 

@@ -110,6 +110,8 @@ export interface LibraryItem {
   cast?: string[];
   director?: string;
   creator?: string;
+  tagline?: string;
+  themes?: string[];
   netflixAddedDate?: string;
   isNetflixIndiaVerified?: boolean;
   imdbId?: string;

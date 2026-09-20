@@ -74,6 +74,8 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
   const [selectedCastMember, setSelectedCastMember] = useState<string | null>(null);
   // Director modal state
   const [selectedDirector, setSelectedDirector] = useState<string | null>(null);
+  // Creator modal state
+  const [selectedCreator, setSelectedCreator] = useState<string | null>(null);
 
   // TV Series Season Selector State
   const seasonsMap = useMemo(() => {
@@ -162,6 +164,15 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
       t.director?.toLowerCase().includes(searchName)
     );
   }, [selectedDirector, catalog]);
+
+  // Compute other catalog titles for selected creator
+  const creatorTitles = useMemo(() => {
+    if (!selectedCreator) return [];
+    const searchName = selectedCreator.toLowerCase().trim();
+    return catalog.filter((t) =>
+      t.creator?.toLowerCase().includes(searchName) || t.director?.toLowerCase().includes(searchName)
+    );
+  }, [selectedCreator, catalog]);
 
   // Priority language badge
   const pseudoLibItem = {
@@ -649,8 +660,22 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
               )}
               {currentTitle.creator && (
                 <div>
-                  <span className="text-zinc-500 font-medium">Creator: </span>
-                  <span className="text-zinc-200 font-semibold">{currentTitle.creator}</span>
+                  <span className="text-zinc-500 font-medium block mb-1.5">
+                    Creator (click to view their series & movies on Netflix India):
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {currentTitle.creator.split(/,\s*|\s*;\s*|\s*\/\s*/).map((c) => c.trim()).filter(Boolean).map((creatorName) => (
+                      <button
+                        key={creatorName}
+                        type="button"
+                        onClick={() => setSelectedCreator(creatorName)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 hover:text-purple-200 border border-purple-500/30 hover:border-purple-500/60 text-[11px] font-bold transition-all shadow-sm group"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-purple-400 group-hover:scale-110 transition-transform" />
+                        <span>{creatorName}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
               {currentTitle.cast && currentTitle.cast.length > 0 && (
@@ -1083,6 +1108,88 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                       <div className="text-[10px] text-zinc-500 flex items-center justify-between">
                         <span>{dTitle.releaseYear || ''}</span>
                         <span>{dTitle.genres?.[0] || ''}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Creator Catalog Modal */}
+      {selectedCreator && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-fade-in"
+          onClick={() => setSelectedCreator(null)}
+        >
+          <div
+            className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-[#181818] border border-purple-500/30 rounded-2xl p-5 sm:p-6 shadow-2xl text-white space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black text-white">
+                    {selectedCreator}
+                  </h3>
+                  <p className="text-[11px] text-purple-400/80 font-medium">Creator's Work on Netflix India</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedCreator(null)}
+                className="p-1.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-400">
+              Found <span className="text-purple-400 font-bold">{creatorTitles.length}</span> movies & series created/directed by <span className="text-white font-semibold">{selectedCreator}</span> on Netflix India:
+            </p>
+
+            {creatorTitles.length === 0 ? (
+              <div className="text-center py-8 text-zinc-500 text-xs">
+                No other titles found created by {selectedCreator} in the current catalog.
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {creatorTitles.map((cTitle) => (
+                  <div
+                    key={cTitle.id}
+                    onClick={() => {
+                      setSelectedCreator(null);
+                      handleSelectSimilarTitle(cTitle);
+                    }}
+                    className="group cursor-pointer bg-zinc-900 rounded-xl overflow-hidden border border-white/5 hover:border-purple-500/50 transition-all p-2 flex flex-col gap-2 hover:-translate-y-1"
+                  >
+                    <div className="relative aspect-[2/3] w-full bg-zinc-800 rounded-lg overflow-hidden">
+                      <CachedImage
+                        src={cTitle.posterPath}
+                        alt={cTitle.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                      {cTitle.imdbRating && (
+                        <div className="absolute top-1 right-1 bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] font-bold text-amber-400">
+                          ⭐ {cTitle.imdbRating}
+                        </div>
+                      )}
+                      <div className="absolute top-1 left-1 bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] font-bold text-zinc-300 capitalize">
+                        {cTitle.mediaType}
+                      </div>
+                    </div>
+                    <div>
+                      <h5 className="text-xs font-bold text-white line-clamp-1 group-hover:text-purple-400 transition-colors">
+                        {cTitle.title}
+                      </h5>
+                      <div className="text-[10px] text-zinc-500 flex items-center justify-between">
+                        <span>{cTitle.releaseYear || ''}</span>
+                        <span>{cTitle.genres?.[0] || ''}</span>
                       </div>
                     </div>
                   </div>

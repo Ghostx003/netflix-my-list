@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, Star, Clock, Calendar, Film, Tv, Play, ExternalLink, Sparkles, Layers, Video, ChevronDown, ChevronUp, Volume2, Loader2 } from 'lucide-react';
+import { X, Star, Clock, Calendar, Film, Tv, Play, ExternalLink, Sparkles, Layers, Video, ChevronDown, ChevronUp, Volume2, Loader2, Clapperboard } from 'lucide-react';
 import { AppSettings, LibraryItem, EpisodeInfo, TrailerInfo } from '../types';
 import { formatRuntime, calculateSeriesRuntime } from '../services/analytics';
 import { getNetflixUrl, normalizeCountryName, getPriorityLanguageBadge, itemHasLanguage } from '../services/normalizer';
@@ -239,6 +239,12 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                 {displayTitle}
               </h2>
 
+              {item.tagline && (
+                <p className="text-xs sm:text-sm font-semibold text-zinc-300 italic mt-0.5">
+                  "{item.tagline}"
+                </p>
+              )}
+
               {item.externalTitle && item.externalTitle !== item.originalTitle && (
                 <p className="text-xs text-zinc-400 mt-0.5 italic">
                   Netflix Original Title: "{item.originalTitle}"
@@ -420,16 +426,88 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                       </div>
                     );
                   }
-                  return (
-                    <div className="space-y-2.5 text-sm text-zinc-300 leading-relaxed">
-                      <p>{raw}</p>
-                      <p className="text-xs text-zinc-400 italic">
-                        Available to stream on Netflix. Matches genre categories: {(item.genres || []).join(', ') || 'Featured title'}.
-                      </p>
+                    return (
+                      <div className="space-y-2.5 text-sm text-zinc-300 leading-relaxed">
+                        <p>{raw}</p>
+                        <p className="text-xs text-zinc-400 italic">
+                          Available to stream on Netflix. Matches genre categories: {(item.genres || []).join(', ') || 'Featured title'}.
+                        </p>
+                      </div>
+                    );
+                  })()}
+
+                  {item.themes && item.themes.length > 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap pt-2">
+                      <span className="text-xs font-bold text-zinc-400 flex items-center gap-1">
+                        <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                        <span>Themes:</span>
+                      </span>
+                      {item.themes.map((theme) => (
+                        <span
+                          key={theme}
+                          className="text-[11px] px-2.5 py-0.5 rounded-full bg-purple-950/70 text-purple-300 border border-purple-500/40 font-semibold"
+                        >
+                          ✨ {theme}
+                        </span>
+                      ))}
                     </div>
-                  );
-                })()}
-              </div>
+                  )}
+                </div>
+
+              {/* Cast & Creators Details */}
+              {(item.cast || item.director || item.creator) && (
+                <div className="mt-4 bg-black/20 p-4 rounded-xl border border-zinc-800/80 space-y-2.5 text-xs">
+                  {item.director && (
+                    <div>
+                      <span className="text-zinc-500 font-medium block mb-1">Director:</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {item.director.split(/,\s*|\s*;\s*|\s*\/\s*/).map((d) => d.trim()).filter(Boolean).map((dir) => (
+                          <span
+                            key={dir}
+                            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-500/10 text-amber-300 border border-amber-500/30 text-[11px] font-bold"
+                          >
+                            <Clapperboard className="w-3 h-3 text-amber-400" />
+                            <span>{dir}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {item.creator && (
+                    <div>
+                      <span className="text-zinc-500 font-medium block mb-1">Creator:</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {item.creator.split(/,\s*|\s*;\s*|\s*\/\s*/).map((c) => c.trim()).filter(Boolean).map((cr) => (
+                          <span
+                            key={cr}
+                            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-purple-500/10 text-purple-300 border border-purple-500/30 text-[11px] font-bold"
+                          >
+                            <Sparkles className="w-3 h-3 text-purple-400" />
+                            <span>{cr}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {item.cast && item.cast.length > 0 && (
+                    <div>
+                      <span className="text-zinc-500 font-medium block mb-1">Cast:</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {item.cast.map((actor) => (
+                          <span
+                            key={actor}
+                            className="px-2.5 py-1 rounded-lg bg-zinc-800/80 text-zinc-300 border border-zinc-700/60 text-[11px] font-medium"
+                          >
+                            {actor}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Complete Season-by-Season Episode Guide */}
               {!isMovie && seasonsMap && sortedSeasonNumbers.length > 0 && (
