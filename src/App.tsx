@@ -721,16 +721,18 @@ export const App: React.FC = () => {
       </main>
 
       {/* Modal: Item Details */}
-      <MediaDetailModal
-        item={selectedDetailItem}
-        onClose={() => setSelectedDetailItem(null)}
-        settings={settings}
-        onUpdateItem={handleUpdateItem}
-        onChangeMatch={(item) => {
-          setSelectedDetailItem(null);
-          setMatchingItem(item);
-        }}
-      />
+      {selectedDetailItem && (
+        <MediaDetailModal
+          item={selectedDetailItem}
+          onClose={() => setSelectedDetailItem(null)}
+          settings={settings}
+          onUpdateItem={handleUpdateItem}
+          onChangeMatch={(item) => {
+            setSelectedDetailItem(null);
+            setMatchingItem(item);
+          }}
+        />
+      )}
 
       {/* Modal: Manual Match Fix */}
       <ManualMatchModal

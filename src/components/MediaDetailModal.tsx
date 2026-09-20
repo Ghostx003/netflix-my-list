@@ -37,7 +37,9 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     }
   }, [initialItem]);
 
-  const currentItem = itemStack[itemStack.length - 1] || null;
+  // Compute current item
+  const currentItem = itemStack[itemStack.length - 1] || initialItem;
+  const item = currentItem;
   const canGoBack = itemStack.length > 1;
 
   const handlePopStack = () => {
@@ -50,15 +52,13 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     setItemStack((prev) => [...prev, libItem]);
   };
 
-  if (!currentItem) return null;
-  const item = currentItem;
-
-  const isMovie = item.mediaType === 'movie';
-  const tvBreakdown = !isMovie ? calculateSeriesRuntime(item, settings.maxEpisodesPerSeries, settings.capSeriesEpisodes) : null;
-  const displayTitle = item.externalTitle || item.originalTitle;
+  // Hooks must be called unconditionally at top level
+  const isMovie = item?.mediaType === 'movie';
+  const tvBreakdown = item && !isMovie ? calculateSeriesRuntime(item, settings.maxEpisodesPerSeries, settings.capSeriesEpisodes) : null;
+  const displayTitle = item ? (item.externalTitle || item.originalTitle) : '';
   const youtubeSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(displayTitle + ' hindi official trailer')}`;
-  const netflixUrl = getNetflixUrl(item);
-  const langBadge = getPriorityLanguageBadge(item);
+  const netflixUrl = item ? getNetflixUrl(item) : '';
+  const langBadge = item ? getPriorityLanguageBadge(item) : null;
 
 
 
@@ -155,18 +155,20 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   }, [selectedCreator, discoveryCatalog]);
 
   // Active trailer state & language selection
-  const [trailerLang, setTrailerLang] = useState<'hi' | 'en'>((item.trailer?.language === 'en' ? 'en' : 'hi'));
-  const [activeTrailer, setActiveTrailer] = useState<TrailerInfo | null>(item.trailer || null);
+  const [trailerLang, setTrailerLang] = useState<'hi' | 'en'>((item?.trailer?.language === 'en' ? 'en' : 'hi'));
+  const [activeTrailer, setActiveTrailer] = useState<TrailerInfo | null>(item?.trailer || null);
   const [isSearchingTrailer, setIsSearchingTrailer] = useState(false);
 
   // Keep activeTrailer synced when current item changes
   useEffect(() => {
+    if (!item) return;
     setActiveTrailer(item.trailer || null);
     setTrailerLang(item.trailer?.language === 'en' ? 'en' : 'hi');
-  }, [item.trailer, item.id]);
+  }, [item?.trailer, item?.id]);
 
   // Automatic YouTube Hindi/English trailer lookup if missing or language toggled
   useEffect(() => {
+    if (!item) return;
     let isMounted = true;
     setIsSearchingTrailer(true);
 
@@ -190,11 +192,11 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [item.id, displayTitle, item.releaseYear, item.mediaType, trailerLang]);
+  }, [item?.id, displayTitle, item?.releaseYear, item?.mediaType, trailerLang]);
 
   // Group TV episodes by season
   const seasonsMap = useMemo(() => {
-    if (isMovie || !item.episodes || item.episodes.length === 0) return null;
+    if (!item || isMovie || !item.episodes || item.episodes.length === 0) return null;
     const map = new Map<number, EpisodeInfo[]>();
     for (const ep of item.episodes) {
       const sNum = ep.seasonNumber || 1;
@@ -206,7 +208,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
       eps.sort((a, b) => a.episodeNumber - b.episodeNumber);
     }
     return map;
-  }, [isMovie, item.episodes]);
+  }, [item, isMovie, item?.episodes]);
 
   const sortedSeasonNumbers = useMemo(() => {
     if (!seasonsMap) return [];
@@ -216,6 +218,8 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const [expandedSeason, setExpandedSeason] = useState<number>(() => {
     return sortedSeasonNumbers.length > 0 ? sortedSeasonNumbers[0] : 1;
   });
+
+  if (!item) return null;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
