@@ -62,12 +62,7 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
   });
   const inLib = isInLibrary(currentTitle);
 
-  const handleNetflixClick = (event: React.MouseEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    window.open(netflixUrl, '_blank', 'noopener,noreferrer');
-    onStartWatching(currentTitle);
-  };
+
 
   // Active trailer state & language selection
   const [trailerLang, setTrailerLang] = useState<'hi' | 'en'>('hi');
@@ -352,14 +347,20 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
 
             {/* Direct Action Buttons */}
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleNetflixClick}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#E50914] hover:bg-red-700 text-white text-xs font-black shadow-lg shadow-red-600/30 transition-transform active:scale-95 whitespace-nowrap cursor-pointer"
+              <a
+                href={netflixUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onStartWatching(currentTitle);
+                }}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#E50914] hover:bg-red-700 text-white text-xs font-black shadow-lg shadow-red-600/30 transition-transform active:scale-95 whitespace-nowrap cursor-pointer no-underline"
+                title="Watch on Netflix (opens in new tab)"
               >
                 <Play className="w-4 h-4 fill-white" />
                 <span>Watch on Netflix</span>
-              </button>
+              </a>
 
               <button
                 type="button"

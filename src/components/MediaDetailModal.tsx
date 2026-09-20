@@ -60,11 +60,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const netflixUrl = getNetflixUrl(item);
   const langBadge = getPriorityLanguageBadge(item);
 
-  const handleNetflixClick = (event: React.MouseEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    window.open(netflixUrl, '_blank', 'noopener,noreferrer');
-  };
+
 
   // Discovery catalog for director / cast / creator lookup
   const [discoveryCatalog, setDiscoveryCatalog] = useState<DiscoveryTitle[]>([]);
@@ -388,15 +384,18 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                     <span>Trailer: EN</span>
                   </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleNetflixClick}
-                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#E50914] hover:bg-red-700 text-white text-xs font-black shadow-md transition-all transform hover:scale-105 sm:ml-auto w-full sm:w-auto justify-center cursor-pointer"
+                <a
+                  href={netflixUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#E50914] hover:bg-red-700 text-white text-xs font-black shadow-md transition-all transform hover:scale-105 sm:ml-auto w-full sm:w-auto justify-center cursor-pointer no-underline"
+                  title="Watch on Netflix (opens in new tab)"
                 >
                   <Play className="w-3.5 h-3.5 fill-white" />
                   <span>Watch on Netflix</span>
                   <ExternalLink className="w-3 h-3" />
-                </button>
+                </a>
               </div>
 
               <h2 className="text-xl sm:text-3xl font-black mt-2 text-white tracking-tight">
