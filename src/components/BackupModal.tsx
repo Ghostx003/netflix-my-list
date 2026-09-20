@@ -19,6 +19,7 @@ export const BackupModal: React.FC<BackupModalProps> = ({
   onRefreshLibrary,
 }) => {
   const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState<{ message: string; percent: number } | null>(null);
   const [exportSuccess, setExportSuccess] = useState<string | null>(null);
 
   const [pendingBackup, setPendingBackup] = useState<BackupData | null>(null);
@@ -32,14 +33,24 @@ export const BackupModal: React.FC<BackupModalProps> = ({
 
   const handleExport = async () => {
     setIsExporting(true);
+    setExportProgress({ message: 'Preparing database snapshot...', percent: 0 });
     setExportSuccess(null);
+    setErrorMessage(null);
     try {
-      const file = await exportBackup(items, settings, includeThumbnails);
-      setExportSuccess(`Exported successfully as ${file}${includeThumbnails ? ' (with cached thumbnails included)' : ''}`);
-    } catch (err) {
-      setErrorMessage('Failed to generate backup file.');
+      const res = await exportBackup(items, settings, includeThumbnails, (p) => {
+        setExportProgress({ message: p.message, percent: p.percent });
+      });
+      const parts = [`${res.itemCount} library items`];
+      if (res.discoveryCount > 0) parts.push(`${res.discoveryCount} Discovery titles (with all TMDB/Watchmode metadata, ratings, cast, themes, genres, synopsis, seasons & episodes)`);
+      if (res.metadataCacheCount > 0) parts.push(`${res.metadataCacheCount} cached API items`);
+      if (includeThumbnails) parts.push('offline thumbnails included');
+      setExportSuccess(`Exported successfully as ${res.filename} (${parts.join(', ')})`);
+    } catch (err: any) {
+      console.error('Export backup error:', err);
+      setErrorMessage(`Failed to generate backup file: ${err?.message || 'Unknown error'}`);
     } finally {
       setIsExporting(false);
+      setExportProgress(null);
     }
   };
 
@@ -118,18 +129,34 @@ export const BackupModal: React.FC<BackupModalProps> = ({
               <div>
                 <h4 className="text-sm font-bold text-white">Export Full Backup</h4>
                 <p className="text-xs text-zinc-400 mt-0.5">
-                  Downloads a JSON snapshot with {items.length} titles and all personal metadata & settings.
+                  Downloads a complete JSON snapshot with all {items.length} watchlist items, full Discovery catalog (TMDB + Watchmode enriched metadata: ratings, cast, synopsis, themes, episodes, genres, tagline), API caches, and settings.
                 </p>
               </div>
               <button
                 onClick={handleExport}
                 disabled={isExporting}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-lg transition-all whitespace-nowrap"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800/60 text-white shadow-lg transition-all whitespace-nowrap"
               >
-                <Download className="w-4 h-4" />
-                <span>{isExporting ? 'Exporting...' : 'Export Backup'}</span>
+                {isExporting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                <span>{isExporting ? `${exportProgress?.percent || 0}% Exporting...` : 'Export Backup'}</span>
               </button>
             </div>
+
+            {/* Live Progress Indicator */}
+            {isExporting && exportProgress && (
+              <div className="space-y-1.5 py-1">
+                <div className="flex justify-between text-[11px] text-zinc-400">
+                  <span>{exportProgress.message}</span>
+                  <span className="font-mono text-blue-400 font-semibold">{exportProgress.percent}%</span>
+                </div>
+                <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-500 rounded-full transition-all duration-200"
+                    style={{ width: `${exportProgress.percent}%` }}
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Thumbnail Cache Option Toggle */}
             <div className="pt-2 border-t border-white/5 flex items-center justify-between">
