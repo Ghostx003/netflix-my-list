@@ -24,6 +24,7 @@ import {
   Eye,
   EyeOff,
   PlusCircle,
+  Shuffle,
 } from 'lucide-react';
 import { AppSettings, DiscoveryTitle, LibraryItem } from '../types';
 import {
@@ -51,6 +52,7 @@ import { normalizeCountryName } from '../services/normalizer';
 import { DiscoveryCard } from './DiscoveryCard';
 import { DiscoveryDetailModal } from './DiscoveryDetailModal';
 import { TagExploreModal } from './TagExploreModal';
+import { ShuffleSurpriseModal } from './ShuffleSurpriseModal';
 import {
   enrichCatalogWithTMDB,
   TMDBEnrichmentProgress,
@@ -205,6 +207,9 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
 
   // Theme & Genre Tag Explore Modal state
   const [tagExploreModal, setTagExploreModal] = useState<{ tag: string; type: 'genre' | 'theme' } | null>(null);
+
+  // Shuffle Surprise Modal state
+  const [showShuffleSurpriseModal, setShowShuffleSurpriseModal] = useState(false);
 
   // Ignored / Hidden titles state (stored in localStorage for permanence)
   const [ignoredTitleIds, setIgnoredTitleIds] = useState<string[]>(() => {
@@ -1486,6 +1491,16 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
           >
             <Sparkles className="w-4 h-4 text-purple-200" />
             <span className="hidden sm:inline">Surprise Me</span>
+          </button>
+
+          {/* Shuffle Surprise */}
+          <button
+            onClick={() => setShowShuffleSurpriseModal(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 via-pink-600 to-red-600 hover:from-purple-500 hover:to-red-500 text-white text-xs font-bold shadow-lg shadow-purple-600/30 transition-all transform hover:scale-105 active:scale-95"
+            title="Open Shuffle Surprise: Personalized recommendations & roulette based on your 4-5★ ratings & completed genres"
+          >
+            <Shuffle className="w-4 h-4 text-pink-200 animate-pulse" />
+            <span className="hidden sm:inline">Shuffle Surprise</span>
           </button>
         </div>
       </div>
@@ -3542,6 +3557,22 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
           onAddToLibrary={onAddToLibrary}
           onStartWatching={onStartWatching}
           isInLibrary={isInLibrary}
+        />
+      )}
+
+      {/* Shuffle Surprise Modal with AI Taste Profile, Top 25 Movies/Series & Roulette */}
+      {showShuffleSurpriseModal && (
+        <ShuffleSurpriseModal
+          isOpen={showShuffleSurpriseModal}
+          onClose={() => setShowShuffleSurpriseModal(false)}
+          catalog={catalog}
+          libraryItems={libraryItems}
+          onSelectTitle={handleOpenDiscoveryDetail}
+          onAddToLibrary={onAddToLibrary}
+          onStartWatching={onStartWatching}
+          isInLibrary={isInLibrary}
+          isWatchedInLibrary={isWatchedInLibrary}
+          isWatchingInLibrary={isWatchingInLibrary}
         />
       )}
     </div>
