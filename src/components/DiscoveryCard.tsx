@@ -11,11 +11,13 @@ interface DiscoveryCardProps {
   item: DiscoveryTitle;
   isInLibrary: boolean;
   isWatched?: boolean;
+  isWatching?: boolean;
   onClick: () => void;
   onAddToLibrary: (item: DiscoveryTitle) => void;
   onStartWatching: (item: DiscoveryTitle) => void;
   onMarkWatched?: (item: DiscoveryTitle) => void;
   onIgnoreTitle?: (item: DiscoveryTitle) => void;
+  onGoToLibrary?: (item: DiscoveryTitle) => void;
   onTagClick?: (tag: string, type: 'genre' | 'theme', e: React.MouseEvent) => void;
 }
 
@@ -23,11 +25,13 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
   item,
   isInLibrary,
   isWatched,
+  isWatching,
   onClick,
   onAddToLibrary,
   onStartWatching,
   onMarkWatched,
   onIgnoreTitle,
+  onGoToLibrary,
   onTagClick,
 }) => {
   const isMovie = item.mediaType === 'movie';
@@ -349,7 +353,7 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
               rel="noopener noreferrer"
               onClick={(e) => openNetflixInNewTab(netflixUrl, e)}
               className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-[#E50914] hover:bg-red-700 text-white font-black text-[10px] sm:text-[11px] flex items-center gap-1 shadow-md shadow-red-600/30 transition-transform active:scale-95 shrink-0 whitespace-nowrap cursor-pointer no-underline"
-              title="Watch on official Netflix India (opens in new tab)"
+              title="Open show or movie on Netflix in new tab"
             >
               <Play className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-white" />
               <span>Netflix</span>
@@ -359,10 +363,18 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
           {/* Add to Library, Start Watching & Mark Watched Buttons */}
           <div className="flex items-center gap-1.5 pt-1 border-t border-zinc-800/40">
             {isInLibrary ? (
-              <span className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg bg-emerald-600/20 border border-emerald-500/30 text-emerald-300 text-[10px] sm:text-[11px] font-bold">
-                <Check className="w-3 h-3" />
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onGoToLibrary?.(item);
+                }}
+                className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 hover:border-emerald-500/60 text-emerald-300 text-[10px] sm:text-[11px] font-bold transition-all active:scale-95 cursor-pointer"
+                title="View in Movies & Series Library"
+              >
+                <Check className="w-3 h-3 text-emerald-400" />
                 <span>In Library</span>
-              </span>
+              </button>
             ) : (
               <button
                 onClick={(e) => {
@@ -396,20 +408,22 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
               </button>
             )}
 
-            <a
-              href={netflixUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
               onClick={(e) => {
-                openNetflixInNewTab(netflixUrl, e);
+                e.stopPropagation();
                 onStartWatching(item);
               }}
-              className="px-2 sm:px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black transition-all border border-amber-500/30 text-[10px] sm:text-[11px] font-bold flex items-center gap-1 active:scale-95 cursor-pointer no-underline"
-              title="Watch on Netflix in new tab & Start Watching"
+              className={`px-2 sm:px-2.5 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold flex items-center gap-1 transition-all border active:scale-95 cursor-pointer ${
+                isWatching
+                  ? 'bg-amber-500 text-black border-amber-400 shadow-md shadow-amber-500/30 font-extrabold'
+                  : 'bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border-amber-500/30'
+              }`}
+              title={isWatching ? 'Currently on Watching List' : 'Add to Watching List'}
             >
               <Tv className="w-3 h-3" />
-              <span>Watch</span>
-            </a>
+              <span>{isWatching ? '✓ Watching' : 'Watching'}</span>
+            </button>
           </div>
         </div>
       </div>

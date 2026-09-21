@@ -642,6 +642,11 @@ export const App: React.FC = () => {
                 };
                 await handleAddNewItem(newLibItem);
               }
+              setSyncToast({
+                message: `Added "${discItem.title}" to Watching list!`,
+                type: 'success',
+              });
+              setTimeout(() => setSyncToast(null), 3000);
             }}
             onMarkWatched={async (discItem) => {
               const existing = items.find(
@@ -719,6 +724,21 @@ export const App: React.FC = () => {
             onOpenSurpriseMeModal={(pool) => {
               setSurpriseMeCustomPool(pool && pool.length > 0 ? pool : null);
               setIsSurpriseMeOpen(true);
+            }}
+            onNavigateToCatalog={(discItem) => {
+              handleTabChange('movies-series');
+              if (discItem) {
+                const target = items.find(
+                  (i) =>
+                    (discItem.imdbId && i.imdbId === discItem.imdbId) ||
+                    (discItem.tmdbId && i.externalId === discItem.tmdbId) ||
+                    (discItem.netflixId && i.videoId === discItem.netflixId) ||
+                    i.originalTitle.toLowerCase().trim() === discItem.title.toLowerCase().trim()
+                );
+                if (target) {
+                  setSelectedDetailItem(target);
+                }
+              }
             }}
           />
         )}

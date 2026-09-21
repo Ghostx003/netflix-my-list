@@ -208,18 +208,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="hidden sm:inline">Backup</span>
             </button>
 
-            <a
-              href="https://www.netflix.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => openNetflixInNewTab('https://www.netflix.com', e)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#E50914] hover:bg-red-700 text-white border border-red-600/40 transition-all text-xs font-bold whitespace-nowrap shadow-md shadow-red-600/20 active:scale-95 cursor-pointer no-underline"
-              title="Open Netflix (opens in new tab)"
-            >
-              <Play className="w-3.5 h-3.5 fill-white" />
-              <span>Netflix</span>
-            </a>
-
             <button
               onClick={onOpenSettings}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-gray-200 border border-white/10 transition-colors text-xs font-semibold whitespace-nowrap"

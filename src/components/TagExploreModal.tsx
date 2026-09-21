@@ -574,6 +574,7 @@ export const TagExploreModal: React.FC<TagExploreModalProps> = ({
                           onClick={(e) => {
                             e.stopPropagation();
                             openNetflixInNewTab(netflixUrl, e);
+                            onStartWatching?.(item);
                           }}
                           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-[#E50914] hover:bg-red-700 text-white text-[10px] font-black cursor-pointer no-underline ml-auto"
                         >

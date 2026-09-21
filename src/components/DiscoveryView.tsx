@@ -69,6 +69,7 @@ interface DiscoveryViewProps {
   onMarkWatched?: (item: DiscoveryTitle) => void;
   onOpenDetail: (item: LibraryItem) => void;
   onOpenSurpriseMeModal?: (filteredPool?: LibraryItem[]) => void;
+  onNavigateToCatalog?: (item?: DiscoveryTitle) => void;
 }
 
 type ContentType = 'all' | 'movie' | 'tv';
@@ -146,6 +147,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   onMarkWatched,
   onOpenDetail,
   onOpenSurpriseMeModal,
+  onNavigateToCatalog,
 }) => {
   // Discovery catalog data - persistent from local IndexedDB
   const [catalog, setCatalog] = useState<DiscoveryTitle[]>([]);
@@ -778,30 +780,36 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   };
 
   // Check if title is already in user's library and watched status
-  const { librarySet, completedLibrarySet } = useMemo(() => {
+  const { librarySet, completedLibrarySet, watchingLibrarySet } = useMemo(() => {
     const libSet = new Set<string>();
     const compSet = new Set<string>();
+    const watchSet = new Set<string>();
     libraryItems.forEach((i) => {
       const isComp = i.viewingStatus === 'completed' || i.isCompleted === true;
+      const isWatch = i.viewingStatus === 'still_watching';
       if (i.imdbId) {
         libSet.add(`imdb_${i.imdbId}`);
         if (isComp) compSet.add(`imdb_${i.imdbId}`);
+        if (isWatch) watchSet.add(`imdb_${i.imdbId}`);
       }
       if (i.externalId) {
         libSet.add(`ext_${i.externalId}`);
         if (isComp) compSet.add(`ext_${i.externalId}`);
+        if (isWatch) watchSet.add(`ext_${i.externalId}`);
       }
       if (i.videoId) {
         libSet.add(`vid_${i.videoId}`);
         if (isComp) compSet.add(`vid_${i.videoId}`);
+        if (isWatch) watchSet.add(`vid_${i.videoId}`);
       }
       const norm = (i.externalTitle || i.originalTitle || '').toLowerCase().trim();
       if (norm) {
         libSet.add(norm);
         if (isComp) compSet.add(norm);
+        if (isWatch) watchSet.add(norm);
       }
     });
-    return { librarySet: libSet, completedLibrarySet: compSet };
+    return { librarySet: libSet, completedLibrarySet: compSet, watchingLibrarySet: watchSet };
   }, [libraryItems]);
 
   const isInLibrary = useCallback(
@@ -824,6 +832,18 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       return completedLibrarySet.has(norm);
     },
     [completedLibrarySet]
+  );
+
+  const isWatchingInLibrary = useCallback(
+    (item: DiscoveryTitle) => {
+      if (!watchingLibrarySet) return false;
+      if (item.imdbId && watchingLibrarySet.has(`imdb_${item.imdbId}`)) return true;
+      if (item.tmdbId && watchingLibrarySet.has(`ext_${item.tmdbId}`)) return true;
+      if (item.netflixId && watchingLibrarySet.has(`vid_${item.netflixId}`)) return true;
+      const norm = (item.title || '').toLowerCase().trim();
+      return watchingLibrarySet.has(norm);
+    },
+    [watchingLibrarySet]
   );
 
   // Filter & Sort Logic
@@ -2391,11 +2411,13 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               item={item}
               isInLibrary={isInLibrary(item)}
               isWatched={isWatchedInLibrary(item)}
+              isWatching={isWatchingInLibrary(item)}
               onClick={() => handleOpenDiscoveryDetail(item)}
               onAddToLibrary={onAddToLibrary}
               onStartWatching={onStartWatching}
               onMarkWatched={onMarkWatched}
               onIgnoreTitle={handleIgnoreTitle}
+              onGoToLibrary={onNavigateToCatalog}
               onTagClick={(tag, type) => setTagExploreModal({ tag, type })}
             />
           ))}
@@ -3268,6 +3290,10 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
           onPopTitle={handlePopDiscoveryDetail}
           onAddToLibrary={onAddToLibrary}
           onStartWatching={onStartWatching}
+          onGoToLibrary={(item) => {
+            handleCloseDiscoveryDetail();
+            onNavigateToCatalog?.(item);
+          }}
           isInLibrary={isInLibrary}
           settings={settings}
           libraryItems={libraryItems}

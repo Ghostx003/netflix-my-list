@@ -40,6 +40,7 @@ interface DiscoveryDetailModalProps {
   onPopTitle: () => void;
   onAddToLibrary: (item: DiscoveryTitle) => void;
   onStartWatching: (item: DiscoveryTitle) => void;
+  onGoToLibrary?: (item: DiscoveryTitle) => void;
   isInLibrary: (item: DiscoveryTitle) => boolean;
   settings: AppSettings;
   libraryItems?: LibraryItem[];
@@ -54,6 +55,7 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
   onPopTitle,
   onAddToLibrary,
   onStartWatching,
+  onGoToLibrary,
   isInLibrary,
   settings,
   libraryItems,
@@ -99,6 +101,18 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
     (currentTitle.countries && currentTitle.countries.length > 0 ? currentTitle.countries[0] : undefined) ||
     (currentTitle.tmdbProductionCountries && currentTitle.tmdbProductionCountries.length > 0 ? currentTitle.tmdbProductionCountries[0] : undefined);
   const inLib = isInLibrary(currentTitle);
+  const isWatching = useMemo(() => {
+    if (!libraryItems || !currentTitle) return false;
+    return libraryItems.some(
+      (i) =>
+        i.viewingStatus === 'still_watching' &&
+        ((currentTitle.imdbId && i.imdbId === currentTitle.imdbId) ||
+          (currentTitle.tmdbId && i.externalId === currentTitle.tmdbId) ||
+          (currentTitle.netflixId && i.videoId === currentTitle.netflixId) ||
+          (i.externalTitle || i.originalTitle || '').toLowerCase().trim() ===
+            (currentTitle.title || '').toLowerCase().trim())
+    );
+  }, [libraryItems, currentTitle]);
 
 
 
@@ -676,7 +690,6 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                     } catch {}
                   }
                   openNetflixInNewTab(targetUrl, e);
-                  onStartWatching(currentTitle);
                 }}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#E50914] hover:bg-red-700 text-white text-xs font-black shadow-lg shadow-red-600/30 transition-transform active:scale-95 whitespace-nowrap cursor-pointer no-underline"
                 title="Watch on Netflix (opens in new tab)"
@@ -687,12 +700,33 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
 
               <button
                 type="button"
-                onClick={() => onAddToLibrary(currentTitle)}
+                onClick={() => onStartWatching(currentTitle)}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border transition-all whitespace-nowrap active:scale-95 cursor-pointer ${
+                  isWatching
+                    ? 'bg-amber-500 text-black border-amber-400 shadow-md shadow-amber-500/30 font-bold'
+                    : 'bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border-amber-500/30'
+                }`}
+                title={isWatching ? 'Currently on Watching List' : 'Add to Watching List'}
+              >
+                <Tv className="w-3.5 h-3.5" />
+                <span>{isWatching ? '✓ Watching' : 'Watching'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (inLib) {
+                    onGoToLibrary?.(currentTitle);
+                  } else {
+                    onAddToLibrary(currentTitle);
+                  }
+                }}
                 className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border transition-all whitespace-nowrap ${
                   inLib
-                    ? 'bg-zinc-800 text-emerald-400 border-emerald-500/40'
-                    : 'bg-zinc-800 hover:bg-zinc-700 text-white border-white/10'
+                    ? 'bg-emerald-600/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-600/30 cursor-pointer active:scale-95'
+                    : 'bg-zinc-800 hover:bg-zinc-700 text-white border-white/10 active:scale-95'
                 }`}
+                title={inLib ? 'View in Movies & Series Library' : 'Add to Library'}
               >
                 {inLib ? '✓ In Library' : '+ Add to Library'}
               </button>
