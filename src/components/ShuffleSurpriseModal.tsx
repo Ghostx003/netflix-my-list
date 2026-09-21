@@ -17,6 +17,8 @@ import {
   Search,
   ChevronDown,
   ChevronUp,
+  Layers,
+  Sparkle,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { DiscoveryTitle, LibraryItem } from '../types';
@@ -42,7 +44,6 @@ interface ShuffleSurpriseModalProps {
 interface ScoredCandidate {
   item: DiscoveryTitle;
   baseScore: number;
-  shuffledScore: number;
   matchPercentage: number;
   matchedGenres: string[];
   matchedThemes: string[];
@@ -51,17 +52,6 @@ interface ScoredCandidate {
 
 const STORAGE_KEY_GENRES = 'netflix_shuffle_selected_genres';
 const STORAGE_KEY_THEMES = 'netflix_shuffle_selected_themes';
-
-// Pseudo-random generator for consistent shuffle based on seed and item id
-const getPseudoRandom = (seed: number, id: string | number): number => {
-  const str = `${seed}_${id}`;
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs((hash % 10000) / 10000);
-};
 
 export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
   isOpen,
@@ -78,8 +68,9 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
   // Tab state: 'movies' | 'series'
   const [activeTab, setActiveTab] = useState<'movies' | 'series'>('movies');
 
-  // Dynamic Shuffle Seed - changes whenever modal opens or user clicks Reshuffle!
-  const [shuffleSeed, setShuffleSeed] = useState<number>(() => Date.now());
+  // Non-repeating Batch State: advances to completely fresh 25 titles on every reshuffle or modal open!
+  const [movieBatch, setMovieBatch] = useState(0);
+  const [seriesBatch, setSeriesBatch] = useState(0);
   const [isReshuffling, setIsReshuffling] = useState(false);
 
   // Persistent Genre & Theme Filter from localStorage
@@ -118,10 +109,17 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
     } catch {}
   }, [selectedThemes]);
 
-  // When modal is opened, automatically generate a new shuffle seed so the list changes every time!
+  // When filters change, reset batches to 0 so fresh top matches are shown
+  useEffect(() => {
+    setMovieBatch(0);
+    setSeriesBatch(0);
+  }, [selectedGenres, selectedThemes]);
+
+  // When modal opens, advance batches so the user is immediately greeted with 25 new non-repeating titles!
   useEffect(() => {
     if (isOpen) {
-      setShuffleSeed(Date.now() + Math.floor(Math.random() * 10000));
+      setMovieBatch((prev) => prev + 1);
+      setSeriesBatch((prev) => prev + 1);
     }
   }, [isOpen]);
 
@@ -218,16 +216,17 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
     };
   }, [libraryItems]);
 
-  // 2. Score & Dynamically Shuffle Catalog Against Preferences
-  const { topMovies, topSeries, allCandidates, totalEligibleCount } = useMemo(() => {
+  // 2. Score & Rank All Candidates from the 4K Discovery Catalog
+  const { allEligibleMovies, allEligibleSeries } = useMemo(() => {
     if (!catalog || catalog.length === 0) {
-      return { topMovies: [], topSeries: [], allCandidates: [], totalEligibleCount: 0 };
+      return { allEligibleMovies: [], allEligibleSeries: [] };
     }
 
     const { genreWeights, themeWeights, topGenres, completedTitleSet } = tasteProfile;
     const hasTasteData = Object.keys(genreWeights).length > 0 || Object.keys(themeWeights).length > 0;
 
-    const scored: ScoredCandidate[] = [];
+    const scoredMovies: ScoredCandidate[] = [];
+    const scoredSeries: ScoredCandidate[] = [];
 
     catalog.forEach((item) => {
       // 1. Exclude already completed titles
@@ -273,7 +272,7 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
         }
       });
 
-      // Rating quality score (scaled since rating >= 6.0)
+      // Rating quality score
       const qualityScore = effectiveRating * 1.6;
       const popularityBonus = Math.log10(Math.max(item.voteCount || 10, 10)) * 2;
 
@@ -283,10 +282,6 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
       } else {
         baseScore = qualityScore + (item.rottenTomatoesRating ? item.rottenTomatoesRating / 10 : 0) + popularityBonus;
       }
-
-      // Dynamic Shuffled Score: incorporates shuffleSeed so top 25 rotates dynamically every time!
-      const randomJitter = 0.75 + getPseudoRandom(shuffleSeed, item.id) * 0.5; // Variation ±25%
-      const shuffledScore = baseScore * randomJitter;
 
       // Human-readable reason
       let reason = '';
@@ -302,37 +297,62 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
         reason = `Top-rated 6+ ${item.mediaType === 'movie' ? 'film' : 'series'} on Netflix India`;
       }
 
-      const matchPercentage = Math.min(99, Math.max(80, Math.round(78 + ((shuffledScore * 10) % 22))));
+      const matchPercentage = Math.min(99, Math.max(78, Math.round(75 + ((baseScore * 10) % 24))));
 
-      scored.push({
+      const candidate: ScoredCandidate = {
         item,
         baseScore,
-        shuffledScore,
         matchPercentage,
         matchedGenres,
         matchedThemes,
         reason,
-      });
+      };
+
+      if (item.mediaType === 'movie') {
+        scoredMovies.push(candidate);
+      } else {
+        scoredSeries.push(candidate);
+      }
     });
 
-    // Partition by mediaType and sort by shuffledScore descending
-    const movies = scored
-      .filter((sc) => sc.item.mediaType === 'movie')
-      .sort((a, b) => b.shuffledScore - a.shuffledScore)
-      .slice(0, 25);
-
-    const series = scored
-      .filter((sc) => sc.item.mediaType === 'tv')
-      .sort((a, b) => b.shuffledScore - a.shuffledScore)
-      .slice(0, 25);
+    // Sort descending by taste base score
+    scoredMovies.sort((a, b) => b.baseScore - a.baseScore);
+    scoredSeries.sort((a, b) => b.baseScore - a.baseScore);
 
     return {
-      topMovies: movies,
-      topSeries: series,
-      allCandidates: [...movies, ...series],
-      totalEligibleCount: scored.length,
+      allEligibleMovies: scoredMovies,
+      allEligibleSeries: scoredSeries,
     };
-  }, [catalog, tasteProfile, selectedGenres, selectedThemes, shuffleSeed]);
+  }, [catalog, tasteProfile, selectedGenres, selectedThemes]);
+
+  // 3. Extract 25 COMPLETELY NEW, NON-REPEATING titles for each batch
+  const totalMovieBatches = Math.max(1, Math.ceil(allEligibleMovies.length / 25));
+  const totalSeriesBatches = Math.max(1, Math.ceil(allEligibleSeries.length / 25));
+
+  const currentMovieBatchIndex = movieBatch % totalMovieBatches;
+  const currentSeriesBatchIndex = seriesBatch % totalSeriesBatches;
+
+  const topMovies = useMemo(() => {
+    if (allEligibleMovies.length <= 25) return allEligibleMovies;
+    const start = currentMovieBatchIndex * 25;
+    let slice = allEligibleMovies.slice(start, start + 25);
+    if (slice.length < 25) {
+      slice = [...slice, ...allEligibleMovies.slice(0, 25 - slice.length)];
+    }
+    return slice;
+  }, [allEligibleMovies, currentMovieBatchIndex]);
+
+  const topSeries = useMemo(() => {
+    if (allEligibleSeries.length <= 25) return allEligibleSeries;
+    const start = currentSeriesBatchIndex * 25;
+    let slice = allEligibleSeries.slice(start, start + 25);
+    if (slice.length < 25) {
+      slice = [...slice, ...allEligibleSeries.slice(0, 25 - slice.length)];
+    }
+    return slice;
+  }, [allEligibleSeries, currentSeriesBatchIndex]);
+
+  const allCandidates = useMemo(() => [...topMovies, ...topSeries], [topMovies, topSeries]);
 
   // Clean up spin interval
   useEffect(() => {
@@ -341,16 +361,22 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
     };
   }, []);
 
-  // Reshuffle Handler
+  // Reshuffle Handler: Advances to the next completely distinct batch of 25 movies and 25 series!
   const handleReshuffle = () => {
     setIsReshuffling(true);
-    setShuffleSeed(Date.now() + Math.floor(Math.random() * 10000));
+    setMovieBatch((prev) => prev + 1);
+    setSeriesBatch((prev) => prev + 1);
     setTimeout(() => {
       setIsReshuffling(false);
-    }, 300);
+    }, 280);
   };
 
-  // Roulette Spin Handler (only from inside hero section)
+  const handleResetBatch = () => {
+    setMovieBatch(0);
+    setSeriesBatch(0);
+  };
+
+  // Roulette Spin Handler (only inside hero section)
   const handleSpinRoulette = () => {
     const candidatePool = allCandidates.length > 0 ? allCandidates : [];
     if (candidatePool.length === 0) return;
@@ -404,6 +430,12 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
     setSelectedThemes([]);
   };
 
+  const currentBatchNum = activeTab === 'movies' ? currentMovieBatchIndex + 1 : currentSeriesBatchIndex + 1;
+  const totalBatchNum = activeTab === 'movies' ? totalMovieBatches : totalSeriesBatches;
+  const currentTotalEligible = activeTab === 'movies' ? allEligibleMovies.length : allEligibleSeries.length;
+  const startRange = (currentBatchNum - 1) * 25 + 1;
+  const endRange = Math.min(startRange + 24, currentTotalEligible);
+
   if (!isOpen) return null;
 
   return (
@@ -423,8 +455,9 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
                 <span className="px-2 py-0.5 rounded-full bg-purple-950/80 border border-purple-500/40 text-[10px] font-bold text-purple-300">
                   Rating 6+ Only
                 </span>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-[10px] font-bold text-emerald-300">
-                  Dynamic 25
+                <span className="px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-[10px] font-bold text-emerald-300 flex items-center gap-1">
+                  <Layers className="w-3 h-3" />
+                  Batch {currentBatchNum}/{totalBatchNum} (Zero Repeats)
                 </span>
               </div>
               <p className="text-xs text-zinc-400 mt-0.5 hidden sm:block">
@@ -434,20 +467,20 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Reshuffle Button in Header (Replaces previous header spin button) */}
+            {/* Primary Reshuffle Button in Header (Picks 25 brand new titles) */}
             <button
               onClick={handleReshuffle}
               disabled={isReshuffling}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-xs font-bold shadow-lg shadow-purple-600/30 transition-all transform hover:scale-105 active:scale-95 disabled:opacity-50"
-              title="Re-shuffle top 25 recommendations dynamically"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-xs font-bold shadow-lg shadow-purple-600/30 transition-all transform hover:scale-105 active:scale-95 disabled:opacity-50 cursor-pointer"
+              title="Pick 25 completely new titles without repeating any from this batch"
             >
               <RotateCcw className={`w-4 h-4 ${isReshuffling ? 'animate-spin text-white' : ''}`} />
-              <span>Reshuffle Top 25</span>
+              <span>Reshuffle (25 New)</span>
             </button>
 
             <button
               onClick={onClose}
-              className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white transition-colors"
+              className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white transition-colors cursor-pointer"
               title="Close modal"
             >
               <X className="w-5 h-5" />
@@ -525,7 +558,7 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
                     setShowFilterPicker(showFilterPicker === 'genre' ? null : 'genre');
                     setFilterSearchQuery('');
                   }}
-                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
                     showFilterPicker === 'genre'
                       ? 'bg-blue-600 text-white border-blue-500'
                       : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700'
@@ -542,7 +575,7 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
                     setShowFilterPicker(showFilterPicker === 'theme' ? null : 'theme');
                     setFilterSearchQuery('');
                   }}
-                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
                     showFilterPicker === 'theme'
                       ? 'bg-purple-600 text-white border-purple-500'
                       : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700'
@@ -557,7 +590,7 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
                 {(selectedGenres.length > 0 || selectedThemes.length > 0) && (
                   <button
                     onClick={clearAllFilters}
-                    className="text-xs text-red-400 hover:text-red-300 hover:underline px-2 py-1"
+                    className="text-xs text-red-400 hover:text-red-300 hover:underline px-2 py-1 cursor-pointer"
                   >
                     Clear All
                   </button>
@@ -576,7 +609,7 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
                     <span>Genre: {g}</span>
                     <button
                       onClick={() => toggleGenreFilter(g)}
-                      className="hover:text-white p-0.5 rounded-full hover:bg-blue-500/30"
+                      className="hover:text-white p-0.5 rounded-full hover:bg-blue-500/30 cursor-pointer"
                       title="Remove filter"
                     >
                       <X className="w-3 h-3" />
@@ -591,7 +624,7 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
                     <span>Theme: {t}</span>
                     <button
                       onClick={() => toggleThemeFilter(t)}
-                      className="hover:text-white p-0.5 rounded-full hover:bg-purple-500/30"
+                      className="hover:text-white p-0.5 rounded-full hover:bg-purple-500/30 cursor-pointer"
                       title="Remove filter"
                     >
                       <X className="w-3 h-3" />
@@ -621,7 +654,7 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
                   </div>
                   <button
                     onClick={() => setShowFilterPicker(null)}
-                    className="text-xs text-zinc-400 hover:text-white px-2 py-1"
+                    className="text-xs text-zinc-400 hover:text-white px-2 py-1 cursor-pointer"
                   >
                     Done
                   </button>
@@ -647,7 +680,7 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
                               toggleThemeFilter(item);
                             }
                           }}
-                          className={`text-xs px-2.5 py-1 rounded-lg border transition-all ${
+                          className={`text-xs px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
                             isSelected
                               ? showFilterPicker === 'genre'
                                 ? 'bg-blue-600 text-white border-blue-400 font-bold'
@@ -680,7 +713,7 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
                   </h3>
                 </div>
                 <p className="text-xs text-zinc-400 mt-1">
-                  Picks a random 6+ rated movie or series tailored to your taste & active filters.
+                  Picks a random 6+ rated title tailored to your taste & active filters from this fresh batch.
                 </p>
               </div>
 
@@ -848,7 +881,7 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
           {/* SECTION TABS: TOP 25 MOVIES & TOP 25 SERIES */}
           <div>
             <div className="flex flex-wrap items-center justify-between border-b border-zinc-800 pb-3 mb-4 gap-2">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={() => setActiveTab('movies')}
                   className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
@@ -858,7 +891,7 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
                   }`}
                 >
                   <Film className="w-4 h-4" />
-                  <span>Top 25 Movies</span>
+                  <span>25 Movies (Batch {currentMovieBatchIndex + 1}/{totalMovieBatches})</span>
                   <span className="px-1.5 py-0.2 rounded-full bg-black/40 text-[10px]">
                     {topMovies.length}
                   </span>
@@ -873,41 +906,60 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
                   }`}
                 >
                   <Tv className="w-4 h-4" />
-                  <span>Top 25 Series</span>
+                  <span>25 Series (Batch {currentSeriesBatchIndex + 1}/{totalSeriesBatches})</span>
                   <span className="px-1.5 py-0.2 rounded-full bg-black/40 text-[10px]">
                     {topSeries.length}
                   </span>
                 </button>
 
-                {/* Inline Reshuffler button next to tabs */}
+                {/* Reshuffler: Pulls NEXT 25 completely new titles */}
                 <button
                   onClick={handleReshuffle}
                   disabled={isReshuffling}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-850 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 text-xs font-bold transition-all transform active:scale-95 cursor-pointer ml-1"
-                  title="Reshuffle this list with a new random selection"
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-lg shadow-purple-600/20 transition-all transform hover:scale-105 active:scale-95 cursor-pointer"
+                  title="Reshuffle to the next 25 completely new titles without repeats"
                 >
-                  <RotateCcw className={`w-3.5 h-3.5 text-purple-400 ${isReshuffling ? 'animate-spin' : ''}`} />
-                  <span className="hidden sm:inline">Reshuffle</span>
+                  <RotateCcw className={`w-3.5 h-3.5 ${isReshuffling ? 'animate-spin' : ''}`} />
+                  <span>Reshuffle (Next 25 New)</span>
                 </button>
+
+                {/* Reset to Batch 1 if user has advanced */}
+                {(currentMovieBatchIndex > 0 || currentSeriesBatchIndex > 0) && (
+                  <button
+                    onClick={handleResetBatch}
+                    className="text-xs text-zinc-400 hover:text-zinc-200 underline px-2 py-1 cursor-pointer"
+                    title="Start over from batch 1"
+                  >
+                    Back to Top Batch #1
+                  </button>
+                )}
               </div>
 
-              <span className="text-xs text-zinc-400">
-                {totalEligibleCount} eligible 6+ rated titles • Shuffled for dynamic variety
+              <span className="text-xs text-zinc-400 flex items-center gap-1.5">
+                <span className="font-semibold text-emerald-400">
+                  Showing {startRange}–{endRange}
+                </span>
+                <span>of {currentTotalEligible} titles</span>
+                <span className="text-zinc-600">•</span>
+                <span className="text-zinc-400 italic">No repeats from previous batch</span>
               </span>
             </div>
 
             {/* Grid of Recommended Titles */}
             {((activeTab === 'movies' ? topMovies : topSeries).length > 0) ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-3 sm:gap-4">
-                {(activeTab === 'movies' ? topMovies : topSeries).map((candidate) => (
+                {(activeTab === 'movies' ? topMovies : topSeries).map((candidate, idx) => (
                   <div
-                    key={candidate.item.id}
+                    key={`${candidate.item.id}-${candidate.item.netflixId || idx}`}
                     className="relative flex flex-col group"
                   >
-                    {/* Match Score Badge */}
-                    <div className="absolute top-2 left-2 z-20 pointer-events-none">
+                    {/* Match Score & Rank Badge */}
+                    <div className="absolute top-2 left-2 z-20 pointer-events-none flex items-center gap-1">
                       <span className="px-1.5 py-0.5 rounded-md bg-black/85 backdrop-blur-md border border-emerald-500/40 text-[9px] font-black text-emerald-400 shadow-md">
                         🎯 {candidate.matchPercentage}%
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded-md bg-black/85 backdrop-blur-md border border-white/10 text-[9px] font-mono text-zinc-400 shadow-md">
+                        #{startRange + idx}
                       </span>
                     </div>
 
@@ -936,7 +988,7 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
                 {(selectedGenres.length > 0 || selectedThemes.length > 0) && (
                   <button
                     onClick={clearAllFilters}
-                    className="mt-3 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-colors"
+                    className="mt-3 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-colors cursor-pointer"
                   >
                     Clear Filters
                   </button>
@@ -952,10 +1004,10 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
             <span>Click any title card to view full trailer, cast, and metadata</span>
             <button
               onClick={handleReshuffle}
-              className="text-purple-400 hover:text-purple-300 font-semibold flex items-center gap-1"
+              className="text-purple-400 hover:text-purple-300 font-semibold flex items-center gap-1 cursor-pointer"
             >
               <RotateCcw className={`w-3 h-3 ${isReshuffling ? 'animate-spin' : ''}`} />
-              Reshuffle list
+              Next 25 new titles
             </button>
           </div>
           <button
