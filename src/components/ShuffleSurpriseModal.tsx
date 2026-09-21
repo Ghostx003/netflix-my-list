@@ -4,7 +4,6 @@ import {
   Sparkles,
   Film,
   Tv,
-  Star,
   X,
   RotateCcw,
   Play,
@@ -12,17 +11,18 @@ import {
   Check,
   Flame,
   Info,
-  Layers,
   Clock,
   Dices,
-  Trophy,
-  Heart,
-  ChevronRight,
+  Filter,
+  Search,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { DiscoveryTitle, LibraryItem } from '../types';
 import { formatRuntime } from '../services/analytics';
 import { getNetflixUrl, openNetflixInNewTab } from '../services/normalizer';
+import { CANONICAL_THEMES } from '../services/themeMapper';
 import { CachedImage } from './CachedImage';
 import { DiscoveryCard } from './DiscoveryCard';
 
@@ -41,12 +41,27 @@ interface ShuffleSurpriseModalProps {
 
 interface ScoredCandidate {
   item: DiscoveryTitle;
-  score: number;
+  baseScore: number;
+  shuffledScore: number;
   matchPercentage: number;
   matchedGenres: string[];
   matchedThemes: string[];
   reason: string;
 }
+
+const STORAGE_KEY_GENRES = 'netflix_shuffle_selected_genres';
+const STORAGE_KEY_THEMES = 'netflix_shuffle_selected_themes';
+
+// Pseudo-random generator for consistent shuffle based on seed and item id
+const getPseudoRandom = (seed: number, id: string | number): number => {
+  const str = `${seed}_${id}`;
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs((hash % 10000) / 10000);
+};
 
 export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
   isOpen,
@@ -63,20 +78,85 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
   // Tab state: 'movies' | 'series'
   const [activeTab, setActiveTab] = useState<'movies' | 'series'>('movies');
 
+  // Dynamic Shuffle Seed - changes whenever modal opens or user clicks Reshuffle!
+  const [shuffleSeed, setShuffleSeed] = useState<number>(() => Date.now());
+  const [isReshuffling, setIsReshuffling] = useState(false);
+
+  // Persistent Genre & Theme Filter from localStorage
+  const [selectedGenres, setSelectedGenres] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_GENRES);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [selectedThemes, setSelectedThemes] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_THEMES);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Filter dropdown/picker state
+  const [showFilterPicker, setShowFilterPicker] = useState<'genre' | 'theme' | null>(null);
+  const [filterSearchQuery, setFilterSearchQuery] = useState('');
+
+  // Persist selected genres and themes to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_GENRES, JSON.stringify(selectedGenres));
+    } catch {}
+  }, [selectedGenres]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_THEMES, JSON.stringify(selectedThemes));
+    } catch {}
+  }, [selectedThemes]);
+
+  // When modal is opened, automatically generate a new shuffle seed so the list changes every time!
+  useEffect(() => {
+    if (isOpen) {
+      setShuffleSeed(Date.now() + Math.floor(Math.random() * 10000));
+    }
+  }, [isOpen]);
+
   // Roulette state
   const [roulettePick, setRoulettePick] = useState<ScoredCandidate | null>(null);
   const [isSpinning, setIsSpinning] = useState(false);
   const [spinningDisplayTitle, setSpinningDisplayTitle] = useState<string | null>(null);
   const spinTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Available Genres from Discovery catalog
+  const availableGenres = useMemo(() => {
+    const set = new Set<string>();
+    catalog.forEach((item) => (item.genres || []).forEach((g) => {
+      const clean = g.trim();
+      if (clean) set.add(clean);
+    }));
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [catalog]);
+
+  // Available Themes from Discovery catalog & Canonical list
+  const availableThemes = useMemo(() => {
+    const set = new Set<string>(CANONICAL_THEMES);
+    catalog.forEach((item) => (item.themes || []).forEach((t) => {
+      const clean = t.trim();
+      if (clean) set.add(clean);
+    }));
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [catalog]);
+
   // 1. Analyze User Taste Profile from Completed & 4-5 Star Items
   const tasteProfile = useMemo(() => {
-    // Completed items
     const completedItems = libraryItems.filter(
       (item) => item.isCompleted === true || item.viewingStatus === 'completed'
     );
 
-    // 4-star and 5-star items (either userStarRating >= 4 or external ratings >= 8.0)
     const highRatedItems = libraryItems.filter((item) => {
       const userStar = item.userStarRating;
       if (userStar !== undefined && userStar >= 4) return true;
@@ -104,7 +184,7 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
 
     // 4-star & 5-star heavy boost (+2 for 4-star, +4 for 5-star)
     highRatedItems.forEach((item) => {
-      const multiplier = (item.userStarRating && item.userStarRating === 5) ? 4 : 2;
+      const multiplier = item.userStarRating && item.userStarRating === 5 ? 4 : 2;
       item.genres?.forEach((genre) => {
         const clean = genre.trim();
         if (clean) genreWeights[clean] = (genreWeights[clean] || 0) + multiplier;
@@ -115,7 +195,6 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
       });
     });
 
-    // Sort top genres and themes
     const sortedGenres = Object.entries(genreWeights)
       .sort((a, b) => b[1] - a[1])
       .map(([name]) => name);
@@ -124,7 +203,6 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
       .sort((a, b) => b[1] - a[1])
       .map(([name]) => name);
 
-    // Set of completed normalized titles to avoid recommending what user already completed
     const completedTitleSet = new Set(
       completedItems.map((i) => (i.normalizedTitle || i.originalTitle || '').toLowerCase().trim())
     );
@@ -140,10 +218,10 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
     };
   }, [libraryItems]);
 
-  // 2. Score Discovery Catalog Against User Preferences
-  const { topMovies, topSeries, allCandidates } = useMemo(() => {
+  // 2. Score & Dynamically Shuffle Catalog Against Preferences
+  const { topMovies, topSeries, allCandidates, totalEligibleCount } = useMemo(() => {
     if (!catalog || catalog.length === 0) {
-      return { topMovies: [], topSeries: [], allCandidates: [] };
+      return { topMovies: [], topSeries: [], allCandidates: [], totalEligibleCount: 0 };
     }
 
     const { genreWeights, themeWeights, topGenres, completedTitleSet } = tasteProfile;
@@ -152,9 +230,25 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
     const scored: ScoredCandidate[] = [];
 
     catalog.forEach((item) => {
-      // Exclude already completed titles
+      // 1. Exclude already completed titles
       const normalizedTitle = (item.originalTitle || item.title || '').toLowerCase().trim();
       if (completedTitleSet.has(normalizedTitle)) return;
+
+      // 2. STRICT RATING 6+ REQUIREMENT
+      const effectiveRating = Math.max(item.imdbRating || 0, item.rating || 0);
+      if (effectiveRating < 6.0) return;
+
+      // 3. GENRE FILTER (if active, item must match at least one selected genre)
+      if (selectedGenres.length > 0) {
+        const hasGenre = item.genres?.some((g) => selectedGenres.includes(g));
+        if (!hasGenre) return;
+      }
+
+      // 4. THEME FILTER (if active, item must match at least one selected theme)
+      if (selectedThemes.length > 0) {
+        const hasTheme = item.themes?.some((t) => selectedThemes.includes(t));
+        if (!hasTheme) return;
+      }
 
       const itemGenres = item.genres || [];
       const itemThemes = item.themes || [];
@@ -179,38 +273,41 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
         }
       });
 
-      // Rating quality score
-      const qualityScore = (item.imdbRating || item.rating || 6.5) * 1.5;
+      // Rating quality score (scaled since rating >= 6.0)
+      const qualityScore = effectiveRating * 1.6;
       const popularityBonus = Math.log10(Math.max(item.voteCount || 10, 10)) * 2;
 
-      let totalScore = 0;
+      let baseScore = 0;
       if (hasTasteData) {
-        totalScore = (genreScore * 3.5) + (themeScore * 4.5) + qualityScore + popularityBonus;
+        baseScore = genreScore * 3.5 + themeScore * 4.5 + qualityScore + popularityBonus;
       } else {
-        // Fallback when library is fresh: sort by ratings & critical acclaim
-        totalScore = qualityScore + (item.rottenTomatoesRating ? item.rottenTomatoesRating / 10 : 0) + popularityBonus;
+        baseScore = qualityScore + (item.rottenTomatoesRating ? item.rottenTomatoesRating / 10 : 0) + popularityBonus;
       }
 
-      // Generate human-readable reason
+      // Dynamic Shuffled Score: incorporates shuffleSeed so top 25 rotates dynamically every time!
+      const randomJitter = 0.75 + getPseudoRandom(shuffleSeed, item.id) * 0.5; // Variation ±25%
+      const shuffledScore = baseScore * randomJitter;
+
+      // Human-readable reason
       let reason = '';
       if (matchedGenres.length > 0 && matchedThemes.length > 0) {
         reason = `Matches your favorite genres (${matchedGenres.slice(0, 2).join(', ')}) & theme of "${matchedThemes[0]}"`;
       } else if (matchedGenres.length > 0) {
-        reason = `Features ${matchedGenres.slice(0, 2).join(' & ')}, which you loved in your completed library`;
+        reason = `Features ${matchedGenres.slice(0, 2).join(' & ')}, matching your highly rated titles`;
       } else if (matchedThemes.length > 0) {
-        reason = `Explores "${matchedThemes.slice(0, 2).join(', ')}" based on your top-rated themes`;
+        reason = `Explores "${matchedThemes.slice(0, 2).join(', ')}" from your top-rated themes`;
       } else if (hasTasteData && topGenres.length > 0) {
-        reason = `Highly acclaimed Netflix India pick complementary to your ${topGenres[0]} favorites`;
+        reason = `Acclaimed 6+ rated pick complementary to your ${topGenres[0]} favorites`;
       } else {
-        reason = `Top-rated critically acclaimed ${item.mediaType === 'movie' ? 'film' : 'series'} on Netflix India`;
+        reason = `Top-rated 6+ ${item.mediaType === 'movie' ? 'film' : 'series'} on Netflix India`;
       }
 
-      // Normalized match percentage for UI badge (between 78% and 99%)
-      const matchPercentage = Math.min(99, Math.max(78, Math.round(75 + (totalScore % 25))));
+      const matchPercentage = Math.min(99, Math.max(80, Math.round(78 + ((shuffledScore * 10) % 22))));
 
       scored.push({
         item,
-        score: totalScore,
+        baseScore,
+        shuffledScore,
         matchPercentage,
         matchedGenres,
         matchedThemes,
@@ -218,23 +315,24 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
       });
     });
 
-    // Partition and take top 25 for each category
+    // Partition by mediaType and sort by shuffledScore descending
     const movies = scored
       .filter((sc) => sc.item.mediaType === 'movie')
-      .sort((a, b) => b.score - a.score)
+      .sort((a, b) => b.shuffledScore - a.shuffledScore)
       .slice(0, 25);
 
     const series = scored
       .filter((sc) => sc.item.mediaType === 'tv')
-      .sort((a, b) => b.score - a.score)
+      .sort((a, b) => b.shuffledScore - a.shuffledScore)
       .slice(0, 25);
 
     return {
       topMovies: movies,
       topSeries: series,
       allCandidates: [...movies, ...series],
+      totalEligibleCount: scored.length,
     };
-  }, [catalog, tasteProfile]);
+  }, [catalog, tasteProfile, selectedGenres, selectedThemes, shuffleSeed]);
 
   // Clean up spin interval
   useEffect(() => {
@@ -243,7 +341,16 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
     };
   }, []);
 
-  // 3. Roulette Spin Handler
+  // Reshuffle Handler
+  const handleReshuffle = () => {
+    setIsReshuffling(true);
+    setShuffleSeed(Date.now() + Math.floor(Math.random() * 10000));
+    setTimeout(() => {
+      setIsReshuffling(false);
+    }, 300);
+  };
+
+  // Roulette Spin Handler (only from inside hero section)
   const handleSpinRoulette = () => {
     const candidatePool = allCandidates.length > 0 ? allCandidates : [];
     if (candidatePool.length === 0) return;
@@ -261,7 +368,6 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
 
       if (counter >= totalTicks) {
         if (spinTimerRef.current) clearInterval(spinTimerRef.current);
-        // Final pick
         const finalPick = candidatePool[Math.floor(Math.random() * candidatePool.length)];
         setRoulettePick(finalPick);
         setIsSpinning(false);
@@ -277,6 +383,25 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
         } catch {}
       }
     }, 90);
+  };
+
+  // Genre filter toggle
+  const toggleGenreFilter = (genre: string) => {
+    setSelectedGenres((prev) =>
+      prev.includes(genre) ? prev.filter((g) => g !== genre) : [...prev, genre]
+    );
+  };
+
+  // Theme filter toggle
+  const toggleThemeFilter = (theme: string) => {
+    setSelectedThemes((prev) =>
+      prev.includes(theme) ? prev.filter((t) => t !== theme) : [...prev, theme]
+    );
+  };
+
+  const clearAllFilters = () => {
+    setSelectedGenres([]);
+    setSelectedThemes([]);
   };
 
   if (!isOpen) return null;
@@ -296,7 +421,10 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
                   Shuffle Surprise
                 </h2>
                 <span className="px-2 py-0.5 rounded-full bg-purple-950/80 border border-purple-500/40 text-[10px] font-bold text-purple-300">
-                  AI Taste Match
+                  Rating 6+ Only
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-[10px] font-bold text-emerald-300">
+                  Dynamic 25
                 </span>
               </div>
               <p className="text-xs text-zinc-400 mt-0.5 hidden sm:block">
@@ -306,14 +434,15 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Direct Roulette Trigger in Header */}
+            {/* Reshuffle Button in Header (Replaces previous header spin button) */}
             <button
-              onClick={handleSpinRoulette}
-              disabled={isSpinning}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-xs font-bold shadow-lg shadow-purple-600/30 transition-transform active:scale-95 disabled:opacity-50"
+              onClick={handleReshuffle}
+              disabled={isReshuffling}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-xs font-bold shadow-lg shadow-purple-600/30 transition-all transform hover:scale-105 active:scale-95 disabled:opacity-50"
+              title="Re-shuffle top 25 recommendations dynamically"
             >
-              <Dices className={`w-4 h-4 ${isSpinning ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">Spin Roulette</span>
+              <RotateCcw className={`w-4 h-4 ${isReshuffling ? 'animate-spin text-white' : ''}`} />
+              <span>Reshuffle Top 25</span>
             </button>
 
             <button
@@ -328,33 +457,215 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
 
         {/* Modal Scrollable Content */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
-          {/* Taste Snapshot Pills */}
+          {/* Taste Snapshot Pills with click-to-filter capability */}
           {(tasteProfile.topGenres.length > 0 || tasteProfile.topThemes.length > 0) && (
             <div className="p-3.5 bg-zinc-900/60 border border-zinc-800 rounded-xl flex flex-wrap items-center gap-2 text-xs">
               <span className="text-zinc-400 font-bold flex items-center gap-1">
                 <Flame className="w-3.5 h-3.5 text-amber-400" />
                 Your Top Tastes:
               </span>
-              {tasteProfile.topGenres.map((g) => (
-                <span
-                  key={g}
-                  className="px-2.5 py-0.5 rounded-full bg-zinc-800 text-zinc-200 border border-zinc-700 text-[11px] font-medium"
-                >
-                  {g}
-                </span>
-              ))}
-              {tasteProfile.topThemes.map((t) => (
-                <span
-                  key={t}
-                  className="px-2.5 py-0.5 rounded-full bg-purple-950/70 text-purple-300 border border-purple-500/30 text-[11px] font-semibold"
-                >
-                  ✨ {t}
-                </span>
-              ))}
+              {tasteProfile.topGenres.map((g) => {
+                const isSelected = selectedGenres.includes(g);
+                return (
+                  <button
+                    key={g}
+                    onClick={() => toggleGenreFilter(g)}
+                    className={`px-2.5 py-0.5 rounded-full border text-[11px] font-medium transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-blue-600 text-white border-blue-400 font-bold shadow-sm'
+                        : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700'
+                    }`}
+                    title={isSelected ? `Remove filter ${g}` : `Filter by ${g}`}
+                  >
+                    {isSelected && '✓ '}
+                    {g}
+                  </button>
+                );
+              })}
+              {tasteProfile.topThemes.map((t) => {
+                const isSelected = selectedThemes.includes(t);
+                return (
+                  <button
+                    key={t}
+                    onClick={() => toggleThemeFilter(t)}
+                    className={`px-2.5 py-0.5 rounded-full border text-[11px] font-semibold transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-purple-600 text-white border-purple-400 font-bold shadow-sm'
+                        : 'bg-purple-950/70 hover:bg-purple-900 text-purple-300 border border-purple-500/30'
+                    }`}
+                    title={isSelected ? `Remove filter ${t}` : `Filter by ${t}`}
+                  >
+                    {isSelected && '✓ '}✨ {t}
+                  </button>
+                );
+              })}
             </div>
           )}
 
-          {/* ROULETTE HERO SECTION */}
+          {/* PERSISTENT GENRE & THEME FILTER SECTION */}
+          <div className="bg-zinc-900/70 border border-zinc-800 rounded-xl p-3.5 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-purple-400" />
+                <span className="text-xs font-bold text-white">Genre & Theme Filters</span>
+                <span className="text-[10px] text-zinc-400">
+                  (Saved automatically for next time)
+                </span>
+                {(selectedGenres.length > 0 || selectedThemes.length > 0) && (
+                  <span className="px-2 py-0.5 rounded-full bg-purple-600/30 border border-purple-500/40 text-purple-300 text-[10px] font-bold">
+                    {selectedGenres.length + selectedThemes.length} Active
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* Add Genre Button */}
+                <button
+                  onClick={() => {
+                    setShowFilterPicker(showFilterPicker === 'genre' ? null : 'genre');
+                    setFilterSearchQuery('');
+                  }}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                    showFilterPicker === 'genre'
+                      ? 'bg-blue-600 text-white border-blue-500'
+                      : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700'
+                  }`}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Genre</span>
+                  {showFilterPicker === 'genre' ? <ChevronUp className="w-3 h-3 ml-0.5" /> : <ChevronDown className="w-3 h-3 ml-0.5" />}
+                </button>
+
+                {/* Add Theme Button */}
+                <button
+                  onClick={() => {
+                    setShowFilterPicker(showFilterPicker === 'theme' ? null : 'theme');
+                    setFilterSearchQuery('');
+                  }}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                    showFilterPicker === 'theme'
+                      ? 'bg-purple-600 text-white border-purple-500'
+                      : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700'
+                  }`}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Theme</span>
+                  {showFilterPicker === 'theme' ? <ChevronUp className="w-3 h-3 ml-0.5" /> : <ChevronDown className="w-3 h-3 ml-0.5" />}
+                </button>
+
+                {/* Clear All Filters */}
+                {(selectedGenres.length > 0 || selectedThemes.length > 0) && (
+                  <button
+                    onClick={clearAllFilters}
+                    className="text-xs text-red-400 hover:text-red-300 hover:underline px-2 py-1"
+                  >
+                    Clear All
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Active Filter Chips */}
+            {(selectedGenres.length > 0 || selectedThemes.length > 0) ? (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {selectedGenres.map((g) => (
+                  <span
+                    key={`filter-genre-${g}`}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-600/20 border border-blue-500/40 text-blue-300 text-xs font-medium"
+                  >
+                    <span>Genre: {g}</span>
+                    <button
+                      onClick={() => toggleGenreFilter(g)}
+                      className="hover:text-white p-0.5 rounded-full hover:bg-blue-500/30"
+                      title="Remove filter"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+                {selectedThemes.map((t) => (
+                  <span
+                    key={`filter-theme-${t}`}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-600/20 border border-purple-500/40 text-purple-300 text-xs font-medium"
+                  >
+                    <span>Theme: {t}</span>
+                    <button
+                      onClick={() => toggleThemeFilter(t)}
+                      className="hover:text-white p-0.5 rounded-full hover:bg-purple-500/30"
+                      title="Remove filter"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-zinc-500 italic">
+                Showing all 6+ rated titles matching your library taste. Add genres or themes above to narrow down.
+              </p>
+            )}
+
+            {/* Expandable Searchable Filter Picker Panel */}
+            {showFilterPicker && (
+              <div className="p-3 bg-zinc-950 border border-zinc-700/80 rounded-xl space-y-2 mt-2 animate-fade-in">
+                <div className="flex items-center justify-between gap-2 border-b border-zinc-800 pb-2">
+                  <div className="relative flex-1 max-w-sm">
+                    <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={filterSearchQuery}
+                      onChange={(e) => setFilterSearchQuery(e.target.value)}
+                      placeholder={`Search ${showFilterPicker === 'genre' ? 'genres' : 'themes'}...`}
+                      className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-white text-xs focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                  <button
+                    onClick={() => setShowFilterPicker(null)}
+                    className="text-xs text-zinc-400 hover:text-white px-2 py-1"
+                  >
+                    Done
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto p-1">
+                  {(showFilterPicker === 'genre' ? availableGenres : availableThemes)
+                    .filter((item) =>
+                      item.toLowerCase().includes(filterSearchQuery.toLowerCase().trim())
+                    )
+                    .map((item) => {
+                      const isSelected =
+                        showFilterPicker === 'genre'
+                          ? selectedGenres.includes(item)
+                          : selectedThemes.includes(item);
+                      return (
+                        <button
+                          key={item}
+                          onClick={() => {
+                            if (showFilterPicker === 'genre') {
+                              toggleGenreFilter(item);
+                            } else {
+                              toggleThemeFilter(item);
+                            }
+                          }}
+                          className={`text-xs px-2.5 py-1 rounded-lg border transition-all ${
+                            isSelected
+                              ? showFilterPicker === 'genre'
+                                ? 'bg-blue-600 text-white border-blue-400 font-bold'
+                                : 'bg-purple-600 text-white border-purple-400 font-bold'
+                              : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                          }`}
+                        >
+                          {isSelected && '✓ '}
+                          {item}
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ROULETTE HERO SECTION (Keeps ONLY the Spin Roulette Pick button) */}
           <div className="bg-gradient-to-br from-purple-950/40 via-zinc-900 to-zinc-950 border border-purple-500/30 rounded-2xl p-4 sm:p-6 shadow-xl relative overflow-hidden">
             <div className="absolute top-0 right-0 w-96 h-96 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
 
@@ -369,14 +680,15 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
                   </h3>
                 </div>
                 <p className="text-xs text-zinc-400 mt-1">
-                  Spin the roulette to pick a tailored movie or series matched to your 4-5★ favorites.
+                  Picks a random 6+ rated movie or series tailored to your taste & active filters.
                 </p>
               </div>
 
+              {/* ONLY Roulette Spin button */}
               <button
                 onClick={handleSpinRoulette}
-                disabled={isSpinning}
-                className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-red-600 via-purple-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white text-sm font-black shadow-xl shadow-purple-600/30 transition-all transform hover:scale-105 active:scale-95 disabled:opacity-50 shrink-0"
+                disabled={isSpinning || allCandidates.length === 0}
+                className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-red-600 via-purple-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white text-sm font-black shadow-xl shadow-purple-600/30 transition-all transform hover:scale-105 active:scale-95 disabled:opacity-50 shrink-0 cursor-pointer"
               >
                 <Dices className={`w-5 h-5 ${isSpinning ? 'animate-spin' : ''}`} />
                 <span>{isSpinning ? 'Spinning Roulette...' : 'Spin Roulette Pick'}</span>
@@ -388,7 +700,7 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
               <div className="py-10 text-center flex flex-col items-center justify-center animate-pulse">
                 <div className="w-12 h-12 rounded-full border-4 border-purple-500 border-t-transparent animate-spin mb-3" />
                 <span className="text-xs text-purple-300 font-mono uppercase tracking-wider">
-                  Analyzing Your Favorite Genres & Themes...
+                  Analyzing Your Favorite 6+ Rated Genres & Themes...
                 </span>
                 <span className="text-lg sm:text-2xl font-black text-white mt-1">
                   {spinningDisplayTitle}
@@ -482,19 +794,17 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
 
                   {/* Roulette Action Buttons */}
                   <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-zinc-800/80">
-                    {/* View Details */}
                     <button
                       onClick={() => onSelectTitle(roulettePick.item)}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold transition-colors"
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold transition-colors cursor-pointer"
                     >
                       <Info className="w-3.5 h-3.5 text-zinc-300" />
                       <span>View Details</span>
                     </button>
 
-                    {/* Add to Library */}
                     <button
                       onClick={() => onAddToLibrary(roulettePick.item)}
-                      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                         isInLibrary(roulettePick.item)
                           ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30'
                           : 'bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-700'
@@ -513,7 +823,6 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
                       )}
                     </button>
 
-                    {/* Watch on Netflix */}
                     <button
                       onClick={(e) => {
                         const url = getNetflixUrl({
@@ -538,11 +847,11 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
 
           {/* SECTION TABS: TOP 25 MOVIES & TOP 25 SERIES */}
           <div>
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-3 mb-4">
+            <div className="flex flex-wrap items-center justify-between border-b border-zinc-800 pb-3 mb-4 gap-2">
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setActiveTab('movies')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                     activeTab === 'movies'
                       ? 'bg-red-600 text-white shadow-lg shadow-red-600/30'
                       : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
@@ -557,7 +866,7 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
 
                 <button
                   onClick={() => setActiveTab('series')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                     activeTab === 'series'
                       ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
                       : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
@@ -569,10 +878,21 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
                     {topSeries.length}
                   </span>
                 </button>
+
+                {/* Inline Reshuffler button next to tabs */}
+                <button
+                  onClick={handleReshuffle}
+                  disabled={isReshuffling}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-850 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 text-xs font-bold transition-all transform active:scale-95 cursor-pointer ml-1"
+                  title="Reshuffle this list with a new random selection"
+                >
+                  <RotateCcw className={`w-3.5 h-3.5 text-purple-400 ${isReshuffling ? 'animate-spin' : ''}`} />
+                  <span className="hidden sm:inline">Reshuffle</span>
+                </button>
               </div>
 
-              <span className="text-xs text-zinc-400 hidden sm:block">
-                Showing top 25 scored against your 4-5★ preferences
+              <span className="text-xs text-zinc-400">
+                {totalEligibleCount} eligible 6+ rated titles • Shuffled for dynamic variety
               </span>
             </div>
 
@@ -609,8 +929,18 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
                 ))}
               </div>
             ) : (
-              <div className="py-16 text-center text-zinc-400">
-                <p className="text-sm">No titles found in this category from current discovery catalog.</p>
+              <div className="py-16 text-center text-zinc-400 bg-zinc-900/30 rounded-xl border border-zinc-800">
+                <p className="text-sm font-semibold text-zinc-300">
+                  No {activeTab === 'movies' ? 'movies' : 'series'} found matching rating 6+ and active filters.
+                </p>
+                {(selectedGenres.length > 0 || selectedThemes.length > 0) && (
+                  <button
+                    onClick={clearAllFilters}
+                    className="mt-3 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-colors"
+                  >
+                    Clear Filters
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -618,10 +948,19 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
 
         {/* Modal Footer */}
         <div className="px-6 py-3 border-t border-zinc-800 bg-zinc-900/80 flex items-center justify-between text-xs text-zinc-400">
-          <span>Click any title card to view full trailer, cast, and metadata</span>
+          <div className="flex items-center gap-3">
+            <span>Click any title card to view full trailer, cast, and metadata</span>
+            <button
+              onClick={handleReshuffle}
+              className="text-purple-400 hover:text-purple-300 font-semibold flex items-center gap-1"
+            >
+              <RotateCcw className={`w-3 h-3 ${isReshuffling ? 'animate-spin' : ''}`} />
+              Reshuffle list
+            </button>
+          </div>
           <button
             onClick={onClose}
-            className="px-4 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white font-bold transition-colors"
+            className="px-4 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white font-bold transition-colors cursor-pointer"
           >
             Close
           </button>
