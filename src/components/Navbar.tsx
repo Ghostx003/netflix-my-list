@@ -47,23 +47,23 @@ export const Navbar: React.FC<NavbarProps> = ({
         <header className="sticky top-0 z-40 bg-[#141414]/95 backdrop-blur-xl border-b border-white/10 transition-all">
           {/* Row 1: Brand + Action Buttons */}
           <div className="px-3 sm:px-6 lg:px-10 xl:px-14 py-2 flex items-center justify-between gap-3">
-            {/* Brand */}
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <a
-                href="https://www.netflix.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => openNetflixInNewTab('https://www.netflix.com', e)}
-                className="text-[#E50914] font-black text-xl sm:text-2xl tracking-tighter uppercase font-sans drop-shadow-sm hover:scale-105 transition-transform cursor-pointer no-underline"
-                title="Open Netflix (opens in new tab)"
-              >
+            {/* Brand - Opens Unwatched Movies & Series */}
+            <div
+              onClick={() => {
+                const url = new URL(window.location.href);
+                url.searchParams.set('status', 'unwatched');
+                url.searchParams.set('dStatus', 'unwatched');
+                window.history.pushState({}, '', url.toString());
+                window.dispatchEvent(new PopStateEvent('popstate'));
+                setActiveTab('movies-series');
+              }}
+              className="flex items-center gap-2 flex-shrink-0 cursor-pointer select-none group"
+              title="Open Unwatched Movies & Series"
+            >
+              <span className="text-[#E50914] font-black text-xl sm:text-2xl tracking-tighter uppercase font-sans drop-shadow-sm group-hover:scale-105 transition-transform">
                 Netflix
-              </a>
-              <span
-                onClick={() => setActiveTab('analytics')}
-                className="cursor-pointer text-[10px] sm:text-xs font-semibold uppercase tracking-wider bg-white/10 hover:bg-white/20 px-2 py-0.5 rounded-md text-gray-300 border border-white/5 whitespace-nowrap transition-colors"
-                title="Watchlist Analytics Dashboard"
-              >
+              </span>
+              <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider bg-white/10 group-hover:bg-white/20 px-2 py-0.5 rounded-md text-gray-300 border border-white/5 whitespace-nowrap transition-colors">
                 Watchlist
               </span>
             </div>
