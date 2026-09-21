@@ -17,13 +17,16 @@ import {
   Clapperboard,
   ChevronDown,
   ChevronUp,
+  RotateCcw,
 } from 'lucide-react';
-import { AppSettings, DiscoveryTitle, EpisodeInfo, TrailerInfo } from '../types';
+import { AppSettings, DiscoveryTitle, EpisodeInfo, TrailerInfo, LibraryItem } from '../types';
 import { formatRuntime } from '../services/analytics';
 import { getNetflixUrl, getPriorityLanguageBadge, openNetflixInNewTab } from '../services/normalizer';
 import { searchYouTubeTrailer } from '../services/youtubeTrailer';
 import { findLocalSimilarTitles } from '../services/discoverySimilarity';
 import { CachedImage } from './CachedImage';
+import { TagExploreModal } from './TagExploreModal';
+import { YearExploreModal } from './YearExploreModal';
 
 interface DiscoveryDetailModalProps {
   // Stack navigation support: current title and stack history
@@ -36,6 +39,8 @@ interface DiscoveryDetailModalProps {
   onStartWatching: (item: DiscoveryTitle) => void;
   isInLibrary: (item: DiscoveryTitle) => boolean;
   settings: AppSettings;
+  libraryItems?: LibraryItem[];
+  ignoredTitleIds?: string[];
 }
 
 export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
@@ -48,6 +53,8 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
   onStartWatching,
   isInLibrary,
   settings,
+  libraryItems,
+  ignoredTitleIds,
 }) => {
   const currentTitle = titleStack[titleStack.length - 1];
   if (!currentTitle) return null;
@@ -60,6 +67,11 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
     originalTitle: currentTitle.title,
     externalTitle: currentTitle.title,
   });
+  const originCountry =
+    currentTitle.watchmodeOriginCountry ||
+    currentTitle.tmdbOriginCountry ||
+    (currentTitle.countries && currentTitle.countries.length > 0 ? currentTitle.countries[0] : undefined) ||
+    (currentTitle.tmdbProductionCountries && currentTitle.tmdbProductionCountries.length > 0 ? currentTitle.tmdbProductionCountries[0] : undefined);
   const inLib = isInLibrary(currentTitle);
 
 
@@ -78,6 +90,72 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
   const [selectedDirector, setSelectedDirector] = useState<string | null>(null);
   // Creator modal state
   const [selectedCreator, setSelectedCreator] = useState<string | null>(null);
+  // Theme & Genre Tag Explore Modal state
+  const [selectedTagModal, setSelectedTagModal] = useState<{ tag: string; type: 'genre' | 'theme' } | null>(null);
+  // Year Explore Modal state
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  // Track wrong trailer keys for skipping
+  const [wrongTrailerKeys, setWrongTrailerKeys] = useState<string[]>([]);
+
+  // Function to pause active trailer playback when modals or exploration opens
+  const pauseTrailer = () => {
+    const iframe = document.getElementById('discovery-detail-trailer-iframe') as HTMLIFrameElement;
+    if (iframe && iframe.contentWindow) {
+      iframe.contentWindow.postMessage(
+        JSON.stringify({ event: 'command', func: 'pauseVideo', args: [] }),
+        '*'
+      );
+    }
+  };
+
+  // Immediate Hindi/English trailer search and refresh
+  const handleSelectTrailerLanguage = (lang: 'hi' | 'en') => {
+    setTrailerLang(lang);
+    setIsSearchingTrailer(true);
+    setActiveTrailer(null);
+
+    searchYouTubeTrailer(displayTitle, currentTitle.releaseYear, currentTitle.mediaType, lang, {
+      skipCache: true,
+      excludeVideoIds: wrongTrailerKeys,
+    })
+      .then((found) => {
+        setIsSearchingTrailer(false);
+        if (found) {
+          setActiveTrailer(found);
+        } else {
+          setActiveTrailer(currentTitle.trailer || null);
+        }
+      })
+      .catch(() => {
+        setIsSearchingTrailer(false);
+      });
+  };
+
+  // Wrong trailer handler: skips current video ID and fetches the next alternative trailer
+  const handleWrongTrailer = () => {
+    const currentKey = activeTrailer?.key;
+    const updatedWrong = currentKey ? [...wrongTrailerKeys, currentKey] : wrongTrailerKeys;
+    if (currentKey) {
+      setWrongTrailerKeys(updatedWrong);
+    }
+
+    setIsSearchingTrailer(true);
+    setActiveTrailer(null);
+
+    searchYouTubeTrailer(displayTitle, currentTitle.releaseYear, currentTitle.mediaType, trailerLang, {
+      skipCache: true,
+      excludeVideoIds: updatedWrong,
+    })
+      .then((found) => {
+        setIsSearchingTrailer(false);
+        if (found) {
+          setActiveTrailer(found);
+        }
+      })
+      .catch(() => {
+        setIsSearchingTrailer(false);
+      });
+  };
 
   // TV Series Season Selector State
   const seasonsMap = useMemo(() => {
@@ -135,10 +213,14 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
     };
   }, [currentTitle.id, displayTitle, currentTitle.releaseYear, currentTitle.mediaType, trailerLang]);
 
-  // Compute "Movies & TV Shows Like This" (Local similarity scoring across local catalog)
+  // Compute "Movies & TV Shows Like This" (Upgraded similarity scoring using themes, genres, ratings, excluding watched/dropped/watching/ignored)
   const localSimilarTitles = useMemo(() => {
-    return findLocalSimilarTitles(currentTitle, catalog, 6);
-  }, [currentTitle, catalog]);
+    return findLocalSimilarTitles(currentTitle, catalog, {
+      limit: 6,
+      libraryItems,
+      ignoredTitleIds,
+    });
+  }, [currentTitle, catalog, libraryItems, ignoredTitleIds]);
 
   // Compute "TMDB Recommendations" (Filtered strictly against existing local catalog titles)
   const tmdbRecommendationTitles = useMemo(() => {
@@ -242,15 +324,23 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
           {activeTrailer ? (
             <iframe
               id="discovery-detail-trailer-iframe"
-              src={`https://www.youtube-nocookie.com/embed/${activeTrailer.key}?autoplay=1&mute=0&controls=1&rel=0&modestbranding=1&enablejsapi=1`}
+              src={`https://www.youtube-nocookie.com/embed/${activeTrailer.key}?autoplay=1&mute=0&controls=1&rel=0&modestbranding=1&enablejsapi=1&vq=hd1080&hd=1`}
               title={activeTrailer.name || `${displayTitle} Trailer`}
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen
               onLoad={() => {
-                // Set 1.5x playback speed on YouTube player
+                // Request 1080p max playback quality and 1.5x speed on YouTube player
                 setTimeout(() => {
                   const iframe = document.getElementById('discovery-detail-trailer-iframe') as HTMLIFrameElement;
                   if (iframe && iframe.contentWindow) {
+                    iframe.contentWindow.postMessage(
+                      JSON.stringify({ event: 'command', func: 'setPlaybackQuality', args: ['hd1080'] }),
+                      '*'
+                    );
+                    iframe.contentWindow.postMessage(
+                      JSON.stringify({ event: 'command', func: 'setPlaybackQualityRange', args: ['hd1080'] }),
+                      '*'
+                    );
                     iframe.contentWindow.postMessage(
                       JSON.stringify({ event: 'command', func: 'setPlaybackRate', args: [1.5] }),
                       '*'
@@ -312,8 +402,8 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
               <div className="flex items-center rounded-full bg-zinc-800/80 border border-zinc-700/60 p-0.5 text-[10px] sm:text-xs font-bold">
                 <button
                   type="button"
-                  onClick={() => setTrailerLang('hi')}
-                  className={`flex items-center gap-1 px-2 py-0.5 rounded-full transition-colors ${
+                  onClick={() => handleSelectTrailerLanguage('hi')}
+                  className={`flex items-center gap-1 px-2 py-0.5 rounded-full transition-colors cursor-pointer ${
                     trailerLang === 'hi'
                       ? 'bg-amber-500 text-black font-black'
                       : 'text-zinc-300 hover:text-white'
@@ -325,8 +415,8 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setTrailerLang('en')}
-                  className={`flex items-center gap-1 px-2 py-0.5 rounded-full transition-colors ${
+                  onClick={() => handleSelectTrailerLanguage('en')}
+                  className={`flex items-center gap-1 px-2 py-0.5 rounded-full transition-colors cursor-pointer ${
                     trailerLang === 'en'
                       ? 'bg-amber-500 text-black font-black'
                       : 'text-zinc-300 hover:text-white'
@@ -337,6 +427,18 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                   <span>Trailer: EN</span>
                 </button>
               </div>
+
+              {/* Wrong trailer? button */}
+              <button
+                type="button"
+                onClick={handleWrongTrailer}
+                disabled={isSearchingTrailer}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/60 text-[10px] sm:text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+                title="Trailer incorrect? Click to fetch an alternative trailer"
+              >
+                <RotateCcw className={`w-3 h-3 ${isSearchingTrailer ? 'animate-spin' : ''}`} />
+                <span>Wrong trailer?</span>
+              </button>
 
               {currentTitle.status && (
                 <span className="text-[10px] sm:text-xs px-2.5 py-1 rounded-full bg-zinc-800 text-zinc-300 border border-white/10 font-semibold">
@@ -417,51 +519,111 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                 )}
               </div>
 
-              {/* Meta Capsule Row: Year, Runtime, Genres, Country */}
-              <div className="flex items-center gap-2 flex-wrap text-xs font-semibold">
-                {currentTitle.releaseYear && (
-                  <span className="px-2.5 py-0.5 rounded-full bg-zinc-800/90 text-zinc-200 border border-white/10 flex items-center gap-1">
-                    <Calendar className="w-3 h-3 text-zinc-400" />
-                    <span>{currentTitle.releaseYear}</span>
-                  </span>
+              {/* Compact Meta & Ratings Pill Row matching Screenshot 2 */}
+              <div className="flex items-center gap-2 flex-wrap text-xs pt-1">
+                {/* 1. Rotten Tomatoes Rating Pill */}
+                {currentTitle.rottenTomatoesRating !== undefined && (
+                  <div
+                    className="px-3 py-1 rounded-full bg-red-950/70 border border-red-800/70 text-red-200 font-bold flex items-center gap-1.5 shadow-sm"
+                    title="Rotten Tomatoes Score"
+                  >
+                    <span className="text-xs">🍅</span>
+                    <span>{currentTitle.rottenTomatoesRating}%</span>
+                    <span className="text-[11px] font-medium text-red-300/90">Rotten Tomatoes</span>
+                  </div>
                 )}
 
+                {/* 2. IMDb Rating Pill */}
+                {currentTitle.imdbRating !== undefined && (
+                  <div
+                    className="px-3 py-1 rounded-full bg-zinc-900/90 border border-amber-500/50 text-amber-200 font-bold flex items-center gap-1.5 shadow-sm"
+                    title="IMDb Rating"
+                  >
+                    <span className="px-1 py-0.5 rounded bg-amber-400 text-black font-black text-[9px] tracking-tight leading-none">
+                      IMDb
+                    </span>
+                    <span>{currentTitle.imdbRating}</span>
+                    <span className="text-[10px] font-normal text-zinc-400">/10</span>
+                  </div>
+                )}
+
+                {/* 3. TMDB Rating Pill (if available and compact) */}
+                {currentTitle.rating !== undefined && (
+                  <div
+                    className="px-2.5 py-1 rounded-full bg-zinc-900/90 border border-sky-500/40 text-sky-200 font-bold flex items-center gap-1.5 shadow-sm"
+                    title="TMDB Rating"
+                  >
+                    <Star className="w-3 h-3 fill-sky-400 text-sky-400" />
+                    <span>{currentTitle.rating}</span>
+                    <span className="text-[10px] font-normal text-zinc-400">/10</span>
+                  </div>
+                )}
+
+                {/* 4. Release Year Pill (Clickable to explore titles from this year) */}
+                {currentTitle.releaseYear && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      pauseTrailer();
+                      setSelectedYear(currentTitle.releaseYear || null);
+                    }}
+                    className="px-3 py-1 rounded-full bg-zinc-800/90 hover:bg-zinc-700 text-zinc-200 hover:text-white border border-zinc-700/60 hover:border-zinc-500 flex items-center gap-1.5 font-semibold shadow-sm transition-all hover:scale-105 cursor-pointer"
+                    title={`Click to explore all movies & series released in ${currentTitle.releaseYear}`}
+                  >
+                    <Calendar className="w-3.5 h-3.5 text-zinc-400" />
+                    <span>{currentTitle.releaseYear}</span>
+                  </button>
+                )}
+
+                {/* 5. Runtime Pill */}
                 {displayRuntimeMinutes ? (
-                  <span className="px-2.5 py-0.5 rounded-full bg-zinc-800/90 text-zinc-200 border border-white/10 flex items-center gap-1 font-mono">
-                    <Clock className="w-3 h-3 text-zinc-400" />
+                  <div className="px-3 py-1 rounded-full bg-zinc-800/90 text-zinc-200 border border-zinc-700/60 flex items-center gap-1.5 font-mono font-semibold shadow-sm">
+                    <Clock className="w-3.5 h-3.5 text-zinc-400" />
                     <span>{formatRuntime(displayRuntimeMinutes)}</span>
-                  </span>
+                  </div>
                 ) : null}
 
+                {/* 6. TV Seasons Pill */}
                 {!isMovie && currentTitle.totalSeasons && (
-                  <span className="px-2.5 py-0.5 rounded-full bg-zinc-800/90 text-purple-300 border border-purple-500/30 flex items-center gap-1">
-                    <Layers className="w-3 h-3 text-purple-400" />
+                  <div className="px-3 py-1 rounded-full bg-purple-950/60 text-purple-200 border border-purple-500/40 flex items-center gap-1.5 font-semibold shadow-sm">
+                    <Layers className="w-3.5 h-3.5 text-purple-400" />
                     <span>
                       {currentTitle.totalSeasons} {currentTitle.totalSeasons === 1 ? 'Season' : 'Seasons'}
                       {currentTitle.totalEpisodes ? ` (${currentTitle.totalEpisodes} eps)` : ''}
                     </span>
-                  </span>
+                  </div>
                 )}
 
-                {currentTitle.genres &&
-                  currentTitle.genres.map((genre) => (
-                    <span
-                      key={genre}
-                      className="px-2.5 py-0.5 rounded-full bg-zinc-800/90 text-zinc-300 border border-zinc-700/60"
-                    >
-                      {genre}
-                    </span>
-                  ))}
-
-                {(currentTitle.watchmodeOriginCountry || currentTitle.tmdbOriginCountry) && (
-                  <span className="px-2.5 py-0.5 rounded-full bg-zinc-800/90 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
-                    <Globe className="w-3 h-3 text-emerald-400" />
-                    <span>{currentTitle.watchmodeOriginCountry || currentTitle.tmdbOriginCountry}</span>
-                  </span>
+                {/* 7. Country of Origin Pill */}
+                {originCountry && (
+                  <div className="px-3 py-1 rounded-full bg-emerald-950/60 text-emerald-200 border border-emerald-500/40 flex items-center gap-1.5 font-semibold shadow-sm">
+                    <Globe className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>{originCountry}</span>
+                  </div>
                 )}
               </div>
 
-              {/* Synopsis (Bigger & Clearer via TMDB) */}
+              {/* Genres Pills (Clickable to explore similar titles) */}
+              {currentTitle.genres && currentTitle.genres.length > 0 && (
+                <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                  {currentTitle.genres.map((genre) => (
+                    <button
+                      key={genre}
+                      type="button"
+                      onClick={() => {
+                        pauseTrailer();
+                        setSelectedTagModal({ tag: genre, type: 'genre' });
+                      }}
+                      className="px-2.5 py-0.5 rounded-full bg-zinc-800/90 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/60 hover:border-zinc-500 text-xs font-medium cursor-pointer transition-all hover:scale-105 shadow-sm"
+                      title={`Click to explore all titles with genre "${genre}"`}
+                    >
+                      {genre}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Synopsis */}
               <div className="space-y-1.5 pt-1">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">Synopsis</h3>
                 {currentTitle.synopsis ? (
@@ -473,7 +635,7 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                 )}
               </div>
 
-              {/* Themes & Keywords Badges */}
+              {/* Themes & Keywords Badges (Clickable to explore similar titles) */}
               {currentTitle.themes && currentTitle.themes.length > 0 && (
                 <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
                   <span className="text-xs font-bold text-zinc-400 flex items-center gap-1">
@@ -481,81 +643,19 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                     <span>Themes:</span>
                   </span>
                   {currentTitle.themes.map((theme) => (
-                    <span
+                    <button
                       key={theme}
-                      className="text-[11px] px-2.5 py-0.5 rounded-full bg-purple-950/70 text-purple-300 border border-purple-500/40 font-semibold"
+                      type="button"
+                      onClick={() => {
+                        pauseTrailer();
+                        setSelectedTagModal({ tag: theme, type: 'theme' });
+                      }}
+                      className="text-[11px] px-2.5 py-0.5 rounded-full bg-purple-950/70 hover:bg-purple-900 text-purple-300 hover:text-purple-100 border border-purple-500/40 hover:border-purple-400 font-semibold cursor-pointer transition-all hover:scale-105 shadow-sm"
+                      title={`Click to explore all titles with theme "${theme}"`}
                     >
                       ✨ {theme}
-                    </span>
+                    </button>
                   ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* DEDICATED RATINGS SECTION: IMDb + Rotten Tomatoes + TMDB (ALL THREE MANDATORY) */}
-          <div className="bg-black/50 p-5 rounded-2xl border border-white/10 space-y-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
-              <Star className="w-4 h-4 text-amber-400" />
-              <span>RATINGS</span>
-            </h3>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 pt-1">
-              {/* 1. IMDb Rating */}
-              <div className="bg-zinc-900/90 p-3 rounded-xl border border-amber-500/40 shadow-md">
-                <div className="text-[11px] text-amber-400 font-black tracking-wider uppercase">IMDb</div>
-                <div className="text-lg font-black text-amber-300 flex items-baseline gap-1 mt-0.5">
-                  <span>{currentTitle.imdbRating !== undefined ? currentTitle.imdbRating : '—'}</span>
-                  {currentTitle.imdbRating !== undefined && (
-                    <span className="text-[10px] text-zinc-500 font-normal">/ 10</span>
-                  )}
-                </div>
-              </div>
-
-              {/* 2. Rotten Tomatoes Rating */}
-              <div className="bg-zinc-900/90 p-3 rounded-xl border border-red-500/40 shadow-md">
-                <div className="text-[11px] text-red-400 font-bold uppercase">Rotten Tomatoes</div>
-                <div className="text-lg font-black text-red-300 mt-0.5">
-                  {currentTitle.rottenTomatoesRating !== undefined ? (
-                    <span>🍅 {currentTitle.rottenTomatoesRating}%</span>
-                  ) : (
-                    <span>—</span>
-                  )}
-                </div>
-              </div>
-
-              {/* 3. TMDB Rating */}
-              <div className="bg-zinc-900/90 p-3 rounded-xl border border-sky-500/40 shadow-md">
-                <div className="text-[11px] text-sky-400 font-bold uppercase">TMDB Score</div>
-                <div className="text-lg font-black text-sky-300 flex items-baseline gap-1 mt-0.5">
-                  {currentTitle.rating !== undefined ? (
-                    <>
-                      <Star className="w-3.5 h-3.5 fill-sky-400 text-sky-400 self-center" />
-                      <span>{currentTitle.rating}</span>
-                      <span className="text-[10px] text-zinc-500 font-normal">/ 10</span>
-                    </>
-                  ) : (
-                    <span>—</span>
-                  )}
-                </div>
-              </div>
-
-              {/* 4. User Enjoyment (from Watchmode) */}
-              {currentTitle.watchmodeUserEnjoyment !== undefined && (
-                <div className="bg-zinc-900/90 p-3 rounded-xl border border-emerald-500/30 shadow-md">
-                  <div className="text-[11px] text-emerald-400 font-bold">User Enjoyment</div>
-                  <div className="text-lg font-black text-emerald-300 mt-0.5">
-                    {currentTitle.watchmodeUserEnjoyment}%
-                  </div>
-                </div>
-              )}
-
-              {/* 5. Critic Score (from Watchmode) */}
-              {currentTitle.watchmodeCriticScore !== undefined && (
-                <div className="bg-zinc-900/90 p-3 rounded-xl border border-purple-500/30 shadow-md">
-                  <div className="text-[11px] text-purple-400 font-bold">Critic Score</div>
-                  <div className="text-lg font-black text-purple-300 mt-0.5">
-                    {currentTitle.watchmodeCriticScore}%
-                  </div>
                 </div>
               )}
             </div>
@@ -667,8 +767,11 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                       <button
                         key={dir}
                         type="button"
-                        onClick={() => setSelectedDirector(dir)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border border-amber-500/30 hover:border-amber-500/60 text-[11px] font-bold transition-all shadow-sm group"
+                        onClick={() => {
+                          pauseTrailer();
+                          setSelectedDirector(dir);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border border-amber-500/30 hover:border-amber-500/60 text-[11px] font-bold transition-all shadow-sm group cursor-pointer"
                       >
                         <Clapperboard className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
                         <span>{dir}</span>
@@ -687,8 +790,11 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                       <button
                         key={creatorName}
                         type="button"
-                        onClick={() => setSelectedCreator(creatorName)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 hover:text-purple-200 border border-purple-500/30 hover:border-purple-500/60 text-[11px] font-bold transition-all shadow-sm group"
+                        onClick={() => {
+                          pauseTrailer();
+                          setSelectedCreator(creatorName);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 hover:text-purple-200 border border-purple-500/30 hover:border-purple-500/60 text-[11px] font-bold transition-all shadow-sm group cursor-pointer"
                       >
                         <Sparkles className="w-3.5 h-3.5 text-purple-400 group-hover:scale-110 transition-transform" />
                         <span>{creatorName}</span>
@@ -707,8 +813,11 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                       <button
                         key={actor}
                         type="button"
-                        onClick={() => setSelectedCastMember(actor)}
-                        className="px-2.5 py-1 rounded-lg bg-zinc-800/80 hover:bg-red-600/20 text-zinc-300 hover:text-red-300 border border-zinc-700/60 hover:border-red-500/40 text-[11px] font-medium transition-all"
+                        onClick={() => {
+                          pauseTrailer();
+                          setSelectedCastMember(actor);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-zinc-800/80 hover:bg-red-600/20 text-zinc-300 hover:text-red-300 border border-zinc-700/60 hover:border-red-500/40 text-[11px] font-medium transition-all cursor-pointer"
                       >
                         {actor}
                       </button>
@@ -1219,6 +1328,41 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
             )}
           </div>
         </div>
+      )}
+
+      {/* Theme & Genre Tag Explore Modal with Exclusions & Type Filter */}
+      {selectedTagModal && (
+        <TagExploreModal
+          isOpen={!!selectedTagModal}
+          onClose={() => setSelectedTagModal(null)}
+          tag={selectedTagModal.tag}
+          tagType={selectedTagModal.type}
+          catalog={catalog}
+          onSelectTitle={(t) => {
+            setSelectedTagModal(null);
+            handleSelectSimilarTitle(t);
+          }}
+          onAddToLibrary={onAddToLibrary}
+          onStartWatching={onStartWatching}
+          isInLibrary={isInLibrary}
+        />
+      )}
+
+      {/* Year Explore Modal */}
+      {selectedYear && (
+        <YearExploreModal
+          isOpen={!!selectedYear}
+          onClose={() => setSelectedYear(null)}
+          year={selectedYear}
+          catalog={catalog}
+          onSelectTitle={(t) => {
+            setSelectedYear(null);
+            handleSelectSimilarTitle(t);
+          }}
+          onAddToLibrary={onAddToLibrary}
+          onStartWatching={onStartWatching}
+          isInLibrary={isInLibrary}
+        />
       )}
     </div>
   );

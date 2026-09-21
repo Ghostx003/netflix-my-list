@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { X, Star, Clock, Calendar, Film, Tv, Play, ExternalLink, Sparkles, Layers, Video, ChevronDown, ChevronUp, Volume2, Loader2, Clapperboard, User, Globe, ChevronLeft, Bookmark, Check } from 'lucide-react';
+import { X, Star, Clock, Calendar, Film, Tv, Play, ExternalLink, Sparkles, Layers, Video, ChevronDown, ChevronUp, Volume2, Loader2, Clapperboard, User, Globe, ChevronLeft, Bookmark, Check, RotateCcw } from 'lucide-react';
 import { AppSettings, LibraryItem, EpisodeInfo, TrailerInfo, DiscoveryTitle } from '../types';
 import { formatRuntime, calculateSeriesRuntime } from '../services/analytics';
 import { getNetflixUrl, normalizeCountryName, getPriorityLanguageBadge, itemHasLanguage, openNetflixInNewTab } from '../services/normalizer';
@@ -7,6 +7,8 @@ import { searchYouTubeTrailer } from '../services/youtubeTrailer';
 import { getAllDiscoveryTitles, getAllLibraryItems, saveLibraryItems } from '../services/db';
 import { convertDiscoveryTitleToLibraryItem } from '../services/discoveryService';
 import { CachedImage } from './CachedImage';
+import { TagExploreModal } from './TagExploreModal';
+import { YearExploreModal } from './YearExploreModal';
 
 interface MediaDetailModalProps {
   item: LibraryItem | null;
@@ -69,6 +71,8 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const [selectedCastMember, setSelectedCastMember] = useState<string | null>(null);
   const [isLanguagesExpanded, setIsLanguagesExpanded] = useState(false);
   const [watchingAddedMap, setWatchingAddedMap] = useState<Record<string, boolean>>({});
+  // Theme & Genre Tag Explore Modal state
+  const [tagExploreModal, setTagExploreModal] = useState<{ tag: string; type: 'genre' | 'theme' } | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -158,6 +162,84 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const [trailerLang, setTrailerLang] = useState<'hi' | 'en'>((item?.trailer?.language === 'en' ? 'en' : 'hi'));
   const [activeTrailer, setActiveTrailer] = useState<TrailerInfo | null>(item?.trailer || null);
   const [isSearchingTrailer, setIsSearchingTrailer] = useState(false);
+  // Year Explore Modal state
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  // Track wrong trailer keys for skipping
+  const [wrongTrailerKeys, setWrongTrailerKeys] = useState<string[]>([]);
+
+  // Function to pause active trailer playback when modals or exploration opens
+  const pauseTrailer = () => {
+    const iframe = document.getElementById('media-detail-trailer-iframe') as HTMLIFrameElement;
+    if (iframe && iframe.contentWindow) {
+      iframe.contentWindow.postMessage(
+        JSON.stringify({ event: 'command', func: 'pauseVideo', args: [] }),
+        '*'
+      );
+    }
+  };
+
+  // Immediate Hindi/English trailer search and refresh
+  const handleSelectTrailerLanguage = (lang: 'hi' | 'en') => {
+    if (!item) return;
+    setTrailerLang(lang);
+    setIsSearchingTrailer(true);
+    setActiveTrailer(null);
+
+    searchYouTubeTrailer(displayTitle, item.releaseYear, item.mediaType, lang, {
+      skipCache: true,
+      excludeVideoIds: wrongTrailerKeys,
+    })
+      .then((foundTrailer) => {
+        setIsSearchingTrailer(false);
+        if (foundTrailer) {
+          setActiveTrailer(foundTrailer);
+          if (onUpdateItem) {
+            onUpdateItem({
+              ...item,
+              trailer: foundTrailer,
+              updatedAt: new Date().toISOString(),
+            });
+          }
+        }
+      })
+      .catch(() => {
+        setIsSearchingTrailer(false);
+      });
+  };
+
+  // Wrong trailer handler: skips current video ID and fetches alternative
+  const handleWrongTrailer = () => {
+    if (!item) return;
+    const currentKey = activeTrailer?.key;
+    const updatedWrong = currentKey ? [...wrongTrailerKeys, currentKey] : wrongTrailerKeys;
+    if (currentKey) {
+      setWrongTrailerKeys(updatedWrong);
+    }
+
+    setIsSearchingTrailer(true);
+    setActiveTrailer(null);
+
+    searchYouTubeTrailer(displayTitle, item.releaseYear, item.mediaType, trailerLang, {
+      skipCache: true,
+      excludeVideoIds: updatedWrong,
+    })
+      .then((foundTrailer) => {
+        setIsSearchingTrailer(false);
+        if (foundTrailer) {
+          setActiveTrailer(foundTrailer);
+          if (onUpdateItem) {
+            onUpdateItem({
+              ...item,
+              trailer: foundTrailer,
+              updatedAt: new Date().toISOString(),
+            });
+          }
+        }
+      })
+      .catch(() => {
+        setIsSearchingTrailer(false);
+      });
+  };
 
   // Keep activeTrailer synced when current item changes
   useEffect(() => {
@@ -227,25 +309,29 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
         className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl text-white scrollbar-thin scrollbar-thumb-zinc-700"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Top Controls: Back button if nested stack, plus Close button */}
-        <div className="absolute top-4 left-4 right-4 z-20 flex items-center justify-between pointer-events-none">
-          {canGoBack ? (
-            <button
-              type="button"
-              onClick={handlePopStack}
-              className="pointer-events-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/80 hover:bg-zinc-800 text-white transition-all border border-white/20 shadow-lg text-xs font-bold cursor-pointer backdrop-blur-md hover:scale-105"
-            >
-              <ChevronLeft className="w-4 h-4" />
-              <span>Back to Previous Title</span>
-            </button>
-          ) : (
-            <div />
-          )}
+        {/* Sticky Top Navigation Bar (Back button + Close button cleanly placed outside trailer area) */}
+        <div className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-zinc-900/95 backdrop-blur-md border-b border-zinc-800">
+          <div className="flex items-center gap-2">
+            {canGoBack && (
+              <button
+                type="button"
+                onClick={handlePopStack}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-white transition-all border border-zinc-700 shadow-sm text-xs font-bold cursor-pointer hover:scale-105"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                <span>Back to Previous Title</span>
+              </button>
+            )}
+            <span className="text-xs text-zinc-400 font-mono">
+              {canGoBack ? `Step ${itemStack.length} of exploration` : 'Title Details'}
+            </span>
+          </div>
 
           <button
             type="button"
             onClick={onClose}
-            className="pointer-events-auto p-2 rounded-full bg-black/70 hover:bg-[#E50914] text-zinc-300 hover:text-white transition-colors border border-white/10 shadow-lg cursor-pointer"
+            className="p-1.5 rounded-full bg-zinc-800 hover:bg-[#E50914] text-zinc-300 hover:text-white transition-colors border border-zinc-700 cursor-pointer"
+            title="Close"
           >
             <X className="w-5 h-5" />
           </button>
@@ -257,15 +343,23 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
             <div className="relative w-full h-full">
               <iframe
                 id="media-detail-trailer-iframe"
-                src={`https://www.youtube-nocookie.com/embed/${activeTrailer.key}?autoplay=1&mute=0&controls=1&rel=0&modestbranding=1&enablejsapi=1`}
+                src={`https://www.youtube-nocookie.com/embed/${activeTrailer.key}?autoplay=1&mute=0&controls=1&rel=0&modestbranding=1&enablejsapi=1&vq=hd1080&hd=1`}
                 title={activeTrailer.name || `${displayTitle} Trailer`}
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
                 onLoad={() => {
-                  // PostMessage to set 1.5x playback speed on YouTube player
+                  // Request 1080p max playback quality and set 1.5x speed on YouTube player
                   setTimeout(() => {
                     const iframe = document.getElementById('media-detail-trailer-iframe') as HTMLIFrameElement;
                     if (iframe && iframe.contentWindow) {
+                      iframe.contentWindow.postMessage(
+                        JSON.stringify({ event: 'command', func: 'setPlaybackQuality', args: ['hd1080'] }),
+                        '*'
+                      );
+                      iframe.contentWindow.postMessage(
+                        JSON.stringify({ event: 'command', func: 'setPlaybackQualityRange', args: ['hd1080'] }),
+                        '*'
+                      );
                       iframe.contentWindow.postMessage(
                         JSON.stringify({ event: 'command', func: 'setPlaybackRate', args: [1.5] }),
                         '*'
@@ -363,7 +457,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                 <div className="flex items-center rounded-full bg-zinc-800/80 border border-zinc-700/60 p-0.5 text-[10px] sm:text-xs font-bold">
                   <button
                     type="button"
-                    onClick={() => setTrailerLang('hi')}
+                    onClick={() => handleSelectTrailerLanguage('hi')}
                     className={`flex items-center gap-1 px-2 py-0.5 rounded-full transition-colors cursor-pointer ${
                       trailerLang === 'hi'
                         ? 'bg-amber-500 text-black font-black'
@@ -376,7 +470,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setTrailerLang('en')}
+                    onClick={() => handleSelectTrailerLanguage('en')}
                     className={`flex items-center gap-1 px-2 py-0.5 rounded-full transition-colors cursor-pointer ${
                       trailerLang === 'en'
                         ? 'bg-amber-500 text-black font-black'
@@ -388,6 +482,18 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                     <span>Trailer: EN</span>
                   </button>
                 </div>
+
+                {/* Wrong trailer? button */}
+                <button
+                  type="button"
+                  onClick={handleWrongTrailer}
+                  disabled={isSearchingTrailer}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/60 text-[10px] sm:text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+                  title="Trailer incorrect? Click to fetch an alternative trailer"
+                >
+                  <RotateCcw className={`w-3 h-3 ${isSearchingTrailer ? 'animate-spin' : ''}`} />
+                  <span>Wrong trailer?</span>
+                </button>
                 <a
                   href={netflixUrl}
                   target="_blank"
@@ -435,10 +541,18 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                 )}
 
                 {item.releaseYear && (
-                  <div className="flex items-center gap-1 bg-zinc-800 px-2.5 py-1 rounded-lg border border-zinc-700">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      pauseTrailer();
+                      setSelectedYear(item.releaseYear || null);
+                    }}
+                    className="flex items-center gap-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white px-2.5 py-1 rounded-lg border border-zinc-700 hover:border-zinc-500 cursor-pointer transition-all hover:scale-105"
+                    title={`Click to explore all movies & series released in ${item.releaseYear}`}
+                  >
                     <Calendar className="w-3.5 h-3.5 text-zinc-400" />
                     <span>{item.releaseYear}</span>
-                  </div>
+                  </button>
                 )}
 
                 {isMovie ? (
@@ -484,16 +598,36 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                 </div>
               )}
 
-              {/* Genres & Countries */}
-              {(item.genres || item.countries) && (
-                <div className="flex flex-wrap gap-1.5 mt-4">
+              {/* Genres, Themes & Countries (Clickable to explore similar titles) */}
+              {((item.genres && item.genres.length > 0) || (item.themes && item.themes.length > 0) || (item.countries && item.countries.length > 0)) && (
+                <div className="flex flex-wrap gap-1.5 mt-4 items-center">
+                  {item.themes?.map((t) => (
+                    <button
+                      key={`theme-${t}`}
+                      type="button"
+                      onClick={() => {
+                        pauseTrailer();
+                        setTagExploreModal({ tag: t, type: 'theme' });
+                      }}
+                      className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-purple-950/70 hover:bg-purple-900 text-purple-300 hover:text-purple-100 border border-purple-500/40 hover:border-purple-300 cursor-pointer transition-all hover:scale-105 shadow-sm"
+                      title={`Explore titles with theme "${t}"`}
+                    >
+                      ✨ {t}
+                    </button>
+                  ))}
                   {item.genres?.map((g) => (
-                    <span
-                      key={g}
-                      className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-zinc-800 text-zinc-300 border border-zinc-700"
+                    <button
+                      key={`genre-${g}`}
+                      type="button"
+                      onClick={() => {
+                        pauseTrailer();
+                        setTagExploreModal({ tag: g, type: 'genre' });
+                      }}
+                      className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 hover:border-zinc-500 cursor-pointer transition-all hover:scale-105 shadow-sm"
+                      title={`Explore titles with genre "${g}"`}
                     >
                       {g}
-                    </span>
+                    </button>
                   ))}
                   {Array.from(new Set((item.countries || []).map((c) => normalizeCountryName(c)))).map((c) => (
                     <span
@@ -664,12 +798,18 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                         <span>Themes:</span>
                       </span>
                       {item.themes.map((theme) => (
-                        <span
+                        <button
                           key={theme}
-                          className="text-[11px] px-2.5 py-0.5 rounded-full bg-purple-950/70 text-purple-300 border border-purple-500/40 font-semibold"
+                          type="button"
+                          onClick={() => {
+                            pauseTrailer();
+                            setTagExploreModal({ tag: theme, type: 'theme' });
+                          }}
+                          className="text-[11px] px-2.5 py-0.5 rounded-full bg-purple-950/70 hover:bg-purple-900 text-purple-300 hover:text-purple-100 border border-purple-500/40 hover:border-purple-300 font-semibold cursor-pointer transition-all hover:scale-105 shadow-sm"
+                          title={`Explore titles with theme "${theme}"`}
                         >
                           ✨ {theme}
-                        </span>
+                        </button>
                       ))}
                     </div>
                   )}
@@ -688,7 +828,10 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                           <button
                             key={dir}
                             type="button"
-                            onClick={() => setSelectedDirector(dir)}
+                            onClick={() => {
+                              pauseTrailer();
+                              setSelectedDirector(dir);
+                            }}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border border-amber-500/30 hover:border-amber-500/60 text-[11px] font-bold transition-all shadow-sm group cursor-pointer"
                           >
                             <Clapperboard className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
@@ -709,7 +852,10 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                           <button
                             key={cr}
                             type="button"
-                            onClick={() => setSelectedCreator(cr)}
+                            onClick={() => {
+                              pauseTrailer();
+                              setSelectedCreator(cr);
+                            }}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 hover:text-purple-200 border border-purple-500/30 hover:border-purple-500/60 text-[11px] font-bold transition-all shadow-sm group cursor-pointer"
                           >
                             <Sparkles className="w-3.5 h-3.5 text-purple-400 group-hover:scale-110 transition-transform" />
@@ -730,7 +876,10 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                           <button
                             key={actor}
                             type="button"
-                            onClick={() => setSelectedCastMember(actor)}
+                            onClick={() => {
+                              pauseTrailer();
+                              setSelectedCastMember(actor);
+                            }}
                             className="px-2.5 py-1 rounded-lg bg-zinc-800/80 hover:bg-red-600/20 text-zinc-300 hover:text-red-300 border border-zinc-700/60 hover:border-red-500/40 text-[11px] font-medium transition-all cursor-pointer"
                           >
                             {actor}
@@ -1193,6 +1342,35 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
             )}
           </div>
         </div>
+      )}
+
+      {/* Theme & Genre Tag Explore Modal with Exclusions & Type Filter */}
+      {tagExploreModal && (
+        <TagExploreModal
+          isOpen={!!tagExploreModal}
+          onClose={() => setTagExploreModal(null)}
+          tag={tagExploreModal.tag}
+          tagType={tagExploreModal.type}
+          catalog={discoveryCatalog}
+          onSelectTitle={(t) => {
+            setTagExploreModal(null);
+            handlePushTitle(t);
+          }}
+        />
+      )}
+
+      {/* Year Explore Modal */}
+      {selectedYear && (
+        <YearExploreModal
+          isOpen={!!selectedYear}
+          onClose={() => setSelectedYear(null)}
+          year={selectedYear}
+          catalog={discoveryCatalog}
+          onSelectTitle={(t) => {
+            setSelectedYear(null);
+            handlePushTitle(t);
+          }}
+        />
       )}
     </div>
   );

@@ -344,3 +344,42 @@ export function extractThemesFromKeywords(
 
   return Array.from(matchedThemes);
 }
+
+/**
+ * Generates a concise, punchy 1-line hook/tagline from the synopsis if an official marketing tagline is missing.
+ * Ensures every entertainment entity has an engaging 1-line tagline on cards and details.
+ */
+export function generateFallbackTagline(synopsis?: string, title?: string): string | undefined {
+  if (!synopsis) return undefined;
+  const clean = synopsis
+    .replace(/^["'“]+|["'”]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!clean || clean.length < 15) return undefined;
+
+  // Attempt to split at first sentence boundary
+  const sentenceMatch = clean.match(/^([^.!?]+[.!?])/);
+  let candidate = sentenceMatch ? sentenceMatch[1].trim() : clean;
+
+  // If the first sentence is within 120 characters, it makes a great 1-line tagline
+  if (candidate.length <= 110) {
+    // Strip trailing period for punchy tagline look
+    return candidate.replace(/[.]+$/, '').trim();
+  }
+
+  // If too long, break at comma, semicolon, dash, or em-dash within 40-100 characters
+  const clauseMatch = candidate.slice(0, 105).match(/^([^,;—–-]+[,;—–-])/);
+  if (clauseMatch && clauseMatch[1].length >= 35) {
+    return clauseMatch[1].replace(/[,;—–-]+$/, '').trim();
+  }
+
+  // Fallback: truncate at last word boundary before 95 characters
+  const truncated = candidate.slice(0, 95);
+  const lastSpace = truncated.lastIndexOf(' ');
+  if (lastSpace > 35) {
+    return `${truncated.slice(0, lastSpace).trim()}...`;
+  }
+
+  return `${truncated.trim()}...`;
+}

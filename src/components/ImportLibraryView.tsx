@@ -86,7 +86,15 @@ export const ImportLibraryView: React.FC<ImportLibraryViewProps> = ({
     e.preventDefault();
     if (!manualTitle.trim()) return;
 
-    const cleanVideoId = manualNetflixId.trim() || undefined;
+    let cleanVideoId = manualNetflixId.trim() || undefined;
+    if (cleanVideoId) {
+      const match = cleanVideoId.match(/(?:title|watch|jbv=)\/?([0-9]{6,12})/i) ||
+                    cleanVideoId.match(/^([0-9]{6,12})$/) ||
+                    cleanVideoId.match(/(?:title|watch)\/([a-zA-Z0-9_-]+)/i);
+      if (match && match[1]) {
+        cleanVideoId = match[1].trim();
+      }
+    }
 
     const { newItems, duplicateCount, skippedTitles } = deduplicateAndPrepareItems(
       [{ title: manualTitle.trim(), videoId: cleanVideoId }],

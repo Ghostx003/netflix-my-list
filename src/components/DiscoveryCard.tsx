@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Star, Clock, Film, Tv, Play, Plus, Check, Layers, ExternalLink, EyeOff } from 'lucide-react';
+import { Star, Clock, Film, Tv, Play, Plus, Check, Layers, ExternalLink, EyeOff, Globe } from 'lucide-react';
 import { DiscoveryTitle } from '../types';
 import { formatRuntime } from '../services/analytics';
 import { getNetflixUrl, getPriorityLanguageBadge, openNetflixInNewTab } from '../services/normalizer';
@@ -14,6 +14,7 @@ interface DiscoveryCardProps {
   onStartWatching: (item: DiscoveryTitle) => void;
   onMarkWatched?: (item: DiscoveryTitle) => void;
   onIgnoreTitle?: (item: DiscoveryTitle) => void;
+  onTagClick?: (tag: string, type: 'genre' | 'theme', e: React.MouseEvent) => void;
 }
 
 export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
@@ -25,6 +26,7 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
   onStartWatching,
   onMarkWatched,
   onIgnoreTitle,
+  onTagClick,
 }) => {
   const isMovie = item.mediaType === 'movie';
   const [showIgnoreButton, setShowIgnoreButton] = useState(false);
@@ -75,6 +77,12 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
   const avgMinutes = item.averageEpisodeMinutes || 45;
   const seriesTotalMinutes = totalEpisodes ? totalEpisodes * avgMinutes : undefined;
   const displayRuntimeMinutes = isMovie ? item.runtimeMinutes : seriesTotalMinutes;
+
+  const originCountry =
+    item.watchmodeOriginCountry ||
+    item.tmdbOriginCountry ||
+    (item.countries && item.countries.length > 0 ? item.countries[0] : undefined) ||
+    (item.tmdbProductionCountries && item.tmdbProductionCountries.length > 0 ? item.tmdbProductionCountries[0] : undefined);
 
   return (
     <div
@@ -217,15 +225,26 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
             >
               {item.title}
             </h3>
-            <span
-              className={`text-[8px] sm:text-[9px] px-1 sm:px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${
-                isMovie
-                  ? 'bg-red-500/20 text-red-300 border border-red-500/30'
-                  : 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-              }`}
-            >
-              {isMovie ? 'Movie' : 'Series'}
-            </span>
+            <div className="flex items-center gap-1 shrink-0">
+              {originCountry && (
+                <span
+                  className="text-[8px] sm:text-[9px] px-1 sm:px-1.5 py-0.5 rounded font-bold bg-emerald-950/70 text-emerald-300 border border-emerald-500/30 flex items-center gap-0.5"
+                  title={`Country of Origin: ${originCountry}`}
+                >
+                  <Globe className="w-2.5 h-2.5 text-emerald-400" />
+                  <span>{originCountry}</span>
+                </span>
+              )}
+              <span
+                className={`text-[8px] sm:text-[9px] px-1 sm:px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${
+                  isMovie
+                    ? 'bg-red-500/20 text-red-300 border border-red-500/30'
+                    : 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                }`}
+              >
+                {isMovie ? 'Movie' : 'Series'}
+              </span>
+            </div>
           </div>
 
           {item.originalTitle && item.originalTitle !== item.title && (
@@ -263,25 +282,36 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
             </div>
           )}
 
-          {/* Genre & Theme Tags - Show all themes and genres */}
+          {/* Genre & Theme Tags - Clickable to explore similar titles */}
           {(item.genres && item.genres.length > 0) || (item.themes && item.themes.length > 0) ? (
             <div className="flex flex-wrap gap-1 mt-1.5 sm:mt-2 items-center">
               {item.themes && item.themes.map((t) => (
-                <span
+                <button
                   key={`theme-${t}`}
-                  className="text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded bg-purple-950/70 text-purple-300 border border-purple-500/40 font-semibold"
-                  title={`Theme: ${t}`}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTagClick?.(t, 'theme', e);
+                  }}
+                  className="text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded bg-purple-950/70 hover:bg-purple-900 text-purple-300 hover:text-purple-100 border border-purple-500/40 hover:border-purple-300 font-semibold cursor-pointer transition-all hover:scale-105"
+                  title={`Click to explore theme: ${t}`}
                 >
                   ✨ {t}
-                </span>
+                </button>
               ))}
               {item.genres && item.genres.map((g) => (
-                <span
+                <button
                   key={`genre-${g}`}
-                  className="text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 border border-zinc-700/50 font-medium"
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTagClick?.(g, 'genre', e);
+                  }}
+                  className="text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/50 hover:border-zinc-400 font-medium cursor-pointer transition-all hover:scale-105"
+                  title={`Click to explore genre: ${g}`}
                 >
                   {g}
-                </span>
+                </button>
               ))}
             </div>
           ) : null}

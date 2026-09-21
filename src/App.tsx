@@ -3,7 +3,8 @@ import { AppSettings, LibraryItem, NetflixRawItem, LibraryViewingStatus } from '
 import { DEFAULT_SETTINGS, getAllLibraryItems, getSettings, saveLibraryItems, saveSettings, clearLibrary, deleteLibraryItem, getAllDiscoveryTitles } from './services/db';
 import { enrichLibraryItem } from './services/tmdb';
 import { deduplicateAndPrepareItems } from './services/duplicateDetector';
-import { syncLibraryItemsToDiscovery, syncEnrichedDiscoveryTitlesIntoLibrary, enrichAndSyncNewLibraryItem } from './services/discoveryService';
+import { syncLibraryItemsToDiscovery, syncEnrichedDiscoveryTitlesIntoLibrary, enrichAndSyncNewLibraryItem, mergeDiscoveryTitleIntoLibraryItem, isDiscoveryTitleEnriched } from './services/discoveryService';
+import { createDuplicateKey } from './services/normalizer';
 import { Navbar } from './components/Navbar';
 import { ImportLibraryView } from './components/ImportLibraryView';
 import { MoviesSeriesView } from './components/MoviesSeriesView';
@@ -142,7 +143,7 @@ export const App: React.FC = () => {
 
         if (validItems && validItems.length > 0) {
           const needsEnrichment = validItems.some(
-            (i) => i.status === 'pending' || (!i.posterPath && !i.externalId) || i.rottenTomatoesRating === undefined
+            (i) => i.status === 'pending' || (!i.posterPath && !i.externalId) || i.rottenTomatoesRating === undefined || !i.tagline || !i.themes || i.themes.length === 0
           );
           if (needsEnrichment) {
             triggerBackgroundScan(validItems, savedSettings || DEFAULT_SETTINGS);
@@ -177,18 +178,36 @@ export const App: React.FC = () => {
         // Never overwrite a manual match chosen by user
         if (item.isManualMatch) continue;
 
-        // Automatically enrich items if pending, missing essential details (poster, ratings) or missing trailer
-        const hasDetails = item.status === 'matched' && !!item.posterPath && item.rottenTomatoesRating !== undefined;
-        if (!hasDetails && (item.status === 'pending' || !item.posterPath || item.status === 'needs_review')) {
+        // Automatically enrich items if pending, missing essential details (poster, ratings, themes, tagline) or missing trailer
+        const hasDetails =
+          item.status === 'matched' &&
+          !!item.posterPath &&
+          item.rottenTomatoesRating !== undefined &&
+          !!item.tagline &&
+          Array.isArray(item.themes) &&
+          item.themes.length > 0;
+
+        if (!hasDetails && (item.status === 'pending' || !item.posterPath || !item.tagline || !item.themes || item.themes.length === 0 || item.status === 'needs_review')) {
           try {
-            const enriched = await enrichLibraryItem(
-              item,
-              currentSettings.tmdbApiKey,
-              currentSettings.maxEpisodesPerSeries,
-              currentSettings.capSeriesEpisodes
+            // First check if already enriched in Discovery Catalog to avoid redundant network calls!
+            const discTitles = await getAllDiscoveryTitles();
+            const discMatch = discTitles.find((dt) =>
+              (item.videoId && dt.netflixId === item.videoId) ||
+              (item.externalId && dt.tmdbId === item.externalId) ||
+              (item.imdbId && dt.imdbId === item.imdbId) ||
+              (createDuplicateKey(item.originalTitle) === createDuplicateKey(dt.title))
             );
-            updatedList[i] = enriched;
-            hasChanges = true;
+
+            if (discMatch && isDiscoveryTitleEnriched(discMatch)) {
+              const merged = mergeDiscoveryTitleIntoLibraryItem(item, discMatch);
+              updatedList[i] = merged;
+              hasChanges = true;
+            } else {
+              const { enrichedLibraryItem } = await enrichAndSyncNewLibraryItem(item, currentSettings.tmdbApiKey);
+              updatedList[i] = enrichedLibraryItem;
+              hasChanges = true;
+            }
+
             if (i % 3 === 0) {
               setItems([...updatedList]);
             }
@@ -221,7 +240,6 @@ export const App: React.FC = () => {
       if (hasChanges) {
         setItems(updatedList);
         await saveLibraryItems(updatedList);
-        syncLibraryItemsToDiscovery(updatedList).catch(() => {});
       }
       setIsRescanning(false);
     },
@@ -265,13 +283,13 @@ export const App: React.FC = () => {
   }, [items]);
 
   const handleAddItems = async (newItems: LibraryItem[]) => {
+    // 1. Instantly append to state and IndexedDB so user sees items immediately
     const combined = [...items, ...newItems];
     setItems(combined);
     await saveLibraryItems(combined);
-    syncLibraryItemsToDiscovery(newItems).catch((err) => console.warn('Discovery sync error:', err));
-    triggerBackgroundScan(combined, settings);
 
-    // Also enrich newly added items in background and update both library & discovery immediately
+    // 2. Concurrently enrich each new item with Discovery & TMDB (tagline, themes, cast, trailer, episodes, ratings)
+    // and sync into both Discovery Catalog and Movies & Series page!
     (async () => {
       let anyEnriched = false;
       const currentList = [...combined];
@@ -282,9 +300,10 @@ export const App: React.FC = () => {
           if (idx !== -1) {
             currentList[idx] = enrichedLibraryItem;
             anyEnriched = true;
+            setItems([...currentList]);
           }
         } catch (e) {
-          console.warn('Background instant enrich error:', e);
+          console.warn('Background instant enrich error on item:', newItems[i].originalTitle, e);
         }
       }
       if (anyEnriched) {
@@ -309,18 +328,17 @@ export const App: React.FC = () => {
     setItems(updated);
     await saveLibraryItems(updated);
 
-    // Immediately enrich via TMDB, save to Discovery Catalogue, and update Library Item
-    enrichAndSyncNewLibraryItem(newItem, settings.tmdbApiKey)
-      .then(async ({ enrichedLibraryItem }) => {
-        setItems((prev) => prev.map((it) => (it.id === newItem.id ? enrichedLibraryItem : it)));
-        const currentLib = await getAllLibraryItems();
-        const remapped = currentLib.map((it) => (it.id === newItem.id ? enrichedLibraryItem : it));
-        await saveLibraryItems(remapped);
-      })
-      .catch((err) => {
-        console.warn('Instant enrich error on adding item:', err);
-        syncLibraryItemsToDiscovery([newItem]).catch(() => {});
-      });
+    // Immediately enrich via TMDB, save to Discovery Catalogue, and update Library Item with tagline & themes
+    try {
+      const { enrichedLibraryItem } = await enrichAndSyncNewLibraryItem(newItem, settings.tmdbApiKey);
+      setItems((prev) => prev.map((it) => (it.id === newItem.id ? enrichedLibraryItem : it)));
+      const currentLib = await getAllLibraryItems();
+      const remapped = currentLib.map((it) => (it.id === newItem.id ? enrichedLibraryItem : it));
+      await saveLibraryItems(remapped);
+    } catch (err) {
+      console.warn('Instant enrich error on adding item:', err);
+      syncLibraryItemsToDiscovery([newItem]).catch(() => {});
+    }
   };
 
   // Explicitly sync and replace library items with discovery catalog enriched listings

@@ -2,6 +2,7 @@ import { DiscoveryTitle, EpisodeInfo, TrailerInfo, LibraryItem } from '../types'
 import { DEFAULT_PUBLIC_TMDB_KEY, fetchOMDBMetadata, selectBestTrailer } from './tmdb';
 import { getCachedMetadata, setCachedMetadata, saveDiscoveryTitles, getAllDiscoveryTitles } from './db';
 import { normalizeCountriesList, normalizeTitle, createDuplicateKey, NETFLIX_HINDI_DUBBED_TITLES } from './normalizer';
+import { extractThemesFromKeywords, generateFallbackTagline } from './themeMapper';
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 
@@ -1739,8 +1740,7 @@ export async function enrichTitleWithTMDB(
 
   // Check if we already have TMDB ID or can find by IMDb ID
   let tmdbId = titleItem.tmdbId;
-  const isMovie = titleItem.mediaType === 'movie';
-  const endpointType = isMovie ? 'movie' : 'tv';
+  let detectedMediaType: 'movie' | 'tv' = titleItem.mediaType === 'tv' ? 'tv' : 'movie';
 
   // 1. Resolve TMDB ID if missing but IMDb ID is present
   if (!tmdbId && titleItem.imdbId) {
@@ -1758,25 +1758,25 @@ export async function enrichTitleWithTMDB(
     }
 
     if (findData) {
-      const match = isMovie ? findData.movie_results?.[0] : findData.tv_results?.[0];
+      const match = titleItem.mediaType === 'tv' ? (findData.tv_results?.[0] || findData.movie_results?.[0]) : (findData.movie_results?.[0] || findData.tv_results?.[0]);
       if (match && match.id) {
         tmdbId = match.id;
+        if (findData.tv_results?.some((r: any) => r.id === match.id)) {
+          detectedMediaType = 'tv';
+        } else if (findData.movie_results?.some((r: any) => r.id === match.id)) {
+          detectedMediaType = 'movie';
+        }
       }
     }
   }
 
-  // 2. Fallback: Search TMDB by Title + Year if ID still missing
+  // 2. Fallback: Search TMDB by Title using multi-search to seamlessly identify Movies vs Series
   if (!tmdbId && titleItem.title) {
-    const searchCacheKey = `tmdb_search_${titleItem.mediaType}_${encodeURIComponent(titleItem.title.toLowerCase())}_${titleItem.releaseYear || ''}`;
+    const searchCacheKey = `tmdb_search_multi_${encodeURIComponent(titleItem.title.toLowerCase())}_${titleItem.releaseYear || ''}`;
     let searchData = await getCachedMetadata(searchCacheKey);
     if (!searchData) {
       try {
-        const yearParam = titleItem.releaseYear
-          ? isMovie
-            ? `&year=${titleItem.releaseYear}`
-            : `&first_air_date_year=${titleItem.releaseYear}`
-          : '';
-        const searchUrl = `${TMDB_BASE_URL}/search/${endpointType}?api_key=${key}&query=${encodeURIComponent(titleItem.title)}${yearParam}`;
+        const searchUrl = `${TMDB_BASE_URL}/search/multi?api_key=${key}&query=${encodeURIComponent(titleItem.title)}&include_adult=false`;
         const res = await fetch(searchUrl);
         if (res.ok) {
           searchData = await res.json();
@@ -1785,14 +1785,46 @@ export async function enrichTitleWithTMDB(
       } catch {}
     }
 
-    if (searchData && searchData.results && searchData.results.length > 0) {
-      tmdbId = searchData.results[0].id;
+    if (searchData && Array.isArray(searchData.results) && searchData.results.length > 0) {
+      const validResults = searchData.results.filter((r: any) => r.media_type === 'movie' || r.media_type === 'tv');
+      if (validResults.length > 0) {
+        const normTarget = normalizeTitle(titleItem.title);
+        const match = validResults.find((r: any) => {
+          const t = normalizeTitle(r.title || r.name || '');
+          if (t === normTarget) {
+            if (titleItem.releaseYear) {
+              const yr = parseInt((r.release_date || r.first_air_date || '').slice(0, 4), 10);
+              return !yr || Math.abs(yr - titleItem.releaseYear) <= 1;
+            }
+            return true;
+          }
+          return false;
+        }) || validResults[0];
+
+        if (match) {
+          tmdbId = match.id;
+          detectedMediaType = match.media_type === 'tv' ? 'tv' : 'movie';
+        }
+      }
     }
   }
 
   if (!tmdbId) {
-    return titleItem;
+    // Generate guaranteed themes and tagline even if TMDB ID could not be resolved
+    const fallbackTagline = titleItem.tagline || generateFallbackTagline(titleItem.synopsis, titleItem.title);
+    const fallbackThemes = (titleItem.themes && titleItem.themes.length > 0)
+      ? titleItem.themes
+      : extractThemesFromKeywords([], titleItem.genres || [], titleItem.synopsis);
+
+    return {
+      ...titleItem,
+      tagline: fallbackTagline,
+      themes: fallbackThemes,
+    };
   }
+
+  const isMovie = detectedMediaType === 'movie';
+  const endpointType = isMovie ? 'movie' : 'tv';
 
   // 3. Fetch detailed TMDB metadata (with credits, videos, external_ids)
   const detailCacheKey = `tmdb_full_details_${endpointType}_${tmdbId}`;
@@ -1937,28 +1969,52 @@ export async function enrichTitleWithTMDB(
   }
 
   // Tagline & themes/keywords
-  const tagline = (detail.tagline || '').trim() || titleItem.tagline;
+  const rawTagline = (detail.tagline || '').trim();
+  const finalOverview = detail.overview || titleItem.synopsis;
+  const tagline = rawTagline || titleItem.tagline || generateFallbackTagline(finalOverview, titleItem.title);
+
   const rawKeywords = Array.isArray(detail.keywords?.keywords)
     ? detail.keywords.keywords
     : Array.isArray(detail.keywords?.results)
     ? detail.keywords.results
     : [];
   const keywordNames: string[] = rawKeywords.map((k: any) => k.name).filter(Boolean);
-  const themes = keywordNames.length > 0 ? keywordNames.slice(0, 10) : titleItem.themes;
+  const computedThemes = extractThemesFromKeywords(keywordNames, genres, finalOverview);
+  const themes = (computedThemes && computedThemes.length > 0)
+    ? computedThemes
+    : (titleItem.themes && titleItem.themes.length > 0 ? titleItem.themes : keywordNames.slice(0, 10));
+
+  // Enrich ratings from OMDB if missing
+  let imdbRating = titleItem.imdbRating;
+  let rottenTomatoesRating = titleItem.rottenTomatoesRating;
+  if (!imdbRating || rottenTomatoesRating === undefined) {
+    try {
+      const omdb = await fetchOMDBMetadata(titleItem.title, undefined, titleItem.imdbId || detail.external_ids?.imdb_id, titleItem.releaseYear);
+      if (omdb) {
+        if (!imdbRating && omdb.imdbRating) imdbRating = omdb.imdbRating;
+        if (rottenTomatoesRating === undefined && omdb.rottenTomatoesRating !== undefined) {
+          rottenTomatoesRating = omdb.rottenTomatoesRating;
+        }
+      }
+    } catch {}
+  }
 
   return {
     ...titleItem,
     tmdbId,
     netflixId: autoNetflixId || titleItem.netflixId,
     imdbId: titleItem.imdbId || detail.external_ids?.imdb_id || detail.imdb_id,
+    mediaType: detectedMediaType,
     originalTitle: isMovie ? detail.original_title : detail.original_name,
     releaseDate: isMovie ? detail.release_date : detail.first_air_date,
     releaseYear: titleItem.releaseYear || (isMovie ? detail.release_date?.slice(0, 4) : detail.first_air_date?.slice(0, 4)),
     posterPath,
     backdropPath,
     rating: detail.vote_average ? parseFloat(detail.vote_average.toFixed(1)) : titleItem.rating,
+    imdbRating,
+    rottenTomatoesRating,
     voteCount: detail.vote_count || titleItem.voteCount,
-    synopsis: detail.overview || titleItem.synopsis,
+    synopsis: finalOverview,
     genres: genres.length > 0 ? genres : titleItem.genres,
     countries: countries.length > 0 ? countries : titleItem.countries,
     originalLanguage: origLang || titleItem.originalLanguage,
@@ -2703,8 +2759,12 @@ export function mergeDiscoveryTitleIntoLibraryItem(
     cast: discoveryTitle.cast && discoveryTitle.cast.length > 0 ? discoveryTitle.cast : libraryItem.cast,
     director: discoveryTitle.director || libraryItem.director,
     creator: discoveryTitle.creator || libraryItem.creator,
-    tagline: discoveryTitle.tagline || libraryItem.tagline,
-    themes: discoveryTitle.themes && discoveryTitle.themes.length > 0 ? discoveryTitle.themes : libraryItem.themes,
+    tagline: discoveryTitle.tagline || libraryItem.tagline || generateFallbackTagline(discoveryTitle.synopsis || libraryItem.synopsis, discoveryTitle.title || libraryItem.externalTitle || libraryItem.originalTitle),
+    themes: (discoveryTitle.themes && discoveryTitle.themes.length > 0)
+      ? discoveryTitle.themes
+      : (libraryItem.themes && libraryItem.themes.length > 0
+          ? libraryItem.themes
+          : extractThemesFromKeywords([], discoveryTitle.genres || libraryItem.genres || [], discoveryTitle.synopsis || libraryItem.synopsis)),
     status: 'matched',
     updatedAt: new Date().toISOString(),
   };
@@ -2810,8 +2870,9 @@ export function syncEnrichedDiscoveryTitlesIntoLibrary(
 
 /**
  * Automatically enriches an incoming LibraryItem via TMDB with full metadata
- * (poster, backdrop, ratings, synopsis, episodes, trailer, languages, cast, director, creator),
- * saves it into the Discovery Catalogue immediately, and returns the fully enriched LibraryItem.
+ * (poster, backdrop, ratings, synopsis, episodes, trailer, languages, cast, director, creator, tagline, themes),
+ * saves it into the Discovery Catalogue immediately, dispatches live UI updates,
+ * and returns the fully enriched LibraryItem ready for the Movies & Series page.
  */
 export async function enrichAndSyncNewLibraryItem(
   rawItem: LibraryItem,
@@ -2837,10 +2898,23 @@ export async function enrichAndSyncNewLibraryItem(
     return false;
   });
 
+  // Check if title exists in Seed Netflix India titles
+  const seedMatch = SEED_NETFLIX_INDIA_TITLES.find((t) => {
+    if (rawItem.videoId && t.netflixId === rawItem.videoId) return true;
+    if (rawItem.externalId && t.tmdbId === rawItem.externalId) return true;
+    if (rawItem.imdbId && t.imdbId === rawItem.imdbId) return true;
+    const itemKey = createDuplicateKey(rawItem.originalTitle);
+    const seedKey = createDuplicateKey(t.title);
+    return itemKey === seedKey;
+  });
+  if (seedMatch) {
+    existing = existing ? { ...seedMatch, ...existing } : { ...seedMatch };
+  }
+
   let enrichedDiscovery = existing ? { ...existing, ...initialDiscovery, id: existing.id } : initialDiscovery;
 
-  // Only run TMDB enrichment if not already enriched
-  if (!isDiscoveryTitleEnriched(enrichedDiscovery)) {
+  // Run TMDB enrichment if not fully enriched or if missing tagline/themes
+  if (!isDiscoveryTitleEnriched(enrichedDiscovery) || !enrichedDiscovery.tagline || !enrichedDiscovery.themes || enrichedDiscovery.themes.length === 0) {
     try {
       enrichedDiscovery = await enrichTitleWithTMDB(
         enrichedDiscovery,
@@ -2851,13 +2925,36 @@ export async function enrichAndSyncNewLibraryItem(
     }
   }
 
+  // Ensure guaranteed fallback tagline & themes so title NEVER has blank tagline or themes
+  if (!enrichedDiscovery.tagline) {
+    enrichedDiscovery.tagline = rawItem.tagline || generateFallbackTagline(enrichedDiscovery.synopsis || rawItem.synopsis, enrichedDiscovery.title || rawItem.originalTitle);
+  }
+  if (!enrichedDiscovery.themes || enrichedDiscovery.themes.length === 0) {
+    enrichedDiscovery.themes = (rawItem.themes && rawItem.themes.length > 0)
+      ? rawItem.themes
+      : extractThemesFromKeywords([], enrichedDiscovery.genres || rawItem.genres || [], enrichedDiscovery.synopsis || rawItem.synopsis);
+  }
+
+  // Ensure Netflix ID is preserved from rawItem
+  if (rawItem.videoId && !enrichedDiscovery.netflixId) {
+    enrichedDiscovery.netflixId = rawItem.videoId;
+  }
+
   // Ensure it is marked as verified & available on Netflix India
   enrichedDiscovery.isNetflixIndiaVerified = true;
   enrichedDiscovery.netflixIndiaAvailable = true;
   enrichedDiscovery.availabilityState = 'available';
+  enrichedDiscovery.catalogUpdatedAt = new Date().toISOString();
 
   // Persist into Discovery Catalog in IndexedDB immediately
   await saveDiscoveryTitles([enrichedDiscovery]);
+
+  // Dispatch live update event so active Discovery Views receive this title immediately
+  if (typeof window !== 'undefined') {
+    try {
+      window.dispatchEvent(new CustomEvent('netflix-discovery-updated', { detail: { title: enrichedDiscovery } }));
+    } catch {}
+  }
 
   // Merge full enriched metadata back into the LibraryItem
   const enrichedLibraryItem = mergeDiscoveryTitleIntoLibraryItem(rawItem, enrichedDiscovery);

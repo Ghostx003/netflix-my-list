@@ -31,11 +31,15 @@ export function deduplicateAndPrepareItems(
 
     // Clean videoId if passed directly or extract if passed in URL format
     if (videoId) {
-      const vMatch = videoId.toString().match(/(?:title|watch)\/([a-zA-Z0-9_-]+)/i);
-      if (vMatch) {
-        videoId = vMatch[1];
+      const vStr = videoId.toString().trim();
+      const vMatch = vStr.match(/(?:title|watch)\/([0-9]{6,12})/i) ||
+                     vStr.match(/jbv=([0-9]{6,12})/i) ||
+                     vStr.match(/(?:title|watch)\/([a-zA-Z0-9_-]+)/i) ||
+                     vStr.match(/^([0-9]{6,12})$/);
+      if (vMatch && vMatch[1]) {
+        videoId = vMatch[1].trim();
       } else {
-        videoId = videoId.toString().trim();
+        videoId = vStr.replace(/^https?:\/\/(?:www\.)?netflix\.com\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?(?:title|watch)\//i, '').replace(/[/?#].*$/, '').trim();
       }
     }
 

@@ -47,6 +47,7 @@ import {
 import { normalizeCountryName } from '../services/normalizer';
 import { DiscoveryCard } from './DiscoveryCard';
 import { DiscoveryDetailModal } from './DiscoveryDetailModal';
+import { TagExploreModal } from './TagExploreModal';
 import {
   enrichCatalogWithTMDB,
   TMDBEnrichmentProgress,
@@ -197,6 +198,9 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   const [themeModalTab, setThemeModalTab] = useState<'include' | 'exclude'>('include');
   const [themeSearchQuery, setThemeSearchQuery] = useState('');
 
+  // Theme & Genre Tag Explore Modal state
+  const [tagExploreModal, setTagExploreModal] = useState<{ tag: string; type: 'genre' | 'theme' } | null>(null);
+
   // Ignored / Hidden titles state (stored in localStorage for permanence)
   const [ignoredTitleIds, setIgnoredTitleIds] = useState<string[]>(() => {
     try {
@@ -336,6 +340,29 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Real-time synchronization: listen for auto-added titles from Library feature and refresh catalog immediately
+  useEffect(() => {
+    const handleDiscoveryUpdated = async (e: Event) => {
+      try {
+        const customEvt = e as CustomEvent<{ title?: DiscoveryTitle }>;
+        const freshTitles = await getAllDiscoveryTitles();
+        if (freshTitles && freshTitles.length > 0) {
+          setCatalog(ensureTvThrillerGenres(freshTitles));
+        } else if (customEvt.detail?.title) {
+          setCatalog((prev) => {
+            const exists = prev.some((t) => t.id === customEvt.detail?.title?.id || (customEvt.detail?.title?.tmdbId && t.tmdbId === customEvt.detail.title.tmdbId));
+            return exists ? prev : [customEvt.detail.title!, ...prev];
+          });
+        }
+      } catch (err) {
+        console.warn('Error updating live Discovery catalog on event:', err);
+      }
+    };
+
+    window.addEventListener('netflix-discovery-updated', handleDiscoveryUpdated);
+    return () => window.removeEventListener('netflix-discovery-updated', handleDiscoveryUpdated);
   }, []);
 
   // Initial load: load from local IndexedDB first
@@ -2345,6 +2372,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               onStartWatching={onStartWatching}
               onMarkWatched={onMarkWatched}
               onIgnoreTitle={handleIgnoreTitle}
+              onTagClick={(tag, type) => setTagExploreModal({ tag, type })}
             />
           ))}
         </div>
@@ -3218,6 +3246,23 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
           onStartWatching={onStartWatching}
           isInLibrary={isInLibrary}
           settings={settings}
+          libraryItems={libraryItems}
+          ignoredTitleIds={ignoredTitleIds}
+        />
+      )}
+
+      {/* Theme & Genre Tag Explore Modal with Exclusions & Type Filter */}
+      {tagExploreModal && (
+        <TagExploreModal
+          isOpen={!!tagExploreModal}
+          onClose={() => setTagExploreModal(null)}
+          tag={tagExploreModal.tag}
+          tagType={tagExploreModal.type}
+          catalog={catalog}
+          onSelectTitle={handleOpenDiscoveryDetail}
+          onAddToLibrary={onAddToLibrary}
+          onStartWatching={onStartWatching}
+          isInLibrary={isInLibrary}
         />
       )}
     </div>

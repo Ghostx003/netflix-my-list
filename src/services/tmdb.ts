@@ -2,6 +2,7 @@ import { EpisodeInfo, LibraryItem, MediaType, TrailerInfo } from '../types';
 import { createDuplicateKey, normalizeCountriesList } from './normalizer';
 import { getCachedMetadata, setCachedMetadata } from './db';
 import { SAMPLE_METADATA_MAP } from './tmdbSampleData';
+import { extractThemesFromKeywords, generateFallbackTagline } from './themeMapper';
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 export const DEFAULT_PUBLIC_TMDB_KEY =
@@ -305,8 +306,8 @@ export async function fetchFullDetails(
   if (!effectiveKey) return null;
 
   try {
-    // Request multi-language videos (en, hi, es, de, null) & translations to discover all trailers and dubbed languages (e.g. Hindi dub)
-    const detailsUrl = TMDB_BASE_URL + '/' + mediaType + '/' + id + '?api_key=' + effectiveKey + '&append_to_response=videos,translations&include_video_language=en,hi,es,de,null';
+    // Request multi-language videos (en, hi, es, de, null), keywords, credits, external_ids & translations
+    const detailsUrl = TMDB_BASE_URL + '/' + mediaType + '/' + id + '?api_key=' + effectiveKey + '&append_to_response=videos,translations,keywords,credits,external_ids&include_video_language=en,hi,es,de,null';
     const res = await fetch(detailsUrl);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
@@ -330,6 +331,32 @@ export async function fetchFullDetails(
     // Fetch OMDB ratings to augment TMDB
     const titleForRatings = data.title || data.name;
     const omdbData = await fetchOMDBMetadata(titleForRatings);
+    const finalSynopsis = data.overview || omdbData?.synopsis;
+
+    // Extract tagline & generate guaranteed 1-line fallback if empty
+    const rawTagline = (data.tagline || '').trim();
+    const tagline = rawTagline || generateFallbackTagline(finalSynopsis, titleForRatings);
+
+    // Extract keywords and compute canonical themes
+    const rawKeywords = (data.keywords?.keywords || data.keywords?.results || [])
+      .map((k: any) => k.name)
+      .filter(Boolean);
+
+    // Cast & crew
+    const cast = Array.isArray(data.credits?.cast)
+      ? data.credits.cast.slice(0, 8).map((c: any) => c.name).filter(Boolean)
+      : undefined;
+
+    let director: string | undefined;
+    if (mediaType === 'movie' && Array.isArray(data.credits?.crew)) {
+      const dirObj = data.credits.crew.find((c: any) => c.job === 'Director');
+      if (dirObj) director = dirObj.name;
+    }
+
+    let creator: string | undefined;
+    if (mediaType === 'tv' && Array.isArray(data.created_by) && data.created_by.length > 0) {
+      creator = data.created_by.map((c: any) => c.name).join(', ');
+    }
 
     if (mediaType === 'movie') {
       const rawCountries = (data.production_countries || []).map((c: any) => c.name || c.iso_3166_1).filter(Boolean);
@@ -337,6 +364,8 @@ export async function fetchFullDetails(
       const spokenLangs: string[] = (data.spoken_languages || []).map((l: any) => l.english_name || l.name || l.iso_639_1).concat(omdbData?.languages || []).filter(Boolean);
       const uniqueLangs: string[] = Array.from(new Set(spokenLangs));
       const origLang: string | undefined = data.original_language || undefined;
+      const genres = (data.genres || []).map((g: any) => g.name).concat(omdbData?.genres || []).filter((v: string, i: number, a: string[]) => a.indexOf(v) === i);
+      const themes = extractThemesFromKeywords(rawKeywords, genres, finalSynopsis);
 
       const result: Partial<LibraryItem> = {
         externalId: data.id,
@@ -350,13 +379,17 @@ export async function fetchFullDetails(
         imdbRating: omdbData?.imdbRating,
         rottenTomatoesRating: omdbData?.rottenTomatoesRating,
         voteCount: data.vote_count,
-        synopsis: data.overview || omdbData?.synopsis,
-        genres: (data.genres || []).map((g: any) => g.name).concat(omdbData?.genres || []).filter((v: string, i: number, a: string[]) => a.indexOf(v) === i),
+        synopsis: finalSynopsis,
+        tagline,
+        themes,
+        genres,
         countries,
         languages: uniqueLangs,
         originalLanguage: origLang,
         runtimeMinutes: data.runtime || omdbData?.runtimeMinutes || 0,
         trailer,
+        cast,
+        director,
         status: 'matched',
       };
       await setCachedMetadata(cacheKey, result);
@@ -396,6 +429,8 @@ export async function fetchFullDetails(
       const spokenLangs: string[] = (data.spoken_languages || []).map((l: any) => l.english_name || l.name || l.iso_639_1).concat(omdbData?.languages || []).filter(Boolean);
       const uniqueLangs: string[] = Array.from(new Set(spokenLangs));
       const origLang: string | undefined = data.original_language || undefined;
+      const genres = (data.genres || []).map((g: any) => g.name).concat(omdbData?.genres || []).filter((v: string, i: number, a: string[]) => a.indexOf(v) === i);
+      const themes = extractThemesFromKeywords(rawKeywords, genres, finalSynopsis);
 
       const result: Partial<LibraryItem> = {
         externalId: data.id,
@@ -409,8 +444,10 @@ export async function fetchFullDetails(
         imdbRating: omdbData?.imdbRating,
         rottenTomatoesRating: omdbData?.rottenTomatoesRating,
         voteCount: data.vote_count,
-        synopsis: data.overview || omdbData?.synopsis,
-        genres: (data.genres || []).map((g: any) => g.name).concat(omdbData?.genres || []).filter((v: string, i: number, a: string[]) => a.indexOf(v) === i),
+        synopsis: finalSynopsis,
+        tagline,
+        themes,
+        genres,
         countries,
         languages: uniqueLangs,
         originalLanguage: origLang,
@@ -419,6 +456,8 @@ export async function fetchFullDetails(
         averageEpisodeMinutes: defaultEpisodeRunTime,
         episodes,
         trailer,
+        cast,
+        creator,
         status: 'matched',
       };
       await setCachedMetadata(cacheKey, result);
@@ -445,12 +484,14 @@ export async function enrichLibraryItem(
     return item;
   }
 
-  // If details already exist, do not re-fetch from API
+  // If details already exist including tagline and themes, do not re-fetch from API
   const hasFullDetails =
     item.status === 'matched' &&
     !!item.posterPath &&
     (item.rating !== undefined || item.imdbRating !== undefined || item.rottenTomatoesRating !== undefined) &&
     (item.genres && item.genres.length > 0) &&
+    (item.themes && item.themes.length > 0) &&
+    !!item.tagline &&
     !!item.synopsis &&
     (item.mediaType === 'movie' ? item.runtimeMinutes !== undefined : item.totalEpisodes !== undefined);
 
@@ -474,6 +515,13 @@ export async function enrichLibraryItem(
       0
     );
 
+    const sampleSynopsis = omdb?.synopsis || sample.synopsis;
+    const sampleGenres = sample.genres || omdb?.genres || [];
+    const sampleTagline = item.tagline || (sample as any).tagline || generateFallbackTagline(sampleSynopsis, item.originalTitle);
+    const sampleThemes = (item.themes && item.themes.length > 0)
+      ? item.themes
+      : extractThemesFromKeywords([], sampleGenres, sampleSynopsis);
+
     return {
       ...item,
       externalId: sample.externalId,
@@ -486,8 +534,10 @@ export async function enrichLibraryItem(
       imdbRating: omdb?.imdbRating || sample.rating,
       rottenTomatoesRating: omdb?.rottenTomatoesRating || 85,
       voteCount: sample.voteCount,
-      synopsis: omdb?.synopsis || sample.synopsis,
-      genres: sample.genres,
+      synopsis: sampleSynopsis,
+      tagline: sampleTagline,
+      themes: sampleThemes,
+      genres: sampleGenres,
       runtimeMinutes: sample.runtimeMinutes || omdb?.runtimeMinutes,
       totalSeasons: sample.totalSeasons,
       totalEpisodes: sample.totalEpisodes,
@@ -515,10 +565,16 @@ export async function enrichLibraryItem(
           const finalPoster = details.posterPath || omdb?.poster;
           const finalSynopsis = details.synopsis || omdb?.synopsis;
           const finalGenres = details.genres || omdb?.genres || [];
+          const finalTagline = details.tagline || item.tagline || generateFallbackTagline(finalSynopsis, item.originalTitle);
+          const finalThemes = (details.themes && details.themes.length > 0)
+            ? details.themes
+            : (item.themes && item.themes.length > 0 ? item.themes : extractThemesFromKeywords([], finalGenres, finalSynopsis));
 
           return {
             ...item,
             ...details,
+            tagline: finalTagline,
+            themes: finalThemes,
             imdbRating: omdb?.imdbRating || details.imdbRating,
             rottenTomatoesRating: omdb?.rottenTomatoesRating || details.rottenTomatoesRating,
             posterPath: finalPoster,
@@ -537,6 +593,11 @@ export async function enrichLibraryItem(
     const isTv = omdb.mediaType === 'tv';
     const poster = omdb.poster;
     const synopsis = omdb.synopsis;
+    const omdbGenres = omdb.genres || [];
+    const omdbTagline = item.tagline || generateFallbackTagline(synopsis, item.originalTitle);
+    const omdbThemes = (item.themes && item.themes.length > 0)
+      ? item.themes
+      : extractThemesFromKeywords([], omdbGenres, synopsis);
 
     return {
       ...item,
@@ -549,7 +610,9 @@ export async function enrichLibraryItem(
       imdbRating: omdb.imdbRating,
       rottenTomatoesRating: omdb.rottenTomatoesRating,
       synopsis,
-      genres: omdb.genres || [],
+      tagline: omdbTagline,
+      themes: omdbThemes,
+      genres: omdbGenres,
       countries: omdb.countries || [],
       runtimeMinutes: isTv ? undefined : (omdb.runtimeMinutes || 100),
       totalEpisodes: isTv ? 10 : undefined,
@@ -562,11 +625,18 @@ export async function enrichLibraryItem(
   // 5. Final fallback heuristics (no external match found, but keep in same library seamlessly)
   const lower = item.originalTitle.toLowerCase();
   const isLikelySeries = /season|series|chapter|part \d|vol\./i.test(lower);
+  const fallbackSynopsis = item.synopsis || `${item.originalTitle} on Netflix.`;
+  const fallbackTagline = item.tagline || generateFallbackTagline(fallbackSynopsis, item.originalTitle);
+  const fallbackThemes = (item.themes && item.themes.length > 0)
+    ? item.themes
+    : extractThemesFromKeywords([], item.genres || [], fallbackSynopsis);
 
   return {
     ...item,
     mediaType: isLikelySeries ? 'tv' : 'movie',
     status: 'matched', // Kept seamless in regular library without separate review tab
+    tagline: fallbackTagline,
+    themes: fallbackThemes,
     runtimeMinutes: isLikelySeries ? undefined : 100,
     totalEpisodes: isLikelySeries ? 8 : undefined,
     averageEpisodeMinutes: isLikelySeries ? 45 : undefined,
