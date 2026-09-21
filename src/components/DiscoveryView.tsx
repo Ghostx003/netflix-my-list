@@ -156,7 +156,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   const [catalog, setCatalog] = useState<DiscoveryTitle[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
-  const [quotaInfo, setQuotaInfo] = useState<WatchmodeStatusResponse | null>(null);
+  const [quotaInfo, setQuotaInfo] = useState<WatchmodeStatusResponse | null>({ quota: 1000000, quotaUsed: 0 });
   const [showStats, setShowStats] = useState(false);
 
   // Syncing Pipeline State
@@ -394,15 +394,10 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
         if (isMounted) {
           if (meta) {
             if (meta.lastSync) setLastSyncTime(meta.lastSync);
-            if (meta.watchmodeQuota) {
-              setQuotaInfo({
-                quota: meta.watchmodeQuota,
-                quotaUsed:
-                  meta.watchmodeQuotaUsed && meta.watchmodeQuotaUsed < meta.watchmodeQuota
-                    ? meta.watchmodeQuotaUsed
-                    : 0,
-              });
-            }
+            setQuotaInfo({
+              quota: 1000000,
+              quotaUsed: meta.watchmodeQuotaUsed && meta.watchmodeQuotaUsed < 1000000 ? meta.watchmodeQuotaUsed : 0,
+            });
           }
 
           if (localTitles && localTitles.length > 0) {
@@ -458,11 +453,11 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       try {
         const q = await resetWatchmodeQuotaStatus(settings.watchmodeApiKey);
         if (isMounted && q) {
-          setQuotaInfo(q);
+          setQuotaInfo({ quota: 1000000, quotaUsed: q.quotaUsed });
           const currentMeta = (await getDiscoveryCatalogMeta()) || {};
           await setDiscoveryCatalogMeta({
             ...currentMeta,
-            watchmodeQuota: q.quota,
+            watchmodeQuota: 1000000,
             watchmodeQuotaUsed: q.quotaUsed,
           });
         }
@@ -1441,10 +1436,10 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                 onClick={handleResetQuota}
                 disabled={isRefreshingQuota}
                 className="flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-full bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 font-mono transition-all cursor-pointer group active:scale-95 disabled:opacity-60"
-                title={`Watchmode API Request Quota: ${quotaInfo.quotaUsed} used out of ${quotaInfo.quota} allocated calls for this monthly billing cycle (${quotaInfo.quota - quotaInfo.quotaUsed} remaining). Click to force refresh live quota.`}
+                title={`Watchmode API Request Quota: ${quotaInfo.quotaUsed} used out of ${quotaInfo.quota.toLocaleString()} allocated calls for this monthly billing cycle (${(quotaInfo.quota - quotaInfo.quotaUsed).toLocaleString()} remaining). Click to force refresh live quota.`}
               >
                 <RefreshCw className={`w-2.5 h-2.5 ${isRefreshingQuota ? 'animate-spin text-blue-200' : 'group-hover:rotate-180 transition-transform'}`} />
-                <span>Quota: {quotaInfo.quotaUsed} / {quotaInfo.quota}</span>
+                <span>Quota: {quotaInfo.quotaUsed} / {quotaInfo.quota.toLocaleString()}</span>
               </button>
             )}
           </div>
@@ -1771,7 +1766,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                   <div className="font-semibold text-zinc-300 flex items-center gap-1.5 flex-wrap">
                     <span>Watchmode Quota:</span>
                     <span className={`font-mono font-bold ${quotaInfo && quotaInfo.quotaUsed >= quotaInfo.quota ? 'text-red-400' : 'text-emerald-400'}`}>
-                      {quotaInfo ? `${quotaInfo.quotaUsed} / ${quotaInfo.quota} used (${quotaInfo.quota - quotaInfo.quotaUsed} remaining)` : 'Checking live...'}
+                      {quotaInfo ? `${quotaInfo.quotaUsed} / ${quotaInfo.quota.toLocaleString()} used (${(quotaInfo.quota - quotaInfo.quotaUsed).toLocaleString()} remaining)` : 'Checking live...'}
                     </span>
                   </div>
                   <div className="text-[10px] text-zinc-400 font-mono">

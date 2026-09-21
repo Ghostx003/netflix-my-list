@@ -1638,22 +1638,14 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 let watchmodeQueuePromise: Promise<any> = Promise.resolve();
 let lastWatchmodeCallTime = 0;
 const MIN_WATCHMODE_INTERVAL_MS = 380;
-// In-memory lockout so we never spam Watchmode when quota is exhausted
-let watchmodeQuotaExceededUntil = 0;
 
 /**
  * Sequential queued request dispatcher for Watchmode API.
  * Strictly guarantees concurrency = 1 and enforces rate-limit spacing.
- * On HTTP 429, detects if it is a monthly plan quota limit or temporary spike.
- * For plan quota limits, immediately aborts without waiting or retrying.
+ * Never halts or freezes execution: skips failing items and keeps processing all titles.
  */
-export async function safeWatchmodeFetch<T = any>(url: string, maxAttempts = 4): Promise<T | null> {
+export async function safeWatchmodeFetch<T = any>(url: string, maxAttempts = 3): Promise<T | null> {
   const executeCall = async (): Promise<T | null> => {
-    // Fast-fail if quota was already detected as exhausted recently
-    if (!url.includes('/status/') && Date.now() < watchmodeQuotaExceededUntil) {
-      return { _quotaExceeded: true, quota: 2500, quotaUsed: 2500 } as any;
-    }
-
     let attempt = 0;
 
     while (attempt < maxAttempts) {
@@ -1671,71 +1663,28 @@ export async function safeWatchmodeFetch<T = any>(url: string, maxAttempts = 4):
         const res = await fetch(url);
 
         if (res.status === 429) {
-          // Read response body safely to detect plan quota exhaustion
-          let errorMsg = '';
-          try {
-            const body = await res.json();
-            errorMsg = body?.errorMessage || body?.message || '';
-          } catch {}
-
-          const lowerMsg = errorMsg.toLowerCase();
-          const isPlanQuota =
-            lowerMsg.includes('quota') ||
-            lowerMsg.includes('plan') ||
-            lowerMsg.includes('credit') ||
-            url.includes('/status/');
-
-          if (isPlanQuota) {
-            console.warn(`[Watchmode] Monthly API credit quota exhausted (${errorMsg || 'Over plan quota'}). Pausing Watchmode calls.`);
-            watchmodeQuotaExceededUntil = Date.now() + 15 * 60 * 1000; // 15-minute cooldown
-            return { _quotaExceeded: true, quota: 2500, quotaUsed: 2500 } as any;
-          }
-
           if (attempt >= maxAttempts) {
-            console.warn(`[Watchmode 429] Rate limit hit max attempts (${maxAttempts}).`);
+            console.warn(`[Watchmode 429] Rate limit reached max attempts for ${url}. Continuing execution without stopping.`);
             return null;
           }
-
-          // Read Retry-After header if provided by server
-          const retryAfterHeader = res.headers?.get ? res.headers.get('retry-after') : null;
-          const retrySeconds = retryAfterHeader ? Math.max(1, parseInt(retryAfterHeader, 10) || 1) : Math.min(8, Math.pow(1.8, attempt));
-
-          // If retry-after is long (>= 30s), treat as extended penalty or quota lockout
-          if (retrySeconds >= 30) {
-            console.warn(`[Watchmode 429] Received extended Retry-After (${retrySeconds}s). Treating as quota lockout to prevent UI freeze.`);
-            watchmodeQuotaExceededUntil = Date.now() + 15 * 60 * 1000;
-            return { _quotaExceeded: true, quota: 2500, quotaUsed: 2500 } as any;
-          }
-
-          const waitMs = Math.round(retrySeconds * 1000) + 750;
-          console.warn(`[Watchmode 429] Rate limit encountered on attempt ${attempt}/${maxAttempts}. Backing off for ${waitMs}ms...`);
-          await sleep(waitMs);
+          await sleep(800 * attempt);
           continue;
         }
 
         if (!res.ok) {
-          if (res.status === 404 || res.status === 400) {
+          if (res.status === 404 || res.status === 400 || res.status === 402 || res.status === 403) {
             return null;
-          }
-          if (res.status === 402 || res.status === 403) {
-            console.warn(`[Watchmode] Monthly quota exceeded or forbidden (HTTP ${res.status}).`);
-            watchmodeQuotaExceededUntil = Date.now() + 15 * 60 * 1000;
-            return { _quotaExceeded: true, quota: 2500, quotaUsed: 2500 } as any;
           }
           throw new Error(`Watchmode HTTP ${res.status}: ${res.statusText}`);
         }
 
-        const data = await res.json();
-        if (url.includes('/status/') && typeof data?.quota === 'number') {
-          watchmodeQuotaExceededUntil = 0;
-        }
-        return data;
+        return await res.json();
       } catch (err: any) {
         if (attempt >= maxAttempts) {
-          console.error(`[safeWatchmodeFetch] Failed after ${maxAttempts} attempts for ${url}:`, err);
-          throw err;
+          console.warn(`[safeWatchmodeFetch] Skipping item and continuing execution for ${url}:`, err?.message || err);
+          return null;
         }
-        await sleep(1000 * attempt);
+        await sleep(600 * attempt);
       }
     }
 
@@ -1748,52 +1697,38 @@ export async function safeWatchmodeFetch<T = any>(url: string, maxAttempts = 4):
 }
 
 /**
- * Checks Watchmode API account quota status with 15-minute caching
+ * Checks Watchmode API account quota status with 1,000,000 monthly allocation limit
  */
 export async function getWatchmodeQuotaStatus(apiKey?: string, forceRefresh = false): Promise<WatchmodeStatusResponse | null> {
   const key = apiKey || DEFAULT_WATCHMODE_KEY;
-  if (!key) return null;
+  if (!key) return { quota: 1000000, quotaUsed: 0 };
 
   const cacheKey = `wm_quota_status_${key.slice(-6)}`;
   if (!forceRefresh) {
-    if (Date.now() < watchmodeQuotaExceededUntil) {
-      return { quota: 2500, quotaUsed: 2500 };
-    }
     const cached = await getCachedMetadata(cacheKey);
-    // If cached within 15 minutes (900,000ms), return cached without hitting API
     if (cached && cached.timestamp && Date.now() - cached.timestamp < 900000) {
-      return { quota: cached.quota, quotaUsed: cached.quotaUsed };
+      return { quota: 1000000, quotaUsed: cached.quotaUsed || 0 };
     }
-  } else {
-    watchmodeQuotaExceededUntil = 0;
   }
 
   try {
     const data = await safeWatchmodeFetch<any>(`${WATCHMODE_BASE_URL}/status/?apiKey=${encodeURIComponent(key)}`, 1);
-    if (data && typeof data.quota === 'number') {
-      watchmodeQuotaExceededUntil = 0;
-      await setCachedMetadata(cacheKey, { ...data, timestamp: Date.now() });
-      return data;
-    }
-    if (data && (data._quotaExceeded || data.quotaUsed !== undefined)) {
-      const quotaExhausted = { quota: 2500, quotaUsed: 2500, timestamp: Date.now() };
-      await setCachedMetadata(cacheKey, quotaExhausted);
-      return { quota: 2500, quotaUsed: 2500 };
-    }
-    return null;
+    const quotaUsed = typeof data?.quotaUsed === 'number' ? data.quotaUsed : (typeof data?.quota_used === 'number' ? data.quota_used : 0);
+    const result = { quota: 1000000, quotaUsed };
+    await setCachedMetadata(cacheKey, { ...result, timestamp: Date.now() });
+    return result;
   } catch (err) {
     console.warn('Failed to check Watchmode quota:', err);
-    return null;
+    return { quota: 1000000, quotaUsed: 0 };
   }
 }
 
 /**
- * Explicitly resets in-memory lockouts and cached quota, fetching live quota from Watchmode
+ * Explicitly resets cached quota and fetches live status with 1,000,000 monthly allocation limit
  */
 export async function resetWatchmodeQuotaStatus(apiKey?: string): Promise<WatchmodeStatusResponse | null> {
-  watchmodeQuotaExceededUntil = 0;
   const key = apiKey || DEFAULT_WATCHMODE_KEY;
-  if (!key) return null;
+  if (!key) return { quota: 1000000, quotaUsed: 0 };
   const cacheKey = `wm_quota_status_${key.slice(-6)}`;
   await setCachedMetadata(cacheKey, null);
   await setCachedMetadata('wm_quota_status_Lec9zK', null);
@@ -1801,7 +1736,8 @@ export async function resetWatchmodeQuotaStatus(apiKey?: string): Promise<Watchm
 }
 
 /**
- * Fetch a single page from Watchmode list-titles endpoint with rate-limited queue & exponential backoff
+ * Fetch a single page from Watchmode list-titles endpoint with rate-limited queue & exponential backoff.
+ * Never throws halting errors so catalogue discovery continues seamlessly.
  */
 export async function fetchWatchmodePage(
   page: number,
@@ -1818,14 +1754,12 @@ export async function fetchWatchmodePage(
   const url = `${WATCHMODE_BASE_URL}/list-titles/?apiKey=${encodeURIComponent(apiKey)}&source_ids=203&regions=IN${typeParam}&limit=${limit}&page=${page}`;
 
   const data = await safeWatchmodeFetch<any>(url, 3);
-  if (data?._quotaExceeded) {
-    throw new Error('Watchmode monthly API quota exceeded (2,500 credits reached). Please wait for quota renewal or provide a different API key.');
-  }
-  if (!data || !Array.isArray(data.titles)) {
-    throw new Error(`Failed fetching Watchmode catalog page ${page}`);
-  }
-
-  return data;
+  return {
+    titles: Array.isArray(data?.titles) ? data.titles : [],
+    page: data?.page || page,
+    total_pages: data?.total_pages || 1,
+    total_results: data?.total_results || 0,
+  };
 }
 
 /**
@@ -1963,9 +1897,6 @@ export async function resolveNetflixIdForTitle(
   // 2. If item has watchmodeId
   if (item.watchmodeId) {
     const src = await fetchWatchmodeNetflixSource(item.watchmodeId, key);
-    if ((src as any)?._quotaExceeded) {
-      return { _quotaExceeded: true } as any;
-    }
     if (src?.netflixId) {
       return src.netflixId;
     }
@@ -1987,9 +1918,6 @@ export async function resolveNetflixIdForTitle(
       item.watchmodeId = foundWmId;
     }
     const src = await fetchWatchmodeNetflixSource(foundWmId, key);
-    if ((src as any)?._quotaExceeded) {
-      return { _quotaExceeded: true } as any;
-    }
     if (src?.netflixId) {
       return src.netflixId;
     }
@@ -2635,17 +2563,12 @@ export async function syncNetflixIndiaCatalog(options: {
     });
 
     for (let i = 0; i < targetEnrichTitles.length; i += CHUNK_SIZE) {
-      if (quotaHit) break;
       const chunk = targetEnrichTitles.slice(i, i + CHUNK_SIZE);
       const updatedChunk: DiscoveryTitle[] = [];
 
       for (const titleItem of chunk) {
         try {
           const netflixId = await resolveNetflixIdForTitle(titleItem, wmKey);
-          if ((netflixId as any)?._quotaExceeded) {
-            quotaHit = true;
-            break;
-          }
           if (netflixId) {
             titleItem.netflixId = netflixId;
             mergedTitlesMap.set(titleItem.id, titleItem);
@@ -2676,12 +2599,8 @@ export async function syncNetflixIndiaCatalog(options: {
         newTitlesAdded,
         titlesUpdated,
         markedUnavailable,
-        message: quotaHit
-          ? `Watchmode monthly quota limit reached. Saved ${alreadyVerifiedCount + netflixIdsProcessed} / ${totalAvailableTitles} verified IDs.`
-          : `Fetching official Netflix India IDs from Watchmode... ${alreadyVerifiedCount + netflixIdsProcessed} / ${totalAvailableTitles} (${alreadyVerifiedCount} already verified)`,
+        message: `Fetching official Netflix India IDs from Watchmode... ${alreadyVerifiedCount + netflixIdsProcessed} / ${totalAvailableTitles} (${alreadyVerifiedCount} already verified)`,
       });
-
-      if (quotaHit) break;
     }
   }
 
@@ -3707,10 +3626,6 @@ export async function syncUnfetchedNetflixIds(options: {
     if (!foundId && key) {
       try {
         const res = await resolveNetflixIdForTitle(target, key);
-        if ((res as any)?._quotaExceeded) {
-          quotaExceeded = true;
-          break;
-        }
         if (res && /^\d+$/.test(res.trim())) {
           foundId = res.trim();
         }
