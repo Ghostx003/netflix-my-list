@@ -1,11 +1,11 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { X, Star, Clock, Calendar, Film, Tv, Play, ExternalLink, Sparkles, Layers, Video, ChevronDown, ChevronUp, Volume2, Loader2, Clapperboard, User, Globe, ChevronLeft, Bookmark, Check, RotateCcw } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { X, Star, Clock, Calendar, Film, Tv, Play, ExternalLink, Sparkles, Layers, Video, ChevronDown, ChevronUp, Volume2, Loader2, Clapperboard, User, Globe, ChevronLeft, Bookmark, Check, RotateCcw, Search } from 'lucide-react';
 import { AppSettings, LibraryItem, EpisodeInfo, TrailerInfo, DiscoveryTitle } from '../types';
 import { formatRuntime, calculateSeriesRuntime } from '../services/analytics';
 import { getNetflixUrl, normalizeCountryName, getPriorityLanguageBadge, itemHasLanguage, openNetflixInNewTab } from '../services/normalizer';
-import { searchYouTubeTrailer } from '../services/youtubeTrailer';
+import { searchYouTubeTrailer, searchYouTubeReview, searchYouTubeByKeywords } from '../services/youtubeTrailer';
 import { getAllDiscoveryTitles, getAllLibraryItems, saveLibraryItems } from '../services/db';
-import { convertDiscoveryTitleToLibraryItem } from '../services/discoveryService';
+import { convertDiscoveryTitleToLibraryItem, resolveNetflixIdForTitle } from '../services/discoveryService';
 import { CachedImage } from './CachedImage';
 import { TagExploreModal } from './TagExploreModal';
 import { YearExploreModal } from './YearExploreModal';
@@ -59,7 +59,48 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const tvBreakdown = item && !isMovie ? calculateSeriesRuntime(item, settings.maxEpisodesPerSeries, settings.capSeriesEpisodes) : null;
   const displayTitle = item ? (item.externalTitle || item.originalTitle) : '';
   const youtubeSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(displayTitle + ' hindi official trailer')}`;
-  const netflixUrl = item ? getNetflixUrl(item) : '';
+
+  const [resolvedVideoId, setResolvedVideoId] = useState<string | undefined>(item?.videoId);
+
+  useEffect(() => {
+    setResolvedVideoId(item?.videoId);
+    let isMounted = true;
+    if (item && (!item.videoId || !/^\d+$/.test(item.videoId.trim()))) {
+      resolveNetflixIdForTitle(
+        {
+          imdbId: item.imdbId,
+          tmdbId: typeof item.externalId === 'number' ? item.externalId : (item.externalId ? parseInt(String(item.externalId), 10) || undefined : undefined),
+          mediaType: item.mediaType === 'movie' ? 'movie' : item.mediaType === 'tv' ? 'tv' : undefined,
+          title: item.externalTitle || item.originalTitle,
+          videoId: item.videoId,
+        },
+        settings.watchmodeApiKey
+      )
+        .then(async (id) => {
+          if (!isMounted || !id) return;
+          setResolvedVideoId(id);
+          item.videoId = id;
+          if (onUpdateItem) onUpdateItem(item);
+          try {
+            const all = await getAllLibraryItems();
+            await saveLibraryItems(all.map((x) => (x.id === item.id ? { ...x, videoId: id } : x)));
+          } catch {}
+        })
+        .catch(() => {});
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [item?.id, item?.videoId, settings.watchmodeApiKey]);
+
+  const netflixUrl = item
+    ? getNetflixUrl({
+        videoId: resolvedVideoId || item.videoId,
+        netflixId: resolvedVideoId || item.videoId,
+        originalTitle: item.originalTitle,
+        externalTitle: item.externalTitle,
+      })
+    : '';
   const langBadge = item ? getPriorityLanguageBadge(item) : null;
 
 
@@ -158,14 +199,33 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     );
   }, [selectedCreator, discoveryCatalog]);
 
-  // Active trailer state & language selection
+  // Active video mode: 'trailer' or 'review'
+  const [mediaMode, setMediaMode] = useState<'trailer' | 'review'>('trailer');
   const [trailerLang, setTrailerLang] = useState<'hi' | 'en'>((item?.trailer?.language === 'en' ? 'en' : 'hi'));
   const [activeTrailer, setActiveTrailer] = useState<TrailerInfo | null>(item?.trailer || null);
   const [isSearchingTrailer, setIsSearchingTrailer] = useState(false);
+
+  // Short 1-second notification banner (e.g. "Hindi trailer not found. Playing available trailer.")
+  const [trailerAlert, setTrailerAlert] = useState<string | null>(null);
+  const alertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const triggerAlert = (message: string, durationMs = 1500) => {
+    if (alertTimerRef.current) clearTimeout(alertTimerRef.current);
+    setTrailerAlert(message);
+    alertTimerRef.current = setTimeout(() => {
+      setTrailerAlert(null);
+    }, durationMs);
+  };
+
+  // Custom keyword search input state
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [customKeywords, setCustomKeywords] = useState('');
+
   // Year Explore Modal state
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
-  // Track wrong trailer keys for skipping
+  // Track wrong trailer & review keys for skipping
   const [wrongTrailerKeys, setWrongTrailerKeys] = useState<string[]>([]);
+  const [wrongReviewKeys, setWrongReviewKeys] = useState<string[]>([]);
 
   // Function to pause active trailer playback when modals or exploration opens
   const pauseTrailer = () => {
@@ -181,6 +241,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   // Immediate Hindi/English trailer search and refresh
   const handleSelectTrailerLanguage = (lang: 'hi' | 'en') => {
     if (!item) return;
+    setMediaMode('trailer');
     setTrailerLang(lang);
     setIsSearchingTrailer(true);
     setActiveTrailer(null);
@@ -193,12 +254,19 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
         setIsSearchingTrailer(false);
         if (foundTrailer) {
           setActiveTrailer(foundTrailer);
+          if (lang === 'hi' && foundTrailer.isHindiFallback) {
+            triggerAlert('Hindi trailer not found, playing available trailer');
+          }
           if (onUpdateItem) {
             onUpdateItem({
               ...item,
               trailer: foundTrailer,
               updatedAt: new Date().toISOString(),
             });
+          }
+        } else {
+          if (lang === 'hi') {
+            triggerAlert('Hindi trailer not found');
           }
         }
       })
@@ -207,9 +275,44 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
       });
   };
 
-  // Wrong trailer handler: skips current video ID and fetches alternative
+  // Fetch YouTube review: [title] + [year] + [movie/series] + review
+  const handleFetchReview = (skipCurrent = false) => {
+    if (!item) return;
+    setMediaMode('review');
+    setIsSearchingTrailer(true);
+
+    const currentKey = activeTrailer?.key;
+    const updatedWrong = skipCurrent && currentKey ? [...wrongReviewKeys, currentKey] : wrongReviewKeys;
+    if (skipCurrent && currentKey) {
+      setWrongReviewKeys(updatedWrong);
+    }
+    setActiveTrailer(null);
+
+    searchYouTubeReview(displayTitle, item.releaseYear, item.mediaType, {
+      skipCache: true,
+      excludeVideoIds: updatedWrong,
+    })
+      .then((found) => {
+        setIsSearchingTrailer(false);
+        if (found) {
+          setActiveTrailer(found);
+        } else {
+          triggerAlert(`No review found for ${displayTitle}`);
+        }
+      })
+      .catch(() => {
+        setIsSearchingTrailer(false);
+      });
+  };
+
+  // Wrong trailer or next review handler: skips current video ID and fetches alternative
   const handleWrongTrailer = () => {
     if (!item) return;
+    if (mediaMode === 'review') {
+      handleFetchReview(true);
+      return;
+    }
+
     const currentKey = activeTrailer?.key;
     const updatedWrong = currentKey ? [...wrongTrailerKeys, currentKey] : wrongTrailerKeys;
     if (currentKey) {
@@ -227,6 +330,9 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
         setIsSearchingTrailer(false);
         if (foundTrailer) {
           setActiveTrailer(foundTrailer);
+          if (trailerLang === 'hi' && foundTrailer.isHindiFallback) {
+            triggerAlert('Hindi trailer not found, playing available trailer');
+          }
           if (onUpdateItem) {
             onUpdateItem({
               ...item,
@@ -234,6 +340,36 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
               updatedAt: new Date().toISOString(),
             });
           }
+        } else {
+          triggerAlert('No additional trailer found');
+        }
+      })
+      .catch(() => {
+        setIsSearchingTrailer(false);
+      });
+  };
+
+  // Custom keyword search handler: searches exact user keywords and plays result directly in app iframe
+  const handleCustomKeywordSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const query = customKeywords.trim();
+    if (!query) return;
+
+    setIsSearchingTrailer(true);
+    setActiveTrailer(null);
+    setIsSearchOpen(false);
+
+    searchYouTubeByKeywords(query, {
+      skipCache: true,
+      excludeVideoIds: wrongTrailerKeys,
+    })
+      .then((found) => {
+        setIsSearchingTrailer(false);
+        if (found) {
+          setActiveTrailer(found);
+          triggerAlert(`Playing: ${found.name}`, 1500);
+        } else {
+          triggerAlert(`No video found for "${query}"`);
         }
       })
       .catch(() => {
@@ -259,6 +395,9 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
       setIsSearchingTrailer(false);
       if (foundTrailer) {
         setActiveTrailer(foundTrailer);
+        if (trailerLang === 'hi' && foundTrailer.isHindiFallback) {
+          triggerAlert('Hindi trailer not found, playing available trailer');
+        }
         if (onUpdateItem) {
           onUpdateItem({
             ...item,
@@ -422,6 +561,32 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
               )}
             </div>
           )}
+
+          {/* 1-Second Alert notification banner (e.g. Hindi trailer not found) */}
+          {trailerAlert && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-4 py-1.5 rounded-full bg-amber-500 text-black font-bold text-xs shadow-2xl flex items-center gap-2 border border-amber-300 animate-fade-in pointer-events-none whitespace-nowrap">
+              <span>⚠️</span>
+              <span>{trailerAlert}</span>
+            </div>
+          )}
+
+          {/* Active video indicator */}
+          {activeTrailer && (
+            <div className="absolute bottom-3 left-4 z-20 pointer-events-none">
+              <div className="px-2.5 py-1 rounded-md bg-black/80 backdrop-blur-md border border-white/10 text-[10px] font-semibold text-zinc-300 flex items-center gap-1.5 max-w-xs sm:max-w-md truncate">
+                {mediaMode === 'review' ? (
+                  <span className="text-purple-400 font-black">Review:</span>
+                ) : activeTrailer.type === 'Custom' ? (
+                  <span className="text-amber-400 font-black">Custom:</span>
+                ) : (
+                  <span className="text-emerald-400 font-black">
+                    {activeTrailer.language === 'hi' ? 'Hindi Trailer:' : 'Trailer:'}
+                  </span>
+                )}
+                <span className="truncate">{activeTrailer.name}</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Content body */}
@@ -453,13 +618,13 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                     <span className="text-[10px] opacity-90">({langBadge.label})</span>
                   </span>
                 )}
-                {/* Trailer Toggle Capsule (HI / EN) */}
+                {/* Trailer & Review Toggle Capsule */}
                 <div className="flex items-center rounded-full bg-zinc-800/80 border border-zinc-700/60 p-0.5 text-[10px] sm:text-xs font-bold">
                   <button
                     type="button"
                     onClick={() => handleSelectTrailerLanguage('hi')}
-                    className={`flex items-center gap-1 px-2 py-0.5 rounded-full transition-colors cursor-pointer ${
-                      trailerLang === 'hi'
+                    className={`flex items-center gap-1 px-2.5 py-0.5 rounded-full transition-colors cursor-pointer ${
+                      mediaMode === 'trailer' && trailerLang === 'hi'
                         ? 'bg-amber-500 text-black font-black'
                         : 'text-zinc-300 hover:text-white'
                     }`}
@@ -471,8 +636,8 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                   <button
                     type="button"
                     onClick={() => handleSelectTrailerLanguage('en')}
-                    className={`flex items-center gap-1 px-2 py-0.5 rounded-full transition-colors cursor-pointer ${
-                      trailerLang === 'en'
+                    className={`flex items-center gap-1 px-2.5 py-0.5 rounded-full transition-colors cursor-pointer ${
+                      mediaMode === 'trailer' && trailerLang === 'en'
                         ? 'bg-amber-500 text-black font-black'
                         : 'text-zinc-300 hover:text-white'
                     }`}
@@ -481,24 +646,109 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                     <Play className="w-2.5 h-2.5 fill-current" />
                     <span>Trailer: EN</span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => handleFetchReview(false)}
+                    className={`flex items-center gap-1 px-2.5 py-0.5 rounded-full transition-colors cursor-pointer ${
+                      mediaMode === 'review'
+                        ? 'bg-purple-600 text-white font-black'
+                        : 'text-zinc-300 hover:text-white'
+                    }`}
+                    title="Watch YouTube Review"
+                  >
+                    <Sparkles className="w-2.5 h-2.5" />
+                    <span>Review</span>
+                  </button>
                 </div>
 
-                {/* Wrong trailer? button */}
+                {/* Wrong trailer? / Next review button */}
                 <button
                   type="button"
                   onClick={handleWrongTrailer}
                   disabled={isSearchingTrailer}
                   className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/60 text-[10px] sm:text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
-                  title="Trailer incorrect? Click to fetch an alternative trailer"
+                  title={
+                    mediaMode === 'review'
+                      ? 'Fetch another review of this subject'
+                      : 'Trailer incorrect? Click to fetch an alternative trailer'
+                  }
                 >
                   <RotateCcw className={`w-3 h-3 ${isSearchingTrailer ? 'animate-spin' : ''}`} />
-                  <span>Wrong trailer?</span>
+                  <span>{mediaMode === 'review' ? 'Next review' : 'Wrong trailer?'}</span>
                 </button>
+
+                {/* Small search icon button to search exact keywords directly in app player */}
+                {isSearchOpen ? (
+                  <form
+                    onSubmit={handleCustomKeywordSubmit}
+                    className="flex items-center gap-1 bg-zinc-900 border border-amber-500/50 rounded-full px-2.5 py-0.5 text-xs shadow-lg animate-fade-in"
+                  >
+                    <Search className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <input
+                      type="text"
+                      value={customKeywords}
+                      onChange={(e) => setCustomKeywords(e.target.value)}
+                      placeholder="Type exact keywords & press Enter..."
+                      className="bg-transparent border-0 text-[11px] text-white placeholder-zinc-500 focus:outline-none w-44 sm:w-56"
+                      autoFocus
+                    />
+                    <button
+                      type="submit"
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-black hover:bg-amber-400 cursor-pointer"
+                    >
+                      Search
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsSearchOpen(false)}
+                      className="text-zinc-400 hover:text-white px-1 text-xs cursor-pointer"
+                      title="Close search"
+                    >
+                      ✕
+                    </button>
+                  </form>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSearchOpen(true);
+                      setCustomKeywords(displayTitle);
+                    }}
+                    className="p-1.5 rounded-full bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/60 transition-colors cursor-pointer"
+                    title="Search exact video keywords"
+                  >
+                    <Search className="w-3 h-3" />
+                  </button>
+                )}
                 <a
                   href={netflixUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  onClick={(e) => openNetflixInNewTab(netflixUrl, e)}
+                  onClick={async (e) => {
+                    let targetUrl = netflixUrl;
+                    const activeId = resolvedVideoId || item?.videoId;
+                    if (item && (!activeId || !/^\d+$/.test(activeId.trim()))) {
+                      try {
+                        const foundId = await resolveNetflixIdForTitle(
+                          {
+                            imdbId: item.imdbId,
+                            tmdbId: typeof item.externalId === 'number' ? item.externalId : (item.externalId ? parseInt(String(item.externalId), 10) || undefined : undefined),
+                            mediaType: item.mediaType === 'movie' ? 'movie' : item.mediaType === 'tv' ? 'tv' : undefined,
+                            title: item.externalTitle || item.originalTitle,
+                            videoId: item.videoId,
+                          },
+                          settings.watchmodeApiKey
+                        );
+                        if (foundId) {
+                          setResolvedVideoId(foundId);
+                          item.videoId = foundId;
+                          targetUrl = getNetflixUrl({ videoId: foundId, netflixId: foundId });
+                          if (onUpdateItem) onUpdateItem(item);
+                        }
+                      } catch {}
+                    }
+                    openNetflixInNewTab(targetUrl, e);
+                  }}
                   className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#E50914] hover:bg-red-700 text-white text-xs font-black shadow-md transition-all transform hover:scale-105 sm:ml-auto w-full sm:w-auto justify-center cursor-pointer no-underline"
                   title="Watch on Netflix (opens in new tab)"
                 >

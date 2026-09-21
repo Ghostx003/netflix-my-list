@@ -1618,7 +1618,7 @@ export interface WatchmodeStatusResponse {
 }
 
 export interface SyncProgressCallback {
-  phase: 'idle' | 'fetching_watchmode' | 'deduplicating' | 'enriching_tmdb' | 'completed' | 'error';
+  phase: 'idle' | 'fetching_watchmode' | 'fetching_netflix_ids' | 'deduplicating' | 'enriching_tmdb' | 'completed' | 'error';
   currentPage: number;
   totalPages: number;
   titlesDiscovered: number;
@@ -1634,16 +1634,97 @@ export interface SyncProgressCallback {
 // Simple async sleep helper
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Shared sequential promise queue for Watchmode API calls
+let watchmodeQueuePromise: Promise<any> = Promise.resolve();
+let lastWatchmodeCallTime = 0;
+const MIN_WATCHMODE_INTERVAL_MS = 380;
+
 /**
- * Checks Watchmode API account quota status
+ * Sequential queued request dispatcher for Watchmode API.
+ * Strictly guarantees concurrency = 1 and enforces rate-limit spacing.
+ * On HTTP 429, automatically inspects Retry-After header and backs off without failing.
  */
-export async function getWatchmodeQuotaStatus(apiKey?: string): Promise<WatchmodeStatusResponse | null> {
+export async function safeWatchmodeFetch<T = any>(url: string, maxAttempts = 6): Promise<T | null> {
+  const executeCall = async (): Promise<T | null> => {
+    let attempt = 0;
+
+    while (attempt < maxAttempts) {
+      attempt++;
+
+      // Enforce minimum time interval between requests
+      const now = Date.now();
+      const timeSinceLast = now - lastWatchmodeCallTime;
+      if (timeSinceLast < MIN_WATCHMODE_INTERVAL_MS) {
+        await sleep(MIN_WATCHMODE_INTERVAL_MS - timeSinceLast);
+      }
+      lastWatchmodeCallTime = Date.now();
+
+      try {
+        const res = await fetch(url);
+
+        if (res.status === 429) {
+          // Read Retry-After header if provided by server
+          const retryAfterHeader = res.headers?.get ? res.headers.get('retry-after') : null;
+          const retrySeconds = retryAfterHeader ? Math.max(1, parseInt(retryAfterHeader, 10) || 1) : Math.min(8, Math.pow(1.8, attempt));
+          const waitMs = Math.round(retrySeconds * 1000) + 750;
+
+          console.warn(`[Watchmode 429] Rate limit encountered on attempt ${attempt}/${maxAttempts}. Backing off for ${waitMs}ms...`);
+          await sleep(waitMs);
+          continue;
+        }
+
+        if (!res.ok) {
+          if (res.status === 404 || res.status === 400) {
+            return null;
+          }
+          if (res.status === 402 || res.status === 403) {
+            console.warn(`[Watchmode] Monthly quota exceeded or forbidden (HTTP ${res.status}).`);
+            return { _quotaExceeded: true } as any;
+          }
+          throw new Error(`Watchmode HTTP ${res.status}: ${res.statusText}`);
+        }
+
+        return await res.json();
+      } catch (err: any) {
+        if (attempt >= maxAttempts) {
+          console.error(`[safeWatchmodeFetch] Failed after ${maxAttempts} attempts for ${url}:`, err);
+          throw err;
+        }
+        await sleep(1000 * attempt);
+      }
+    }
+
+    return null;
+  };
+
+  const currentTask = watchmodeQueuePromise.then(executeCall, executeCall);
+  watchmodeQueuePromise = currentTask;
+  return currentTask;
+}
+
+/**
+ * Checks Watchmode API account quota status with 3-minute caching
+ */
+export async function getWatchmodeQuotaStatus(apiKey?: string, forceRefresh = false): Promise<WatchmodeStatusResponse | null> {
   const key = apiKey || DEFAULT_WATCHMODE_KEY;
   if (!key) return null;
+
+  const cacheKey = `wm_quota_status_${key.slice(-6)}`;
+  if (!forceRefresh) {
+    const cached = await getCachedMetadata(cacheKey);
+    // If cached within 3 minutes (180,000ms), return cached without hitting API
+    if (cached && cached.timestamp && Date.now() - cached.timestamp < 180000) {
+      return { quota: cached.quota, quotaUsed: cached.quotaUsed };
+    }
+  }
+
   try {
-    const res = await fetch(`${WATCHMODE_BASE_URL}/status/?apiKey=${encodeURIComponent(key)}`);
-    if (!res.ok) return null;
-    return await res.json();
+    const data = await safeWatchmodeFetch<WatchmodeStatusResponse>(`${WATCHMODE_BASE_URL}/status/?apiKey=${encodeURIComponent(key)}`);
+    if (data && typeof data.quota === 'number') {
+      await setCachedMetadata(cacheKey, { ...data, timestamp: Date.now() });
+      return data;
+    }
+    return null;
   } catch (err) {
     console.warn('Failed to check Watchmode quota:', err);
     return null;
@@ -1651,7 +1732,7 @@ export async function getWatchmodeQuotaStatus(apiKey?: string): Promise<Watchmod
 }
 
 /**
- * Fetch a single page from Watchmode list-titles endpoint with exponential backoff & 429 handling
+ * Fetch a single page from Watchmode list-titles endpoint with rate-limited queue & exponential backoff
  */
 export async function fetchWatchmodePage(
   page: number,
@@ -1664,36 +1745,185 @@ export async function fetchWatchmodePage(
   total_pages: number;
   total_results: number;
 }> {
-  let attempt = 0;
-  const maxAttempts = 3;
   const typeParam = types ? `&types=${encodeURIComponent(types)}` : '';
+  const url = `${WATCHMODE_BASE_URL}/list-titles/?apiKey=${encodeURIComponent(apiKey)}&source_ids=203&regions=IN${typeParam}&limit=${limit}&page=${page}`;
 
-  while (attempt < maxAttempts) {
-    attempt++;
-    try {
-      const url = `${WATCHMODE_BASE_URL}/list-titles/?apiKey=${encodeURIComponent(apiKey)}&source_ids=203&regions=IN${typeParam}&limit=${limit}&page=${page}`;
-      const res = await fetch(url);
+  const data = await safeWatchmodeFetch<any>(url, 6);
+  if (!data || !Array.isArray(data.titles)) {
+    throw new Error(`Failed fetching Watchmode catalog page ${page}`);
+  }
 
-      if (res.status === 429) {
-        // Rate limited - wait with exponential backoff
-        const waitTime = Math.pow(2, attempt) * 1000;
-        console.warn(`Watchmode 429 Rate Limit encountered on page ${page}. Waiting ${waitTime}ms...`);
-        await sleep(waitTime);
-        continue;
-      }
+  return data;
+}
 
-      if (!res.ok) {
-        throw new Error(`Watchmode HTTP ${res.status}: ${res.statusText}`);
-      }
+/**
+ * Fetches the streaming sources for a title on Watchmode in India (region=IN),
+ * extracts the official Netflix India ID and web URL, and caches the result locally.
+ */
+export async function fetchWatchmodeNetflixSource(
+  watchmodeId: number,
+  apiKey?: string
+): Promise<{ netflixId: string; webUrl: string } | null> {
+  const key = apiKey || DEFAULT_WATCHMODE_KEY;
+  if (!key || !watchmodeId) return null;
 
-      return await res.json();
-    } catch (err) {
-      if (attempt >= maxAttempts) throw err;
-      await sleep(1000 * attempt);
+  const cacheKey = `wm_netflix_src_${watchmodeId}`;
+  const cached = await getCachedMetadata(cacheKey);
+  if (cached && (cached.netflixId || cached.notFound)) {
+    return cached.notFound ? null : { netflixId: cached.netflixId, webUrl: cached.webUrl };
+  }
+
+  try {
+    const url = `${WATCHMODE_BASE_URL}/title/${watchmodeId}/sources/?apiKey=${encodeURIComponent(key)}&regions=IN`;
+    const sources = await safeWatchmodeFetch<any[]>(url, 4);
+    if ((sources as any)?._quotaExceeded) {
+      return { _quotaExceeded: true } as any;
+    }
+    if (!Array.isArray(sources)) {
+      await setCachedMetadata(cacheKey, { notFound: true });
+      return null;
+    }
+
+    // Look for Netflix source (source_id 203 or name 'Netflix')
+    const netflixSource = sources.find(
+      (s: any) => s.source_id === 203 || (s.name && s.name.toLowerCase().includes('netflix'))
+    );
+
+    if (netflixSource && netflixSource.web_url) {
+      const match = netflixSource.web_url.match(/netflix\.com\/(?:title|watch)\/([a-zA-Z0-9_-]+)/i);
+      const netflixId = match ? match[1] : undefined;
+      const result = {
+        netflixId: netflixId || '',
+        webUrl: netflixSource.web_url,
+      };
+      await setCachedMetadata(cacheKey, result);
+      return result.netflixId ? result : null;
+    }
+
+    // Mark as checked in cache
+    await setCachedMetadata(cacheKey, { notFound: true });
+    return null;
+  } catch (err) {
+    console.warn(`[fetchWatchmodeNetflixSource] Error for watchmodeId ${watchmodeId}:`, err);
+    return null;
+  }
+}
+
+/**
+ * Maps an IMDb ID or TMDb ID or title to a Watchmode ID using Watchmode's ID-Mapping /search endpoint
+ */
+export async function searchWatchmodeIdByExternal(
+  titleItem: {
+    imdbId?: string;
+    tmdbId?: number;
+    mediaType?: 'movie' | 'tv';
+    title?: string;
+  },
+  apiKey?: string
+): Promise<number | null> {
+  const key = apiKey || DEFAULT_WATCHMODE_KEY;
+  if (!key) return null;
+
+  const cacheKey = `wm_map_${titleItem.imdbId || titleItem.tmdbId || normalizeTitle(titleItem.title || '')}`;
+  const cached = await getCachedMetadata(cacheKey);
+  if (cached !== undefined && cached !== null) {
+    return cached.watchmodeId || null;
+  }
+
+  try {
+    let searchField = '';
+    let searchValue = '';
+
+    if (titleItem.imdbId) {
+      searchField = 'imdb_id';
+      searchValue = titleItem.imdbId;
+    } else if (titleItem.tmdbId) {
+      searchField = titleItem.mediaType === 'tv' ? 'tmdb_tv_id' : 'tmdb_movie_id';
+      searchValue = String(titleItem.tmdbId);
+    } else if (titleItem.title) {
+      searchField = 'name';
+      searchValue = normalizeTitle(titleItem.title);
+    }
+
+    if (!searchField || !searchValue) return null;
+
+    const url = `${WATCHMODE_BASE_URL}/search/?apiKey=${encodeURIComponent(key)}&search_field=${encodeURIComponent(searchField)}&search_value=${encodeURIComponent(searchValue)}`;
+    const data = await safeWatchmodeFetch<any>(url, 4);
+
+    if (data && Array.isArray(data.title_results) && data.title_results.length > 0) {
+      const wmId = data.title_results[0].id;
+      await setCachedMetadata(cacheKey, { watchmodeId: wmId });
+      return wmId;
+    }
+
+    await setCachedMetadata(cacheKey, { watchmodeId: null });
+    return null;
+  } catch (err) {
+    console.warn('[searchWatchmodeIdByExternal] Error:', err);
+    return null;
+  }
+}
+
+/**
+ * Resolves the exact Netflix India ID for any title (DiscoveryTitle or LibraryItem)
+ * by checking existing ID, Watchmode ID sources, or searching Watchmode by external ID.
+ */
+export async function resolveNetflixIdForTitle(
+  item: {
+    watchmodeId?: number;
+    imdbId?: string;
+    tmdbId?: number;
+    mediaType?: 'movie' | 'tv';
+    title?: string;
+    netflixId?: string;
+    videoId?: string;
+  },
+  apiKey?: string
+): Promise<string | null> {
+  // 1. If already has a clean numeric Netflix ID
+  const existingId = item.netflixId || item.videoId;
+  if (existingId && /^\d+$/.test(existingId.trim())) {
+    return existingId.trim();
+  }
+
+  const key = apiKey || DEFAULT_WATCHMODE_KEY;
+
+  // 2. If item has watchmodeId
+  if (item.watchmodeId) {
+    const src = await fetchWatchmodeNetflixSource(item.watchmodeId, key);
+    if ((src as any)?._quotaExceeded) {
+      return { _quotaExceeded: true } as any;
+    }
+    if (src?.netflixId) {
+      return src.netflixId;
     }
   }
 
-  throw new Error(`Failed fetching Watchmode page ${page} after ${maxAttempts} attempts`);
+  // 3. Fall back to search Watchmode by IMDb / TMDB / title
+  const foundWmId = await searchWatchmodeIdByExternal(
+    {
+      imdbId: item.imdbId,
+      tmdbId: item.tmdbId,
+      mediaType: item.mediaType,
+      title: item.title,
+    },
+    key
+  );
+
+  if (foundWmId) {
+    if ('watchmodeId' in item) {
+      item.watchmodeId = foundWmId;
+    }
+    const src = await fetchWatchmodeNetflixSource(foundWmId, key);
+    if ((src as any)?._quotaExceeded) {
+      return { _quotaExceeded: true } as any;
+    }
+    if (src?.netflixId) {
+      return src.netflixId;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -2110,12 +2340,13 @@ export async function syncNetflixIndiaCatalog(options: {
       let page = 1;
       let totalPagesForType = 1;
 
+      const PAGE_SIZE = 250;
       while (fetchedForType < task.limit && page <= totalPagesForType) {
-        const pageSize = Math.min(250, task.limit - fetchedForType);
-        const data = await fetchWatchmodePage(page, pageSize, wmKey, task.type);
+        const data = await fetchWatchmodePage(page, PAGE_SIZE, wmKey, task.type);
         totalPagesForType = data.total_pages || 1;
 
         if (Array.isArray(data.titles)) {
+          if (data.titles.length === 0) break;
           for (const raw of data.titles) {
             if (fetchedForType >= task.limit) break;
             const titleItem = normalizeWatchmodeToDiscovery(raw);
@@ -2295,6 +2526,91 @@ export async function syncNetflixIndiaCatalog(options: {
   await saveDiscoveryTitles(allMergedTitles);
   if (onBatchEnriched) {
     onBatchEnriched(allMergedTitles);
+  }
+
+  // 3.5 Batch Watchmode Netflix ID Enrichment
+  // Find titles that are available and missing exact numeric netflixId
+  const availableTitles = allMergedTitles.filter((t) => t.availabilityState === 'available');
+  const alreadyWithNetflixId = availableTitles.filter(
+    (t) => t.netflixId && /^\d+$/.test(t.netflixId.trim())
+  );
+  const toEnrichNetflixIds = availableTitles.filter(
+    (t) => !t.netflixId || !/^\d+$/.test(t.netflixId.trim())
+  );
+
+  // All titles needing IDs across the catalog
+  const targetEnrichTitles = toEnrichNetflixIds;
+  const totalAvailableTitles = availableTitles.length;
+  const alreadyVerifiedCount = alreadyWithNetflixId.length;
+
+  if (targetEnrichTitles.length > 0 && wmKey) {
+    let netflixIdsProcessed = 0;
+    const CHUNK_SIZE = 10;
+    let quotaHit = false;
+
+    onProgress({
+      phase: 'fetching_netflix_ids',
+      currentPage: 1,
+      totalPages: 1,
+      titlesDiscovered: deduplicatedDiscovered.length,
+      metadataProcessed: alreadyVerifiedCount,
+      totalToProcess: totalAvailableTitles,
+      duplicatesRemoved,
+      newTitlesAdded,
+      titlesUpdated,
+      markedUnavailable,
+      message: `Fetching official Netflix India IDs... ${alreadyVerifiedCount} / ${totalAvailableTitles} (${alreadyVerifiedCount} already verified, ${targetEnrichTitles.length} queued)`,
+    });
+
+    for (let i = 0; i < targetEnrichTitles.length; i += CHUNK_SIZE) {
+      if (quotaHit) break;
+      const chunk = targetEnrichTitles.slice(i, i + CHUNK_SIZE);
+      const updatedChunk: DiscoveryTitle[] = [];
+
+      for (const titleItem of chunk) {
+        try {
+          const netflixId = await resolveNetflixIdForTitle(titleItem, wmKey);
+          if ((netflixId as any)?._quotaExceeded) {
+            quotaHit = true;
+            break;
+          }
+          if (netflixId) {
+            titleItem.netflixId = netflixId;
+            mergedTitlesMap.set(titleItem.id, titleItem);
+            updatedChunk.push(titleItem);
+          }
+        } catch (err) {
+          console.warn('Netflix ID fetch error for', titleItem.title, err);
+        } finally {
+          netflixIdsProcessed++;
+        }
+      }
+
+      if (updatedChunk.length > 0) {
+        await saveDiscoveryTitles(updatedChunk);
+        if (onBatchEnriched) {
+          onBatchEnriched(Array.from(mergedTitlesMap.values()));
+        }
+      }
+
+      onProgress({
+        phase: 'fetching_netflix_ids',
+        currentPage: 1,
+        totalPages: 1,
+        titlesDiscovered: deduplicatedDiscovered.length,
+        metadataProcessed: alreadyVerifiedCount + netflixIdsProcessed,
+        totalToProcess: totalAvailableTitles,
+        duplicatesRemoved,
+        newTitlesAdded,
+        titlesUpdated,
+        markedUnavailable,
+        message: quotaHit
+          ? `Watchmode monthly quota limit reached. Saved ${alreadyVerifiedCount + netflixIdsProcessed} / ${totalAvailableTitles} verified IDs.`
+          : `Fetching official Netflix India IDs from Watchmode... ${alreadyVerifiedCount + netflixIdsProcessed} / ${totalAvailableTitles} (${alreadyVerifiedCount} already verified)`,
+      });
+
+      if (quotaHit) break;
+    }
   }
 
   // 4. Batch TMDB Metadata Enrichment with Concurrency Control
@@ -2876,7 +3192,8 @@ export function syncEnrichedDiscoveryTitlesIntoLibrary(
  */
 export async function enrichAndSyncNewLibraryItem(
   rawItem: LibraryItem,
-  tmdbApiKey?: string
+  tmdbApiKey?: string,
+  watchmodeApiKey?: string
 ): Promise<{ enrichedLibraryItem: LibraryItem; discoveryTitle: DiscoveryTitle }> {
   // First convert raw item into a discovery title representation
   const initialDiscovery = convertLibraryItemToDiscoveryTitle(rawItem);
@@ -2935,9 +3252,20 @@ export async function enrichAndSyncNewLibraryItem(
       : extractThemesFromKeywords([], enrichedDiscovery.genres || rawItem.genres || [], enrichedDiscovery.synopsis || rawItem.synopsis);
   }
 
-  // Ensure Netflix ID is preserved from rawItem
+  // Ensure Netflix ID is preserved from rawItem or resolved from Watchmode
   if (rawItem.videoId && !enrichedDiscovery.netflixId) {
     enrichedDiscovery.netflixId = rawItem.videoId;
+  }
+  if (!enrichedDiscovery.netflixId || !/^\d+$/.test(enrichedDiscovery.netflixId.trim())) {
+    try {
+      const resolvedId = await resolveNetflixIdForTitle(enrichedDiscovery, watchmodeApiKey);
+      if (resolvedId) {
+        enrichedDiscovery.netflixId = resolvedId;
+        rawItem.videoId = resolvedId;
+      }
+    } catch (err) {
+      console.warn(`[enrichAndSyncNewLibraryItem] Could not auto-resolve Netflix ID for "${enrichedDiscovery.title}":`, err);
+    }
   }
 
   // Ensure it is marked as verified & available on Netflix India

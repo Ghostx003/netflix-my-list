@@ -24,21 +24,28 @@ export function createDuplicateKey(title: string): string {
  * Otherwise falls back to official Netflix search:
  * https://www.netflix.com/search?q={query}
  */
-export function getNetflixUrl(item: { videoId?: string; originalTitle?: string; externalTitle?: string; title?: string }): string {
-  if (item.videoId) {
-    let cleanId = item.videoId.toString().trim();
-    // In case videoId contains a full url like netflix.com/watch/12345 or netflix.com/title/12345
+export function getNetflixUrl(item: {
+  videoId?: string;
+  netflixId?: string;
+  originalTitle?: string;
+  externalTitle?: string;
+  title?: string;
+}): string {
+  const rawId = item.netflixId || item.videoId;
+  if (rawId) {
+    let cleanId = rawId.toString().trim();
+    // In case videoId/netflixId contains a full url like netflix.com/watch/12345 or netflix.com/title/12345
     const urlMatch = cleanId.match(/netflix\.com\/(?:title|watch)\/([a-zA-Z0-9_-]+)/i);
     if (urlMatch) {
       cleanId = urlMatch[1];
     }
     // Pure numeric or alphanumeric Netflix video ID
     if (/^\d+$/.test(cleanId)) {
-      return `https://www.netflix.com/watch/${cleanId}`;
+      return `https://www.netflix.com/title/${cleanId}`;
     }
     // If it has letters/numbers or hyphens (slug or ID)
     if (/^[a-zA-Z0-9_-]+$/.test(cleanId) && cleanId.length >= 4) {
-      return `https://www.netflix.com/watch/${cleanId}`;
+      return `https://www.netflix.com/title/${cleanId}`;
     }
   }
 

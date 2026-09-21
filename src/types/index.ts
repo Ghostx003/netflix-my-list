@@ -145,6 +145,7 @@ export interface TrailerInfo {
   type: string;
   language: string;
   isOfficial?: boolean;
+  isHindiFallback?: boolean;
 }
 
 export interface DiscoveryTitle {

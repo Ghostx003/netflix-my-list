@@ -203,7 +203,7 @@ export const App: React.FC = () => {
               updatedList[i] = merged;
               hasChanges = true;
             } else {
-              const { enrichedLibraryItem } = await enrichAndSyncNewLibraryItem(item, currentSettings.tmdbApiKey);
+              const { enrichedLibraryItem } = await enrichAndSyncNewLibraryItem(item, currentSettings.tmdbApiKey, currentSettings.watchmodeApiKey);
               updatedList[i] = enrichedLibraryItem;
               hasChanges = true;
             }
@@ -295,7 +295,7 @@ export const App: React.FC = () => {
       const currentList = [...combined];
       for (let i = 0; i < newItems.length; i++) {
         try {
-          const { enrichedLibraryItem } = await enrichAndSyncNewLibraryItem(newItems[i], settings.tmdbApiKey);
+          const { enrichedLibraryItem } = await enrichAndSyncNewLibraryItem(newItems[i], settings.tmdbApiKey, settings.watchmodeApiKey);
           const idx = currentList.findIndex((it) => it.id === newItems[i].id);
           if (idx !== -1) {
             currentList[idx] = enrichedLibraryItem;
@@ -328,9 +328,9 @@ export const App: React.FC = () => {
     setItems(updated);
     await saveLibraryItems(updated);
 
-    // Immediately enrich via TMDB, save to Discovery Catalogue, and update Library Item with tagline & themes
+    // Immediately enrich via TMDB and Watchmode, save to Discovery Catalogue, and update Library Item with direct Netflix ID, tagline & themes
     try {
-      const { enrichedLibraryItem } = await enrichAndSyncNewLibraryItem(newItem, settings.tmdbApiKey);
+      const { enrichedLibraryItem } = await enrichAndSyncNewLibraryItem(newItem, settings.tmdbApiKey, settings.watchmodeApiKey);
       setItems((prev) => prev.map((it) => (it.id === newItem.id ? enrichedLibraryItem : it)));
       const currentLib = await getAllLibraryItems();
       const remapped = currentLib.map((it) => (it.id === newItem.id ? enrichedLibraryItem : it));

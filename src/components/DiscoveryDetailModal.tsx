@@ -18,15 +18,18 @@ import {
   ChevronDown,
   ChevronUp,
   RotateCcw,
+  Search,
 } from 'lucide-react';
 import { AppSettings, DiscoveryTitle, EpisodeInfo, TrailerInfo, LibraryItem } from '../types';
 import { formatRuntime } from '../services/analytics';
 import { getNetflixUrl, getPriorityLanguageBadge, openNetflixInNewTab } from '../services/normalizer';
-import { searchYouTubeTrailer } from '../services/youtubeTrailer';
+import { searchYouTubeTrailer, searchYouTubeReview, searchYouTubeByKeywords } from '../services/youtubeTrailer';
 import { findLocalSimilarTitles } from '../services/discoverySimilarity';
 import { CachedImage } from './CachedImage';
 import { TagExploreModal } from './TagExploreModal';
 import { YearExploreModal } from './YearExploreModal';
+import { resolveNetflixIdForTitle } from '../services/discoveryService';
+import { saveDiscoveryTitles } from '../services/db';
 
 interface DiscoveryDetailModalProps {
   // Stack navigation support: current title and stack history
@@ -62,8 +65,31 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
   const modalContainerRef = useRef<HTMLDivElement>(null);
   const isMovie = currentTitle.mediaType === 'movie';
   const displayTitle = currentTitle.title;
+
+  const [resolvedNetflixId, setResolvedNetflixId] = useState<string | undefined>(currentTitle.netflixId);
+
+  // On-demand background resolution of Netflix ID from Watchmode if missing
+  useEffect(() => {
+    setResolvedNetflixId(currentTitle.netflixId);
+    let isMounted = true;
+    if (!currentTitle.netflixId || !/^\d+$/.test(currentTitle.netflixId.trim())) {
+      resolveNetflixIdForTitle(currentTitle, settings.watchmodeApiKey)
+        .then(async (id) => {
+          if (!isMounted || !id) return;
+          setResolvedNetflixId(id);
+          currentTitle.netflixId = id;
+          await saveDiscoveryTitles([currentTitle]);
+        })
+        .catch(() => {});
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [currentTitle.id, currentTitle.netflixId, settings.watchmodeApiKey]);
+
   const netflixUrl = getNetflixUrl({
-    videoId: currentTitle.netflixId,
+    videoId: resolvedNetflixId || currentTitle.netflixId,
+    netflixId: resolvedNetflixId || currentTitle.netflixId,
     originalTitle: currentTitle.title,
     externalTitle: currentTitle.title,
   });
@@ -76,10 +102,27 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
 
 
 
-  // Active trailer state & language selection
+  // Active video mode: 'trailer' or 'review'
+  const [mediaMode, setMediaMode] = useState<'trailer' | 'review'>('trailer');
   const [trailerLang, setTrailerLang] = useState<'hi' | 'en'>('hi');
   const [activeTrailer, setActiveTrailer] = useState<TrailerInfo | null>(currentTitle.trailer || null);
   const [isSearchingTrailer, setIsSearchingTrailer] = useState(false);
+
+  // Short 1-second notification banner (e.g. "Hindi trailer not found. Playing available trailer.")
+  const [trailerAlert, setTrailerAlert] = useState<string | null>(null);
+  const alertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const triggerAlert = (message: string, durationMs = 1500) => {
+    if (alertTimerRef.current) clearTimeout(alertTimerRef.current);
+    setTrailerAlert(message);
+    alertTimerRef.current = setTimeout(() => {
+      setTrailerAlert(null);
+    }, durationMs);
+  };
+
+  // Custom keyword search input state
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [customKeywords, setCustomKeywords] = useState('');
 
   // Collapsible Languages State (collapsed by default as requested)
   const [isLanguagesExpanded, setIsLanguagesExpanded] = useState(false);
@@ -94,8 +137,9 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
   const [selectedTagModal, setSelectedTagModal] = useState<{ tag: string; type: 'genre' | 'theme' } | null>(null);
   // Year Explore Modal state
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
-  // Track wrong trailer keys for skipping
+  // Track wrong trailer & review keys for skipping
   const [wrongTrailerKeys, setWrongTrailerKeys] = useState<string[]>([]);
+  const [wrongReviewKeys, setWrongReviewKeys] = useState<string[]>([]);
 
   // Function to pause active trailer playback when modals or exploration opens
   const pauseTrailer = () => {
@@ -110,6 +154,7 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
 
   // Immediate Hindi/English trailer search and refresh
   const handleSelectTrailerLanguage = (lang: 'hi' | 'en') => {
+    setMediaMode('trailer');
     setTrailerLang(lang);
     setIsSearchingTrailer(true);
     setActiveTrailer(null);
@@ -122,8 +167,14 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
         setIsSearchingTrailer(false);
         if (found) {
           setActiveTrailer(found);
+          if (lang === 'hi' && found.isHindiFallback) {
+            triggerAlert('Hindi trailer not found, playing available trailer');
+          }
         } else {
           setActiveTrailer(currentTitle.trailer || null);
+          if (lang === 'hi') {
+            triggerAlert('Hindi trailer not found');
+          }
         }
       })
       .catch(() => {
@@ -131,8 +182,42 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
       });
   };
 
-  // Wrong trailer handler: skips current video ID and fetches the next alternative trailer
+  // Fetch YouTube review: [title] + [year] + [movie/series] + review
+  const handleFetchReview = (skipCurrent = false) => {
+    setMediaMode('review');
+    setIsSearchingTrailer(true);
+
+    const currentKey = activeTrailer?.key;
+    const updatedWrong = skipCurrent && currentKey ? [...wrongReviewKeys, currentKey] : wrongReviewKeys;
+    if (skipCurrent && currentKey) {
+      setWrongReviewKeys(updatedWrong);
+    }
+    setActiveTrailer(null);
+
+    searchYouTubeReview(displayTitle, currentTitle.releaseYear, currentTitle.mediaType, {
+      skipCache: true,
+      excludeVideoIds: updatedWrong,
+    })
+      .then((found) => {
+        setIsSearchingTrailer(false);
+        if (found) {
+          setActiveTrailer(found);
+        } else {
+          triggerAlert(`No review found for ${displayTitle}`);
+        }
+      })
+      .catch(() => {
+        setIsSearchingTrailer(false);
+      });
+  };
+
+  // Wrong trailer or next review handler: skips current video and plays next related result
   const handleWrongTrailer = () => {
+    if (mediaMode === 'review') {
+      handleFetchReview(true);
+      return;
+    }
+
     const currentKey = activeTrailer?.key;
     const updatedWrong = currentKey ? [...wrongTrailerKeys, currentKey] : wrongTrailerKeys;
     if (currentKey) {
@@ -150,6 +235,39 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
         setIsSearchingTrailer(false);
         if (found) {
           setActiveTrailer(found);
+          if (trailerLang === 'hi' && found.isHindiFallback) {
+            triggerAlert('Hindi trailer not found, playing available trailer');
+          }
+        } else {
+          triggerAlert('No additional trailer found');
+        }
+      })
+      .catch(() => {
+        setIsSearchingTrailer(false);
+      });
+  };
+
+  // Custom keyword search handler: searches exact user keywords and plays result directly in app iframe
+  const handleCustomKeywordSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const query = customKeywords.trim();
+    if (!query) return;
+
+    setIsSearchingTrailer(true);
+    setActiveTrailer(null);
+    setIsSearchOpen(false);
+
+    searchYouTubeByKeywords(query, {
+      skipCache: true,
+      excludeVideoIds: wrongTrailerKeys,
+    })
+      .then((found) => {
+        setIsSearchingTrailer(false);
+        if (found) {
+          setActiveTrailer(found);
+          triggerAlert(`Playing: ${found.name}`, 1500);
+        } else {
+          triggerAlert(`No video found for "${query}"`);
         }
       })
       .catch(() => {
@@ -202,6 +320,9 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
         setIsSearchingTrailer(false);
         if (found) {
           setActiveTrailer(found);
+          if (trailerLang === 'hi' && found.isHindiFallback) {
+            triggerAlert('Hindi trailer not found, playing available trailer');
+          }
         }
       })
       .catch(() => {
@@ -370,6 +491,32 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
               {isMovie ? <Film className="w-16 h-16" /> : <Tv className="w-16 h-16" />}
             </div>
           )}
+
+          {/* 1-Second Alert notification banner (e.g. Hindi trailer not found) */}
+          {trailerAlert && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-4 py-1.5 rounded-full bg-amber-500 text-black font-bold text-xs shadow-2xl flex items-center gap-2 border border-amber-300 animate-fade-in pointer-events-none whitespace-nowrap">
+              <span>⚠️</span>
+              <span>{trailerAlert}</span>
+            </div>
+          )}
+
+          {/* Active video indicator */}
+          {activeTrailer && (
+            <div className="absolute bottom-3 left-4 z-20 pointer-events-none">
+              <div className="px-2.5 py-1 rounded-md bg-black/80 backdrop-blur-md border border-white/10 text-[10px] font-semibold text-zinc-300 flex items-center gap-1.5 max-w-xs sm:max-w-md truncate">
+                {mediaMode === 'review' ? (
+                  <span className="text-purple-400 font-black">Review:</span>
+                ) : activeTrailer.type === 'Custom' ? (
+                  <span className="text-amber-400 font-black">Custom:</span>
+                ) : (
+                  <span className="text-emerald-400 font-black">
+                    {activeTrailer.language === 'hi' ? 'Hindi Trailer:' : 'Trailer:'}
+                  </span>
+                )}
+                <span className="truncate">{activeTrailer.name}</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 2. MAIN INFORMATION CARD (POSTER ON LEFT, CONTENT/METADATA ON RIGHT) */}
@@ -398,13 +545,13 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                 </span>
               )}
 
-              {/* Trailer Toggle Capsule */}
+              {/* Trailer & Review Toggle Capsule */}
               <div className="flex items-center rounded-full bg-zinc-800/80 border border-zinc-700/60 p-0.5 text-[10px] sm:text-xs font-bold">
                 <button
                   type="button"
                   onClick={() => handleSelectTrailerLanguage('hi')}
-                  className={`flex items-center gap-1 px-2 py-0.5 rounded-full transition-colors cursor-pointer ${
-                    trailerLang === 'hi'
+                  className={`flex items-center gap-1 px-2.5 py-0.5 rounded-full transition-colors cursor-pointer ${
+                    mediaMode === 'trailer' && trailerLang === 'hi'
                       ? 'bg-amber-500 text-black font-black'
                       : 'text-zinc-300 hover:text-white'
                   }`}
@@ -416,8 +563,8 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                 <button
                   type="button"
                   onClick={() => handleSelectTrailerLanguage('en')}
-                  className={`flex items-center gap-1 px-2 py-0.5 rounded-full transition-colors cursor-pointer ${
-                    trailerLang === 'en'
+                  className={`flex items-center gap-1 px-2.5 py-0.5 rounded-full transition-colors cursor-pointer ${
+                    mediaMode === 'trailer' && trailerLang === 'en'
                       ? 'bg-amber-500 text-black font-black'
                       : 'text-zinc-300 hover:text-white'
                   }`}
@@ -426,19 +573,80 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                   <Play className="w-2.5 h-2.5 fill-current" />
                   <span>Trailer: EN</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => handleFetchReview(false)}
+                  className={`flex items-center gap-1 px-2.5 py-0.5 rounded-full transition-colors cursor-pointer ${
+                    mediaMode === 'review'
+                      ? 'bg-purple-600 text-white font-black'
+                      : 'text-zinc-300 hover:text-white'
+                  }`}
+                  title="Watch YouTube Review"
+                >
+                  <Sparkles className="w-2.5 h-2.5" />
+                  <span>Review</span>
+                </button>
               </div>
 
-              {/* Wrong trailer? button */}
+              {/* Wrong trailer? / Next review button */}
               <button
                 type="button"
                 onClick={handleWrongTrailer}
                 disabled={isSearchingTrailer}
                 className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/60 text-[10px] sm:text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
-                title="Trailer incorrect? Click to fetch an alternative trailer"
+                title={
+                  mediaMode === 'review'
+                    ? 'Fetch another review of this subject'
+                    : 'Trailer incorrect? Click to fetch an alternative trailer'
+                }
               >
                 <RotateCcw className={`w-3 h-3 ${isSearchingTrailer ? 'animate-spin' : ''}`} />
-                <span>Wrong trailer?</span>
+                <span>{mediaMode === 'review' ? 'Next review' : 'Wrong trailer?'}</span>
               </button>
+
+              {/* Small search icon button to search exact keywords directly in app player */}
+              {isSearchOpen ? (
+                <form
+                  onSubmit={handleCustomKeywordSubmit}
+                  className="flex items-center gap-1 bg-zinc-900 border border-amber-500/50 rounded-full px-2.5 py-0.5 text-xs shadow-lg animate-fade-in"
+                >
+                  <Search className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <input
+                    type="text"
+                    value={customKeywords}
+                    onChange={(e) => setCustomKeywords(e.target.value)}
+                    placeholder="Type exact keywords & press Enter..."
+                    className="bg-transparent border-0 text-[11px] text-white placeholder-zinc-500 focus:outline-none w-44 sm:w-56"
+                    autoFocus
+                  />
+                  <button
+                    type="submit"
+                    className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-black hover:bg-amber-400 cursor-pointer"
+                  >
+                    Search
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsSearchOpen(false)}
+                    className="text-zinc-400 hover:text-white px-1 text-xs cursor-pointer"
+                    title="Close search"
+                  >
+                    ✕
+                  </button>
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSearchOpen(true);
+                    setCustomKeywords(displayTitle);
+                  }}
+                  className="p-1.5 rounded-full bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/60 transition-colors cursor-pointer"
+                  title="Search exact video keywords"
+                >
+                  <Search className="w-3 h-3" />
+                </button>
+              )}
 
               {currentTitle.status && (
                 <span className="text-[10px] sm:text-xs px-2.5 py-1 rounded-full bg-zinc-800 text-zinc-300 border border-white/10 font-semibold">
@@ -453,8 +661,21 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                 href={netflixUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                onClick={(e) => {
-                  openNetflixInNewTab(netflixUrl, e);
+                onClick={async (e) => {
+                  let targetUrl = netflixUrl;
+                  const activeId = resolvedNetflixId || currentTitle.netflixId;
+                  if (!activeId || !/^\d+$/.test(activeId.trim())) {
+                    try {
+                      const foundId = await resolveNetflixIdForTitle(currentTitle, settings.watchmodeApiKey);
+                      if (foundId) {
+                        setResolvedNetflixId(foundId);
+                        currentTitle.netflixId = foundId;
+                        targetUrl = getNetflixUrl({ videoId: foundId, netflixId: foundId });
+                        saveDiscoveryTitles([currentTitle]).catch(() => {});
+                      }
+                    } catch {}
+                  }
+                  openNetflixInNewTab(targetUrl, e);
                   onStartWatching(currentTitle);
                 }}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#E50914] hover:bg-red-700 text-white text-xs font-black shadow-lg shadow-red-600/30 transition-transform active:scale-95 whitespace-nowrap cursor-pointer no-underline"
@@ -854,8 +1075,9 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[360px] overflow-y-auto pr-1">
                 {(seasonsMap.get(selectedSeason) || []).map((ep) => {
-                  const epWatchUrl = currentTitle.netflixId
-                    ? `https://www.netflix.com/watch/${currentTitle.netflixId}`
+                  const activeEpId = resolvedNetflixId || currentTitle.netflixId;
+                  const epWatchUrl = activeEpId
+                    ? `https://www.netflix.com/watch/${activeEpId}`
                     : `https://www.netflix.com/search?q=${encodeURIComponent(displayTitle)}`;
 
                   return (

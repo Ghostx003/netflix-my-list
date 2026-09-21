@@ -3,6 +3,8 @@ import { Star, Clock, Film, Tv, Play, Plus, Check, Layers, ExternalLink, EyeOff,
 import { DiscoveryTitle } from '../types';
 import { formatRuntime } from '../services/analytics';
 import { getNetflixUrl, getPriorityLanguageBadge, openNetflixInNewTab } from '../services/normalizer';
+import { resolveNetflixIdForTitle } from '../services/discoveryService';
+import { saveDiscoveryTitles } from '../services/db';
 import { CachedImage } from './CachedImage';
 
 interface DiscoveryCardProps {
@@ -55,6 +57,7 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
 
   const netflixUrl = getNetflixUrl({
     videoId: item.netflixId,
+    netflixId: item.netflixId,
     originalTitle: item.title,
     externalTitle: item.title,
   });
@@ -133,7 +136,20 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
             href={netflixUrl}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={(e) => openNetflixInNewTab(netflixUrl, e)}
+            onClick={async (e) => {
+              let targetUrl = netflixUrl;
+              if (!item.netflixId || !/^\d+$/.test(item.netflixId.trim())) {
+                try {
+                  const resolvedId = await resolveNetflixIdForTitle(item);
+                  if (resolvedId) {
+                    item.netflixId = resolvedId;
+                    targetUrl = getNetflixUrl({ videoId: resolvedId, netflixId: resolvedId });
+                    saveDiscoveryTitles([item]).catch(() => {});
+                  }
+                } catch {}
+              }
+              openNetflixInNewTab(targetUrl, e);
+            }}
             className="pointer-events-auto w-11 h-11 rounded-full bg-red-600/90 hover:bg-red-600 text-white flex items-center justify-center shadow-xl shadow-red-600/50 transform scale-75 group-hover:scale-100 hover:scale-110 active:scale-95 transition-all cursor-pointer"
             title="Watch on Netflix (opens in new tab)"
           >

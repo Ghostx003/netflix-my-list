@@ -1518,6 +1518,8 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
             <span className="text-xs font-mono font-bold text-[#E50914] bg-red-950/60 px-2.5 py-1 rounded-lg border border-red-500/30">
               {syncProgress.phase === 'fetching_watchmode'
                 ? `Page ${syncProgress.currentPage} / ${syncProgress.totalPages}`
+                : syncProgress.phase === 'fetching_netflix_ids'
+                ? `${syncProgress.metadataProcessed} / ${syncProgress.totalToProcess} IDs`
                 : syncProgress.phase === 'enriching_tmdb'
                 ? `${syncProgress.metadataProcessed} / ${syncProgress.totalToProcess}`
                 : 'Processing'}
@@ -1531,9 +1533,11 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               style={{
                 width: `${
                   syncProgress.phase === 'fetching_watchmode'
-                    ? (syncProgress.currentPage / (syncProgress.totalPages || 1)) * 50
+                    ? (syncProgress.currentPage / (syncProgress.totalPages || 1)) * 30
+                    : syncProgress.phase === 'fetching_netflix_ids'
+                    ? 30 + (syncProgress.metadataProcessed / (syncProgress.totalToProcess || 1)) * 35
                     : syncProgress.phase === 'enriching_tmdb'
-                    ? 50 + (syncProgress.metadataProcessed / (syncProgress.totalToProcess || 1)) * 50
+                    ? 65 + (syncProgress.metadataProcessed / (syncProgress.totalToProcess || 1)) * 35
                     : 100
                 }%`,
               }}
@@ -1741,30 +1745,40 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                       <Film className="w-3.5 h-3.5 text-[#E50914]" />
                       <span>Number of Movies to Sync</span>
                     </span>
-                    <input
-                      type="number"
-                      min={10}
-                      max={2500}
-                      value={syncMoviesCount}
-                      onChange={(e) => setSyncMoviesCount(Math.max(10, Math.min(2500, parseInt(e.target.value, 10) || 10)))}
-                      className="w-20 px-2 py-1 rounded-lg bg-zinc-800 border border-white/10 text-right text-xs font-mono font-bold text-white focus:outline-none focus:border-[#E50914]"
-                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSyncMoviesCount(3500)}
+                        className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#E50914]/20 hover:bg-[#E50914]/30 text-red-400 border border-[#E50914]/40 transition-colors"
+                        title="Set to all available movies"
+                      >
+                        All Movies (~3,500)
+                      </button>
+                      <input
+                        type="number"
+                        min={10}
+                        max={3500}
+                        value={syncMoviesCount}
+                        onChange={(e) => setSyncMoviesCount(Math.max(10, Math.min(3500, parseInt(e.target.value, 10) || 10)))}
+                        className="w-20 px-2 py-1 rounded-lg bg-zinc-800 border border-white/10 text-right text-xs font-mono font-bold text-white focus:outline-none focus:border-[#E50914]"
+                      />
+                    </div>
                   </div>
                   <input
                     type="range"
                     min={10}
-                    max={1000}
-                    step={10}
+                    max={3500}
+                    step={25}
                     value={syncMoviesCount}
                     onChange={(e) => setSyncMoviesCount(parseInt(e.target.value, 10))}
                     className="w-full accent-[#E50914] cursor-pointer"
                   />
                   <div className="flex justify-between text-[10px] text-zinc-500 font-mono">
                     <span>10 movies</span>
-                    <span>100</span>
-                    <span>250</span>
                     <span>500</span>
-                    <span>1000+</span>
+                    <span>1,000</span>
+                    <span>2,000</span>
+                    <span>3,500 (All)</span>
                   </div>
                 </div>
 
@@ -1775,30 +1789,40 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                       <Tv className="w-3.5 h-3.5 text-purple-400" />
                       <span>Number of TV Series to Sync</span>
                     </span>
-                    <input
-                      type="number"
-                      min={10}
-                      max={1500}
-                      value={syncTvShowsCount}
-                      onChange={(e) => setSyncTvShowsCount(Math.max(10, Math.min(1500, parseInt(e.target.value, 10) || 10)))}
-                      className="w-20 px-2 py-1 rounded-lg bg-zinc-800 border border-white/10 text-right text-xs font-mono font-bold text-white focus:outline-none focus:border-[#E50914]"
-                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSyncTvShowsCount(2000)}
+                        className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 border border-purple-500/40 transition-colors"
+                        title="Set to all available series"
+                      >
+                        All Series (~2,000)
+                      </button>
+                      <input
+                        type="number"
+                        min={10}
+                        max={2000}
+                        value={syncTvShowsCount}
+                        onChange={(e) => setSyncTvShowsCount(Math.max(10, Math.min(2000, parseInt(e.target.value, 10) || 10)))}
+                        className="w-20 px-2 py-1 rounded-lg bg-zinc-800 border border-white/10 text-right text-xs font-mono font-bold text-white focus:outline-none focus:border-[#E50914]"
+                      />
+                    </div>
                   </div>
                   <input
                     type="range"
                     min={10}
-                    max={1000}
-                    step={10}
+                    max={2000}
+                    step={25}
                     value={syncTvShowsCount}
                     onChange={(e) => setSyncTvShowsCount(parseInt(e.target.value, 10))}
                     className="w-full accent-purple-500 cursor-pointer"
                   />
                   <div className="flex justify-between text-[10px] text-zinc-500 font-mono">
                     <span>10 series</span>
-                    <span>100</span>
                     <span>250</span>
                     <span>500</span>
-                    <span>1000+</span>
+                    <span>1,000</span>
+                    <span>2,000 (All)</span>
                   </div>
                 </div>
 

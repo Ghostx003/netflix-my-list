@@ -3,6 +3,7 @@ import { Star, Tv, Clock, Layers, Play, CheckCircle2, UserX } from 'lucide-react
 import { LibraryItem } from '../types';
 import { formatRuntime, calculateSeriesRuntime } from '../services/analytics';
 import { getNetflixUrl, getPriorityLanguageBadge, openNetflixInNewTab } from '../services/normalizer';
+import { resolveNetflixIdForTitle } from '../services/discoveryService';
 import { CachedImage } from './CachedImage';
 
 interface TvSeriesCardProps {
@@ -59,7 +60,25 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
             href={netflixUrl}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={(e) => openNetflixInNewTab(netflixUrl, e)}
+            onClick={async (e) => {
+              let targetUrl = netflixUrl;
+              if (!item.videoId || !/^\d+$/.test(item.videoId.trim())) {
+                try {
+                  const foundId = await resolveNetflixIdForTitle({
+                    imdbId: item.imdbId,
+                    tmdbId: typeof item.externalId === 'number' ? item.externalId : (item.externalId ? parseInt(String(item.externalId), 10) || undefined : undefined),
+                    mediaType: 'tv',
+                    title: item.externalTitle || item.originalTitle,
+                    videoId: item.videoId,
+                  });
+                  if (foundId) {
+                    item.videoId = foundId;
+                    targetUrl = getNetflixUrl({ videoId: foundId, netflixId: foundId });
+                  }
+                } catch {}
+              }
+              openNetflixInNewTab(targetUrl, e);
+            }}
             className="pointer-events-auto w-11 h-11 rounded-full bg-red-600/90 hover:bg-red-600 text-white flex items-center justify-center shadow-xl shadow-red-600/50 transform scale-75 group-hover:scale-100 hover:scale-110 active:scale-95 transition-all cursor-pointer"
             title="Watch on Netflix (opens in new tab)"
           >
