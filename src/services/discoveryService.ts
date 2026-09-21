@@ -1650,7 +1650,7 @@ let watchmodeQuotaExceededUntil = 0;
 export async function safeWatchmodeFetch<T = any>(url: string, maxAttempts = 4): Promise<T | null> {
   const executeCall = async (): Promise<T | null> => {
     // Fast-fail if quota was already detected as exhausted recently
-    if (Date.now() < watchmodeQuotaExceededUntil) {
+    if (!url.includes('/status/') && Date.now() < watchmodeQuotaExceededUntil) {
       return { _quotaExceeded: true, quota: 2500, quotaUsed: 2500 } as any;
     }
 
@@ -1725,7 +1725,11 @@ export async function safeWatchmodeFetch<T = any>(url: string, maxAttempts = 4):
           throw new Error(`Watchmode HTTP ${res.status}: ${res.statusText}`);
         }
 
-        return await res.json();
+        const data = await res.json();
+        if (url.includes('/status/') && typeof data?.quota === 'number') {
+          watchmodeQuotaExceededUntil = 0;
+        }
+        return data;
       } catch (err: any) {
         if (attempt >= maxAttempts) {
           console.error(`[safeWatchmodeFetch] Failed after ${maxAttempts} attempts for ${url}:`, err);
@@ -1767,6 +1771,7 @@ export async function getWatchmodeQuotaStatus(apiKey?: string, forceRefresh = fa
   try {
     const data = await safeWatchmodeFetch<any>(`${WATCHMODE_BASE_URL}/status/?apiKey=${encodeURIComponent(key)}`, 1);
     if (data && typeof data.quota === 'number') {
+      watchmodeQuotaExceededUntil = 0;
       await setCachedMetadata(cacheKey, { ...data, timestamp: Date.now() });
       return data;
     }
@@ -1780,6 +1785,19 @@ export async function getWatchmodeQuotaStatus(apiKey?: string, forceRefresh = fa
     console.warn('Failed to check Watchmode quota:', err);
     return null;
   }
+}
+
+/**
+ * Explicitly resets in-memory lockouts and cached quota, fetching live quota from Watchmode
+ */
+export async function resetWatchmodeQuotaStatus(apiKey?: string): Promise<WatchmodeStatusResponse | null> {
+  watchmodeQuotaExceededUntil = 0;
+  const key = apiKey || DEFAULT_WATCHMODE_KEY;
+  if (!key) return null;
+  const cacheKey = `wm_quota_status_${key.slice(-6)}`;
+  await setCachedMetadata(cacheKey, null);
+  await setCachedMetadata('wm_quota_status_Lec9zK', null);
+  return await getWatchmodeQuotaStatus(key, true);
 }
 
 /**

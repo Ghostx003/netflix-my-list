@@ -33,6 +33,7 @@ import {
   syncAndEnrichLibraryItemsToDiscovery,
   syncUnfetchedNetflixIds,
   getWatchmodeQuotaStatus,
+  resetWatchmodeQuotaStatus,
   deduplicateDiscoveryTitles,
   ensureTvThrillerGenres,
   SEED_NETFLIX_INDIA_TITLES,
@@ -396,7 +397,10 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
             if (meta.watchmodeQuota) {
               setQuotaInfo({
                 quota: meta.watchmodeQuota,
-                quotaUsed: meta.watchmodeQuotaUsed || 0,
+                quotaUsed:
+                  meta.watchmodeQuotaUsed && meta.watchmodeQuotaUsed < meta.watchmodeQuota
+                    ? meta.watchmodeQuotaUsed
+                    : 0,
               });
             }
           }
@@ -450,9 +454,9 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
         if (isMounted) setLoading(false);
       }
 
-      // Check Watchmode quota in background
+      // Check Watchmode quota live from server
       try {
-        const q = await getWatchmodeQuotaStatus(settings.watchmodeApiKey);
+        const q = await resetWatchmodeQuotaStatus(settings.watchmodeApiKey);
         if (isMounted && q) {
           setQuotaInfo(q);
           const currentMeta = (await getDiscoveryCatalogMeta()) || {};
@@ -534,6 +538,31 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   // Dedicated "Refresh from API" handler - fetches live Netflix India titles from TMDB API with forceRefresh, merges and updates tags
   const [isRefreshingApi, setIsRefreshingApi] = useState(false);
   const [refreshNotification, setRefreshNotification] = useState<string | null>(null);
+
+  // Dedicated Watchmode Quota Reset & Live Refresh handler
+  const [isRefreshingQuota, setIsRefreshingQuota] = useState(false);
+  const handleResetQuota = async () => {
+    if (isRefreshingQuota) return;
+    setIsRefreshingQuota(true);
+    try {
+      const q = await resetWatchmodeQuotaStatus(settings.watchmodeApiKey);
+      if (q) {
+        setQuotaInfo(q);
+        const currentMeta = (await getDiscoveryCatalogMeta()) || {};
+        await setDiscoveryCatalogMeta({
+          ...currentMeta,
+          watchmodeQuota: q.quota,
+          watchmodeQuotaUsed: q.quotaUsed,
+        });
+        setRefreshNotification(`✓ Watchmode Quota updated live: ${q.quotaUsed} used / ${q.quota} total (${q.quota - q.quotaUsed} remaining).`);
+      }
+    } catch (err: any) {
+      console.warn('Failed to refresh quota:', err);
+    } finally {
+      setIsRefreshingQuota(false);
+      setTimeout(() => setRefreshNotification(null), 4000);
+    }
+  };
 
   const handleRefreshCatalogFromApi = async () => {
     if (isRefreshingApi || isSyncing) return;
@@ -1407,12 +1436,16 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               <ShieldCheck className="w-3 h-3" /> Watchmode Verified
             </span>
             {quotaInfo && (
-              <span
-                className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 font-mono cursor-help"
-                title={`Watchmode API Request Quota: ${quotaInfo.quotaUsed} used out of ${quotaInfo.quota} allocated calls for this monthly billing cycle (${quotaInfo.quota - quotaInfo.quotaUsed} remaining).`}
+              <button
+                type="button"
+                onClick={handleResetQuota}
+                disabled={isRefreshingQuota}
+                className="flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-full bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 font-mono transition-all cursor-pointer group active:scale-95 disabled:opacity-60"
+                title={`Watchmode API Request Quota: ${quotaInfo.quotaUsed} used out of ${quotaInfo.quota} allocated calls for this monthly billing cycle (${quotaInfo.quota - quotaInfo.quotaUsed} remaining). Click to force refresh live quota.`}
               >
-                Quota: {quotaInfo.quotaUsed} / {quotaInfo.quota}
-              </span>
+                <RefreshCw className={`w-2.5 h-2.5 ${isRefreshingQuota ? 'animate-spin text-blue-200' : 'group-hover:rotate-180 transition-transform'}`} />
+                <span>Quota: {quotaInfo.quotaUsed} / {quotaInfo.quota}</span>
+              </button>
             )}
           </div>
           <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
@@ -1726,6 +1759,36 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                   Manage catalogue enrichment, external sync pipelines, and local database cache.
                 </p>
               </div>
+            </div>
+
+            {/* Watchmode API Quota Display & Live Reset Button */}
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-blue-950/40 border border-blue-500/30 text-xs shadow-inner">
+              <div className="flex items-center gap-2.5">
+                <div className="p-1.5 rounded-lg bg-blue-500/20 text-blue-400">
+                  <BarChart2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="font-semibold text-zinc-300 flex items-center gap-1.5 flex-wrap">
+                    <span>Watchmode Quota:</span>
+                    <span className={`font-mono font-bold ${quotaInfo && quotaInfo.quotaUsed >= quotaInfo.quota ? 'text-red-400' : 'text-emerald-400'}`}>
+                      {quotaInfo ? `${quotaInfo.quotaUsed} / ${quotaInfo.quota} used (${quotaInfo.quota - quotaInfo.quotaUsed} remaining)` : 'Checking live...'}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-zinc-400 font-mono">
+                    Active Key: {settings.watchmodeApiKey ? `${settings.watchmodeApiKey.slice(0, 6)}...${settings.watchmodeApiKey.slice(-4)}` : 'Not set'}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleResetQuota}
+                disabled={isRefreshingQuota}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/30 hover:bg-blue-600 border border-blue-500/40 text-blue-200 hover:text-white text-xs font-bold transition-all shrink-0 active:scale-95 disabled:opacity-60"
+                title="Force refresh live quota from Watchmode server"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingQuota ? 'animate-spin' : ''}`} />
+                <span>{isRefreshingQuota ? 'Resetting...' : 'Reset Quota'}</span>
+              </button>
             </div>
 
             <div className="space-y-3 pt-2">
