@@ -1610,7 +1610,7 @@ export function deduplicateDiscoveryTitles(titles: DiscoveryTitle[]): DiscoveryT
 export const WATCHMODE_BASE_URL = 'https://api.watchmode.com/v1';
 export const DEFAULT_WATCHMODE_KEY =
   (typeof import.meta !== 'undefined' && (import.meta.env?.WATCHMODE_API_KEY || import.meta.env?.VITE_WATCHMODE_API_KEY)) ||
-  'rrr2KWqilxrgo1CObODcAeOcsxa7QkYF2yLec9zK';
+  '1VFSlNDS4wbjnZ16DOQkRPuc95swe4qnxZazWn17';
 
 export interface WatchmodeStatusResponse {
   quota: number;
@@ -3565,5 +3565,195 @@ export async function syncAndEnrichLibraryItemsToDiscovery(options: {
     enrichedCount,
     skippedCount,
     wasCancelled: false,
+  };
+}
+
+export interface UnfetchedSyncProgress {
+  phase: 'scanning' | 'mapping' | 'complete' | 'stopped' | 'quota_reached';
+  totalUnfetched: number;
+  processed: number;
+  idsFound: number;
+  currentTitle: string;
+  percent: number;
+  quotaExceeded?: boolean;
+  message: string;
+}
+
+/**
+ * Targeted sync that ONLY queries Watchmode for titles currently missing a direct numeric Netflix ID.
+ * Strictly skips all titles that already have a valid Netflix ID to guarantee zero wasted quota credits.
+ * Also checks local cache and library matches first before making any remote calls.
+ */
+export async function syncUnfetchedNetflixIds(options: {
+  catalog: DiscoveryTitle[];
+  libraryItems?: LibraryItem[];
+  watchmodeApiKey?: string;
+  onProgress: (p: UnfetchedSyncProgress) => void;
+  onBatchUpdated?: (updatedTitles: DiscoveryTitle[]) => void;
+  shouldCancel?: () => boolean;
+}): Promise<{
+  updatedCatalog: DiscoveryTitle[];
+  totalProcessed: number;
+  newIdsFound: number;
+  quotaExceeded: boolean;
+  wasCancelled: boolean;
+}> {
+  const key = options.watchmodeApiKey || DEFAULT_WATCHMODE_KEY;
+  const { catalog, libraryItems = [], onProgress, onBatchUpdated, shouldCancel } = options;
+
+  // Build lookup map of library items that already possess a valid numeric Netflix ID
+  const libraryNetflixIdMap = new Map<string, string>();
+  for (const lib of libraryItems) {
+    const rawId = lib.videoId || (lib as any).netflixId;
+    if (rawId && /^\d+$/.test(rawId.trim())) {
+      const cleanId = rawId.trim();
+      const imdbId = (lib as any).imdbId;
+      const tmdbId = (lib as any).tmdbId || (typeof lib.externalId === 'number' ? lib.externalId : undefined);
+      const title = lib.originalTitle || lib.normalizedTitle;
+      if (imdbId) libraryNetflixIdMap.set(`imdb_${String(imdbId).toLowerCase()}`, cleanId);
+      if (tmdbId) libraryNetflixIdMap.set(`tmdb_${lib.mediaType}_${tmdbId}`, cleanId);
+      if (title) libraryNetflixIdMap.set(`title_${normalizeTitle(title)}_${lib.releaseYear || ''}`, cleanId);
+    }
+  }
+
+  // 1. Filter ONLY titles where netflixId is missing or non-numeric
+  const unfetchedTitles = catalog.filter((t) => !t.netflixId || !/^\d+$/.test(t.netflixId.trim()));
+  const totalUnfetched = unfetchedTitles.length;
+
+  if (totalUnfetched === 0) {
+    onProgress({
+      phase: 'complete',
+      totalUnfetched: 0,
+      processed: 0,
+      idsFound: 0,
+      currentTitle: '',
+      percent: 100,
+      message: 'All titles in your catalogue already have verified direct Netflix IDs! 0 API credits used.',
+    });
+    return {
+      updatedCatalog: catalog,
+      totalProcessed: 0,
+      newIdsFound: 0,
+      quotaExceeded: false,
+      wasCancelled: false,
+    };
+  }
+
+  onProgress({
+    phase: 'mapping',
+    totalUnfetched,
+    processed: 0,
+    idsFound: 0,
+    currentTitle: unfetchedTitles[0]?.title || '',
+    percent: 0,
+    message: `Starting targeted Netflix ID mapping for ${totalUnfetched} unfetched titles...`,
+  });
+
+  const updatedCatalogMap = new Map<string, DiscoveryTitle>(catalog.map((t) => [t.id, { ...t }]));
+  let processed = 0;
+  let idsFound = 0;
+  let quotaExceeded = false;
+  let wasCancelled = false;
+  const batchToPersist: DiscoveryTitle[] = [];
+
+  for (let i = 0; i < unfetchedTitles.length; i++) {
+    if (shouldCancel?.()) {
+      wasCancelled = true;
+      break;
+    }
+
+    const current = unfetchedTitles[i];
+    const target = updatedCatalogMap.get(current.id) || { ...current };
+
+    onProgress({
+      phase: 'mapping',
+      totalUnfetched,
+      processed: i,
+      idsFound,
+      currentTitle: target.title,
+      percent: Math.round((i / totalUnfetched) * 100),
+      message: `Fetching Netflix ID (${i + 1}/${totalUnfetched}): "${target.title}"...`,
+    });
+
+    // Step A: Check if existing library items have the Netflix ID (0 credits)
+    let foundId: string | null = null;
+    if (target.imdbId && libraryNetflixIdMap.has(`imdb_${target.imdbId.toLowerCase()}`)) {
+      foundId = libraryNetflixIdMap.get(`imdb_${target.imdbId.toLowerCase()}`) || null;
+    } else if (target.tmdbId && libraryNetflixIdMap.has(`tmdb_${target.mediaType}_${target.tmdbId}`)) {
+      foundId = libraryNetflixIdMap.get(`tmdb_${target.mediaType}_${target.tmdbId}`) || null;
+    } else if (target.title && libraryNetflixIdMap.has(`title_${normalizeTitle(target.title)}_${target.releaseYear || ''}`)) {
+      foundId = libraryNetflixIdMap.get(`title_${normalizeTitle(target.title)}_${target.releaseYear || ''}`) || null;
+    }
+
+    // Step B: Query Watchmode with local cache checking
+    if (!foundId && key) {
+      try {
+        const res = await resolveNetflixIdForTitle(target, key);
+        if ((res as any)?._quotaExceeded) {
+          quotaExceeded = true;
+          break;
+        }
+        if (res && /^\d+$/.test(res.trim())) {
+          foundId = res.trim();
+        }
+      } catch (err) {
+        console.warn(`[syncUnfetchedNetflixIds] Error resolving ID for "${target.title}":`, err);
+      }
+    }
+
+    if (foundId) {
+      target.netflixId = foundId;
+      updatedCatalogMap.set(target.id, target);
+      batchToPersist.push(target);
+      idsFound++;
+    }
+
+    processed++;
+
+    // Periodically persist batches to IndexedDB & notify UI
+    if (batchToPersist.length >= 5 || i === unfetchedTitles.length - 1) {
+      if (batchToPersist.length > 0) {
+        await saveDiscoveryTitles([...batchToPersist]);
+        onBatchUpdated?.(Array.from(updatedCatalogMap.values()));
+        batchToPersist.length = 0;
+      }
+    }
+
+    // Small spacing to prevent UI freezing
+    await sleep(50);
+  }
+
+  // Persist any remaining items
+  if (batchToPersist.length > 0) {
+    await saveDiscoveryTitles([...batchToPersist]);
+    onBatchUpdated?.(Array.from(updatedCatalogMap.values()));
+  }
+
+  const finalCatalog = Array.from(updatedCatalogMap.values());
+
+  const endPhase = quotaExceeded ? 'quota_reached' : wasCancelled ? 'stopped' : 'complete';
+  const endMsg = quotaExceeded
+    ? `Watchmode monthly quota reached. Successfully mapped ${idsFound} new Netflix IDs before pause. Saved without loss.`
+    : wasCancelled
+    ? `Mapping paused by user. Successfully mapped ${idsFound} new Netflix IDs (${processed} titles scanned).`
+    : `🎉 Mapping complete! Discovered ${idsFound} new Netflix IDs across ${processed} previously unfetched titles.`;
+
+  onProgress({
+    phase: endPhase,
+    totalUnfetched,
+    processed,
+    idsFound,
+    currentTitle: '',
+    percent: 100,
+    quotaExceeded,
+    message: endMsg,
+  });
+
+  return {
+    updatedCatalog: finalCatalog,
+    totalProcessed: processed,
+    newIdsFound: idsFound,
+    quotaExceeded,
+    wasCancelled,
   };
 }

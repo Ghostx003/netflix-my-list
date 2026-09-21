@@ -31,12 +31,14 @@ import {
   fetchInitialWatchmodeDiscovery,
   syncNetflixIndiaCatalog,
   syncAndEnrichLibraryItemsToDiscovery,
+  syncUnfetchedNetflixIds,
   getWatchmodeQuotaStatus,
   deduplicateDiscoveryTitles,
   ensureTvThrillerGenres,
   SEED_NETFLIX_INDIA_TITLES,
   SyncProgressCallback,
   WatchmodeStatusResponse,
+  UnfetchedSyncProgress,
 } from '../services/discoveryService';
 import {
   getAllDiscoveryTitles,
@@ -249,6 +251,16 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   const [enrichmentProgress, setEnrichmentProgress] = useState<TMDBEnrichmentProgress | null>(null);
   const [isEnriching, setIsEnriching] = useState(false);
   const cancelEnrichmentRef = useRef(false);
+
+  // Targeted Unfetched Netflix ID Mapping State
+  const [isMappingUnfetchedIds, setIsMappingUnfetchedIds] = useState(false);
+  const [unfetchedProgress, setUnfetchedProgress] = useState<UnfetchedSyncProgress | null>(null);
+  const cancelUnfetchedSyncRef = useRef(false);
+
+  // Count how many titles in catalogue lack direct numeric Netflix ID
+  const unfetchedCount = useMemo(() => {
+    return catalog.filter((t) => !t.netflixId || !/^\d+$/.test(t.netflixId.trim())).length;
+  }, [catalog]);
 
   // Modal dialog states matching MoviesSeriesView
   const [showGenreModal, setShowGenreModal] = useState(false);
@@ -637,6 +649,56 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     } finally {
       setIsSyncingLibrary(false);
       setTimeout(() => setRefreshNotification(null), 5000);
+    }
+  };
+
+  // Dedicated "Only Fetch Unfetched IDs" handler - strictly maps titles missing Netflix IDs without wasting quota
+  const handleSyncUnfetchedIds = async () => {
+    if (isMappingUnfetchedIds || isSyncing || isEnriching) return;
+    if (unfetchedCount === 0) {
+      setRefreshNotification('✓ All titles in your catalogue already have verified direct Netflix IDs!');
+      setTimeout(() => setRefreshNotification(null), 3500);
+      return;
+    }
+
+    setShowApiModal(false);
+    cancelUnfetchedSyncRef.current = false;
+    setIsMappingUnfetchedIds(true);
+    setSyncError(null);
+
+    try {
+      const res = await syncUnfetchedNetflixIds({
+        catalog,
+        libraryItems,
+        watchmodeApiKey: settings.watchmodeApiKey,
+        onProgress: (p) => {
+          setUnfetchedProgress(p);
+        },
+        onBatchUpdated: (updatedCatalog) => {
+          setCatalog([...updatedCatalog]);
+        },
+        shouldCancel: () => cancelUnfetchedSyncRef.current,
+      });
+
+      setCatalog(res.updatedCatalog);
+
+      // Refresh Watchmode quota status
+      const q = await getWatchmodeQuotaStatus(settings.watchmodeApiKey, true);
+      if (q) setQuotaInfo(q);
+
+      if (res.newIdsFound > 0) {
+        try {
+          confetti({ particleCount: 50, spread: 70, origin: { y: 0.6 } });
+        } catch {}
+      }
+
+      setTimeout(() => {
+        setIsMappingUnfetchedIds(false);
+      }, 3500);
+    } catch (err: any) {
+      console.error('Failed mapping unfetched Netflix IDs:', err);
+      setSyncError(err.message || 'Failed to map Netflix IDs.');
+      setIsMappingUnfetchedIds(false);
     }
   };
 
@@ -1447,6 +1509,76 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
         </div>
       )}
 
+      {/* Unfetched Netflix IDs Targeted Mapping Banner */}
+      {(isMappingUnfetchedIds || unfetchedProgress) && (
+        <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 border border-red-500/40 rounded-2xl p-4 shadow-2xl animate-fade-in space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="p-2.5 rounded-xl bg-red-600/20 text-[#E50914] border border-red-500/30">
+                <ShieldCheck className={`w-5 h-5 ${isMappingUnfetchedIds ? 'animate-pulse text-emerald-400' : 'text-[#E50914]'}`} />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="text-sm font-bold text-white">Targeted Netflix ID Fetcher</h4>
+                  <span className="text-[10px] font-mono font-bold bg-emerald-950 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500/30">
+                    {unfetchedProgress?.idsFound || 0} IDs Found
+                  </span>
+                  {unfetchedProgress?.quotaExceeded && (
+                    <span className="text-[10px] font-mono font-bold bg-amber-950 text-amber-300 px-2 py-0.5 rounded border border-amber-500/30">
+                      Quota Limit Reached
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-zinc-400 truncate mt-0.5">
+                  {unfetchedProgress?.message || 'Scanning and mapping direct Netflix IDs...'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-xs font-mono font-bold text-[#E50914] bg-red-950/60 px-2.5 py-1 rounded-lg border border-red-500/30">
+                {unfetchedProgress ? `${unfetchedProgress.processed} / ${unfetchedProgress.totalUnfetched}` : '0 / 0'}
+              </span>
+              {isMappingUnfetchedIds ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    cancelUnfetchedSyncRef.current = true;
+                  }}
+                  className="px-3 py-1 rounded-lg text-xs font-bold text-red-300 bg-red-950/80 border border-red-500/40 hover:bg-red-900 transition-colors"
+                  title="Stop fetching and keep all IDs found so far"
+                >
+                  Stop & Keep
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setUnfetchedProgress(null)}
+                  className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Progress Bar */}
+          <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
+            <div
+              className="bg-gradient-to-r from-[#E50914] to-emerald-500 h-full transition-all duration-300"
+              style={{
+                width: `${unfetchedProgress?.percent || 0}%`,
+              }}
+            />
+          </div>
+
+          <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono">
+            <span>Quota-Safe: Only scanning titles missing a direct Netflix ID</span>
+            <span>Progress: {unfetchedProgress?.percent || 0}%</span>
+          </div>
+        </div>
+      )}
+
       {/* Refresh / Library Sync Notification Banner */}
       {refreshNotification && (
         <div className="bg-amber-950/80 border border-amber-500/50 rounded-xl p-4 flex items-center gap-3 text-amber-200 text-xs animate-fade-in shadow-lg">
@@ -1597,6 +1729,45 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
             </div>
 
             <div className="space-y-3 pt-2">
+              {/* Only Fetch Unfetched IDs Action - Quota-Safe targeted prefetch */}
+              <div className="flex items-center justify-between p-4 bg-gradient-to-r from-red-950/40 via-zinc-800/70 to-zinc-800/60 border border-red-500/30 rounded-xl hover:border-red-500/50 transition-all shadow-lg">
+                <div className="space-y-0.5 max-w-[70%]">
+                  <div className="text-sm font-bold text-white flex items-center gap-2 flex-wrap">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    <span>Only Fetch Unfetched IDs</span>
+                    <span
+                      className={`px-2 py-0.5 text-[10px] font-mono font-bold rounded-full border ${
+                        unfetchedCount > 0
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                          : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                      }`}
+                    >
+                      {unfetchedCount > 0 ? `${unfetchedCount} Unfetched` : '✓ All IDs Mapped'}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-zinc-300 leading-relaxed">
+                    Scans your catalogue and queries Watchmode <strong>only</strong> for titles missing a direct Netflix ID. Strictly skips already-mapped titles so 0 quota credits are wasted.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSyncUnfetchedIds}
+                  disabled={isMappingUnfetchedIds || isSyncing || unfetchedCount === 0}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-[#E50914] hover:bg-red-600 text-white shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1.5 shrink-0"
+                >
+                  {isMappingUnfetchedIds ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Mapping...</span>
+                    </>
+                  ) : unfetchedCount === 0 ? (
+                    'All Mapped'
+                  ) : (
+                    'Fetch Unfetched IDs'
+                  )}
+                </button>
+              </div>
+
               {/* TMDB Enrichment Action */}
               <div className="flex items-center justify-between p-4 bg-zinc-800/60 border border-white/5 rounded-xl hover:border-purple-500/30 transition-all">
                 <div className="space-y-0.5 max-w-[70%]">

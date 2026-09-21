@@ -7,7 +7,7 @@ const DB_VERSION = 3;
 export const DEFAULT_SETTINGS: AppSettings = {
   tmdbApiKey: 'ec3ae1f9fde58cd94e4297c4cb3b77de',
   omdbApiKey: '',
-  watchmodeApiKey: 'rrr2KWqilxrgo1CObODcAeOcsxa7QkYF2yLec9zK',
+  watchmodeApiKey: '1VFSlNDS4wbjnZ16DOQkRPuc95swe4qnxZazWn17',
   capSeriesEpisodes: false, // Default: uncapped!
   maxEpisodesPerSeries: 10,
   playbackSpeed: 2.0, // Default home usage speed
@@ -161,7 +161,15 @@ export async function getSettings(): Promise<AppSettings> {
     const db = await getDB();
     const stored = await db.get('settings', 'app_settings');
     if (stored && stored.value) {
-      return { ...DEFAULT_SETTINGS, ...stored.value };
+      const loaded = { ...DEFAULT_SETTINGS, ...stored.value };
+      if (!loaded.watchmodeApiKey || loaded.watchmodeApiKey === 'rrr2KWqilxrgo1CObODcAeOcsxa7QkYF2yLec9zK') {
+        loaded.watchmodeApiKey = DEFAULT_SETTINGS.watchmodeApiKey;
+        await db.put('settings', { key: 'app_settings', value: loaded });
+        try {
+          localStorage.setItem('netflix_watchlist_settings', JSON.stringify(loaded));
+        } catch {}
+      }
+      return loaded;
     }
   } catch (err) {
     console.error('Failed to get settings from IDB:', err);
@@ -170,7 +178,13 @@ export async function getSettings(): Promise<AppSettings> {
   const raw = localStorage.getItem('netflix_watchlist_settings');
   if (raw) {
     try {
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+      const parsed = JSON.parse(raw);
+      const loaded = { ...DEFAULT_SETTINGS, ...parsed };
+      if (!loaded.watchmodeApiKey || loaded.watchmodeApiKey === 'rrr2KWqilxrgo1CObODcAeOcsxa7QkYF2yLec9zK') {
+        loaded.watchmodeApiKey = DEFAULT_SETTINGS.watchmodeApiKey;
+        localStorage.setItem('netflix_watchlist_settings', JSON.stringify(loaded));
+      }
+      return loaded;
     } catch {}
   }
   return { ...DEFAULT_SETTINGS };
