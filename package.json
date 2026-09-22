@@ -7,11 +7,13 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "test": "vitest run",
     "preview": "vite preview"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
+    "fuse.js": "^7.5.0",
     "idb": "^8.0.3",
     "lucide-react": "^1.47.0",
     "react": "^19.2.8",

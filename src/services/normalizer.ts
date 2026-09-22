@@ -968,3 +968,115 @@ export function normalizeCountriesList(countries?: string[]): string[] {
   return Array.from(set);
 }
 
+export function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export interface SearchableItem {
+  id?: string;
+  title?: string;
+  originalTitle?: string;
+  externalTitle?: string;
+  cast?: string[];
+  director?: string;
+  creator?: string;
+  genres?: string[];
+  countries?: string[];
+}
+
+/**
+ * Calculates search relevance score for a title against a user query.
+ *
+ * Scoring:
+ * - 1000: Exact title match
+ * - 800: Title starts with query
+ * - 600: Title contains query as a distinct whole word (\bquery\b)
+ * - 400: Title contains a word starting with query (\bquery)
+ * - 200: Title contains query as substring (if query length >= 3)
+ * - 150: Director / Creator match (word boundary only: e.g. "nolan" -> Christopher Nolan)
+ * - 100: Cast match (word boundary only: e.g. "tom" -> Tom Hanks; "argo" will NEVER match "Margot")
+ * - 50: Genre / Country match (word boundary only: e.g. "crime", "thriller", "india")
+ * - 0: No match (filtered out)
+ */
+export function calculateSearchRelevance(item: SearchableItem, query: string): number {
+  const q = query.trim().toLowerCase();
+  if (!q) return 0;
+
+  const rawTitle = (item.title || item.externalTitle || item.originalTitle || '').toLowerCase();
+  const origTitle = (item.originalTitle || '').toLowerCase();
+  const extTitle = (item.externalTitle || '').toLowerCase();
+
+  const escaped = escapeRegExp(q);
+  const wordBoundaryRegex = new RegExp(`\\b${escaped}`, 'i');
+  const exactWordRegex = new RegExp(`\\b${escaped}\\b`, 'i');
+
+  // 1. Exact title match
+  if (rawTitle === q || origTitle === q || extTitle === q) {
+    return 1000;
+  }
+
+  // 2. Title starts with query
+  if (
+    (rawTitle && rawTitle.startsWith(q)) ||
+    (origTitle && origTitle.startsWith(q)) ||
+    (extTitle && extTitle.startsWith(q))
+  ) {
+    return 800;
+  }
+
+  // 3. Title contains query as a whole distinct word
+  if (
+    (rawTitle && exactWordRegex.test(rawTitle)) ||
+    (origTitle && exactWordRegex.test(origTitle)) ||
+    (extTitle && exactWordRegex.test(extTitle))
+  ) {
+    return 600;
+  }
+
+  // 4. Title contains a word starting with query
+  if (
+    (rawTitle && wordBoundaryRegex.test(rawTitle)) ||
+    (origTitle && wordBoundaryRegex.test(origTitle)) ||
+    (extTitle && wordBoundaryRegex.test(extTitle))
+  ) {
+    return 400;
+  }
+
+  // 5. Title contains query as substring (only for queries with at least 3 characters)
+  if (
+    q.length >= 3 &&
+    ((rawTitle && rawTitle.includes(q)) ||
+      (origTitle && origTitle.includes(q)) ||
+      (extTitle && extTitle.includes(q)))
+  ) {
+    return 200;
+  }
+
+  // 6. Director or Creator match (strictly word boundary: e.g. "nolan" -> Christopher Nolan)
+  if (
+    (item.director && wordBoundaryRegex.test(item.director)) ||
+    (item.creator && wordBoundaryRegex.test(item.creator))
+  ) {
+    return 150;
+  }
+
+  // 7. Cast match (strictly word boundary: e.g. "tom" -> Tom Hanks; "argo" will NOT match "Margot")
+  if (item.cast && item.cast.length > 0) {
+    const castHit = item.cast.some((actor) => wordBoundaryRegex.test(actor));
+    if (castHit) {
+      return 100;
+    }
+  }
+
+  // 8. Genre or Country match (strictly word boundary: e.g. "crime", "india")
+  if (
+    (item.genres || []).some((g) => wordBoundaryRegex.test(g)) ||
+    (item.countries || []).some((c) => wordBoundaryRegex.test(c))
+  ) {
+    return 50;
+  }
+
+  return 0;
+}
+
+

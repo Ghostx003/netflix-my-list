@@ -438,18 +438,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
         </button>
 
-        <a
-          href="https://www.netflix.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => openNetflixInNewTab('https://www.netflix.com', e)}
-          className="flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all relative text-[#E50914] hover:text-red-400 no-underline cursor-pointer"
-          title="Open Netflix (opens in new tab)"
-        >
-          <Play className="w-5 h-5 mb-0.5 fill-current" />
-          <span className="text-[10px] tracking-tight font-bold">Netflix</span>
-        </a>
-
         {isAndroid && (
           <button
             onClick={onOpenSettings}

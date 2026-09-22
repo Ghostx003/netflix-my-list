@@ -48,7 +48,8 @@ import {
   getDiscoveryCatalogMeta,
   setDiscoveryCatalogMeta,
 } from '../services/db';
-import { normalizeCountryName } from '../services/normalizer';
+import { normalizeCountryName, calculateSearchRelevance } from '../services/normalizer';
+import { MovieSearchEngine } from '../services/searchEngine';
 import { DiscoveryCard } from './DiscoveryCard';
 import { DiscoveryDetailModal } from './DiscoveryDetailModal';
 import { TagExploreModal } from './TagExploreModal';
@@ -278,13 +279,30 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   const [countrySearchQuery, setCountrySearchQuery] = useState('');
   const [genreSearchQuery, setGenreSearchQuery] = useState('');
 
-  // Debounce search query
+  // Scoped MovieSearchEngine for Discovery catalog and library items
+  const searchEngine = useMemo(() => {
+    const engine = new MovieSearchEngine();
+    if (catalog.length > 0) {
+      engine.initializeIndex(catalog, libraryItems);
+    }
+    return engine;
+  }, [catalog, libraryItems]);
+
+  // Debounced smart search execution
+  const searchEngineResponse = useMemo(() => {
+    if (!debouncedQuery.trim() || !searchEngine.getIsReady()) {
+      return null;
+    }
+    return searchEngine.search(debouncedQuery, 0); // 0 = uncapped matches for pagination
+  }, [debouncedQuery, searchEngine]);
+
+  // Debounce search query (150ms for snappy responsiveness)
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedQuery(searchQuery.trim());
       setCurrentPage(1);
       setVisibleCount(ITEMS_PER_BATCH);
-    }, 300);
+    }, 150);
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
@@ -406,7 +424,11 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
           }
 
           if (localTitles && localTitles.length > 0) {
-            const enhanced = ensureTvThrillerGenres(localTitles);
+            const mergedWithSeeds = deduplicateDiscoveryTitles([
+              ...localTitles,
+              ...SEED_NETFLIX_INDIA_TITLES,
+            ]);
+            const enhanced = ensureTvThrillerGenres(mergedWithSeeds);
             setCatalog(enhanced);
             saveDiscoveryTitles(enhanced).catch(() => {});
           } else {
@@ -968,18 +990,23 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       result = result.filter((x) => !isWatchedInLibrary(x));
     }
 
-    // 2. Search query (Title, alternate/original title, genre, country, language, cast, director)
-    if (debouncedQuery) {
-      const q = debouncedQuery.toLowerCase();
-      result = result.filter((x) => {
-        const titleMatch = x.title.toLowerCase().includes(q);
-        const origMatch = x.originalTitle?.toLowerCase().includes(q);
-        const genreMatch = (x.genres || []).some((g) => g.toLowerCase().includes(q));
-        const countryMatch = (x.countries || []).some((c) => c.toLowerCase().includes(q));
-        const castMatch = (x.cast || []).some((actor) => actor.toLowerCase().includes(q));
-        const dirMatch = x.director?.toLowerCase().includes(q);
-        return titleMatch || origMatch || genreMatch || countryMatch || castMatch || dirMatch;
-      });
+    // 2. Search query with intelligent relevance scoring, fuzzy typo-tolerance, and year parsing
+    let searchRelevanceMap: Map<string, number> | null = null;
+    if (debouncedQuery && debouncedQuery.trim()) {
+      if (searchEngineResponse && searchEngineResponse.results.length > 0) {
+        searchRelevanceMap = new Map();
+        for (const r of searchEngineResponse.results) {
+          searchRelevanceMap.set(r.item.id, r.score);
+          if (r.item.netflixId) {
+            searchRelevanceMap.set(r.item.netflixId, r.score);
+          }
+        }
+        result = result.filter((item) => {
+          return searchRelevanceMap!.has(item.id) || (item.netflixId && searchRelevanceMap!.has(item.netflixId));
+        });
+      } else {
+        result = [];
+      }
     }
 
     // 3. European & Asian preset check
@@ -1113,6 +1140,14 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
 
     // 10. Sorting
     return [...result].sort((a, b) => {
+      if (searchRelevanceMap) {
+        const scoreA = searchRelevanceMap.get(a.id) || 0;
+        const scoreB = searchRelevanceMap.get(b.id) || 0;
+        if (scoreA !== scoreB) {
+          return scoreB - scoreA; // Higher relevance first
+        }
+      }
+
       let comparison = 0;
 
       if (sortBy === 'netflix_newest' || sortBy === 'recently_added') {
@@ -1160,6 +1195,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     isInLibrary,
     isWatchedInLibrary,
     debouncedQuery,
+    searchEngineResponse,
     activePreset,
     selectedCountries,
     excludedCountries,
@@ -2158,6 +2194,21 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               </button>
             )}
           </div>
+
+          {/* Smart "Did you mean?" Suggestion Banner */}
+          {searchEngineResponse?.didYouMean && (
+            <div className="flex items-center gap-2 px-3.5 py-2 bg-red-950/40 border border-red-500/30 rounded-xl text-xs text-gray-300 animate-in fade-in duration-200">
+              <Sparkles className="w-3.5 h-3.5 text-[#E50914] shrink-0" />
+              <span>Did you mean:</span>
+              <button
+                type="button"
+                onClick={() => setSearchQuery(searchEngineResponse.didYouMean!.suggestedTitle)}
+                className="text-white font-semibold underline decoration-[#E50914] decoration-2 underline-offset-2 hover:text-red-400 transition-colors cursor-pointer"
+              >
+                {searchEngineResponse.didYouMean.suggestedTitle}
+              </button>
+            </div>
+          )}
 
           {/* Primary Filter Grid / Row */}
           <div className="grid grid-cols-2 md:flex md:flex-wrap items-center gap-2">

@@ -870,7 +870,7 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
                       className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#E50914] hover:bg-red-700 text-white text-xs font-black shadow-lg shadow-red-600/30 transition-transform active:scale-95 cursor-pointer ml-auto"
                     >
                       <Play className="w-3.5 h-3.5 fill-white" />
-                      <span>▶ Netflix</span>
+                      <span>Netflix</span>
                     </button>
                   </div>
                 </div>

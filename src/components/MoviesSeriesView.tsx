@@ -3,7 +3,8 @@ import { Film, Tv, Search, RefreshCw, AlertCircle, ArrowUpDown, Sliders, Globe, 
 import { AppSettings, LibraryItem } from '../types';
 import { MovieCard } from './MovieCard';
 import { TvSeriesCard } from './TvSeriesCard';
-import { itemHasLanguage, normalizeCountryName } from '../services/normalizer';
+import { itemHasLanguage, normalizeCountryName, calculateSearchRelevance } from '../services/normalizer';
+import { MovieSearchEngine } from '../services/searchEngine';
 import { calculateSeriesRuntime } from '../services/analytics';
 import { CANONICAL_THEMES } from '../services/themeMapper';
 import {
@@ -96,6 +97,33 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
   const initialFilters = useMemo(() => parseInitialFilters(), []);
 
   const [searchQuery, setSearchQuery] = useState(initialFilters.searchQuery);
+  const [debouncedQuery, setDebouncedQuery] = useState(initialFilters.searchQuery);
+
+  // Debounce search query (150ms for snappy responsiveness)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(searchQuery.trim());
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Scoped MovieSearchEngine for user Library items
+  const searchEngine = useMemo(() => {
+    const engine = new MovieSearchEngine();
+    if (items.length > 0) {
+      engine.initializeIndex([], items);
+    }
+    return engine;
+  }, [items]);
+
+  // Debounced smart search execution
+  const searchEngineResponse = useMemo(() => {
+    if (!debouncedQuery.trim() || !searchEngine.getIsReady()) {
+      return null;
+    }
+    return searchEngine.search(debouncedQuery, 0); // 0 = all matches
+  }, [debouncedQuery, searchEngine]);
+
   const [filterType, setFilterType] = useState<'all' | 'with_trailers'>(initialFilters.filterType);
   const [mediaTypeFilter, setMediaTypeFilter] = useState<MediaFilterType>(initialFilters.mediaTypeFilter);
   const [statusFilter, setStatusFilter] = useState<StatusFilterType>(initialFilters.statusFilter);
@@ -477,18 +505,26 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
       result = result.filter((x) => itemHasLanguage(x, languageFilter));
     }
 
-    // 4. Search query (Title, alternate/original title, genre, country, language, cast, director)
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      result = result.filter((x) => {
-        const titleMatch = x.originalTitle.toLowerCase().includes(q) || (x.externalTitle && x.externalTitle.toLowerCase().includes(q));
-        const genreMatch = (x.genres || []).some((g) => g.toLowerCase().includes(q));
-        const countryMatch = (x.countries || []).some((c) => c.toLowerCase().includes(q));
-        const castMatch = (x.cast || []).some((actor) => actor.toLowerCase().includes(q));
-        const dirMatch = x.director?.toLowerCase().includes(q);
-        const creatorMatch = x.creator?.toLowerCase().includes(q);
-        return titleMatch || genreMatch || countryMatch || castMatch || dirMatch || creatorMatch;
-      });
+    // 4. Search query with intelligent relevance scoring, fuzzy typo-tolerance, and year parsing
+    let searchRelevanceMap: Map<string, number> | null = null;
+    if (debouncedQuery && debouncedQuery.trim()) {
+      if (searchEngineResponse && searchEngineResponse.results.length > 0) {
+        searchRelevanceMap = new Map();
+        for (const r of searchEngineResponse.results) {
+          searchRelevanceMap.set(r.item.id, r.score);
+          if (r.item.videoId) {
+            searchRelevanceMap.set(r.item.videoId, r.score);
+          }
+        }
+        result = result.filter((item) => {
+          return (
+            searchRelevanceMap!.has(item.id) ||
+            (item.videoId ? searchRelevanceMap!.has(item.videoId) : false)
+          );
+        });
+      } else {
+        result = [];
+      }
     }
 
     // 5. European & Asian preset check
@@ -576,6 +612,14 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
 
     // 12. Sort
     return [...result].sort((a, b) => {
+      if (searchRelevanceMap) {
+        const scoreA = searchRelevanceMap.get(a.id) || 0;
+        const scoreB = searchRelevanceMap.get(b.id) || 0;
+        if (scoreA !== scoreB) {
+          return scoreB - scoreA; // Higher relevance first
+        }
+      }
+
       let comparison = 0;
 
       if (sortBy === 'recently_added') {
@@ -617,7 +661,8 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
     mediaTypeFilter,
     statusFilter,
     languageFilter,
-    searchQuery,
+    debouncedQuery,
+    searchEngineResponse,
     filterType,
     activePreset,
     ignoreAnime,
@@ -722,6 +767,21 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
               </button>
             )}
           </div>
+
+          {/* Smart "Did you mean?" Suggestion Banner */}
+          {searchEngineResponse?.didYouMean && (
+            <div className="flex items-center gap-2 px-3.5 py-2 bg-red-950/40 border border-red-500/30 rounded-xl text-xs text-gray-300 animate-in fade-in duration-200">
+              <Sparkles className="w-3.5 h-3.5 text-[#E50914] shrink-0" />
+              <span>Did you mean:</span>
+              <button
+                type="button"
+                onClick={() => setSearchQuery(searchEngineResponse.didYouMean!.suggestedTitle)}
+                className="text-white font-semibold underline decoration-[#E50914] decoration-2 underline-offset-2 hover:text-red-400 transition-colors cursor-pointer"
+              >
+                {searchEngineResponse.didYouMean.suggestedTitle}
+              </button>
+            </div>
+          )}
 
           {/* Primary Filter Grid on mobile (2 cols on small screen, row on desktop) */}
           <div className="grid grid-cols-2 md:flex md:flex-wrap items-center gap-2">

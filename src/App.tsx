@@ -21,11 +21,52 @@ import { SurpriseMeModal } from './components/SurpriseMeModal';
 import { BackupModal } from './components/BackupModal';
 import { InfoView } from './components/InfoView';
 import { DiscoveryView } from './components/DiscoveryView';
+import { GlobalSearchModal } from './components/GlobalSearchModal';
+import { DiscoveryDetailModal } from './components/DiscoveryDetailModal';
+import { SEED_NETFLIX_INDIA_TITLES } from './services/discoveryService';
 import { DiscoveryTitle } from './types';
 
 type ActiveTabType = 'import' | 'movies-series' | 'still-watching' | 'dropped' | 'tracker' | 'discovery' | 'analytics' | 'info';
 
 const VALID_TABS: ActiveTabType[] = ['import', 'movies-series', 'still-watching', 'dropped', 'tracker', 'discovery', 'analytics', 'info'];
+
+function convertDiscoveryTitleToLibraryItem(discItem: DiscoveryTitle): LibraryItem {
+  return {
+    id: 'item_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+    originalTitle: discItem.title,
+    normalizedTitle: discItem.title.toLowerCase().trim(),
+    videoId: discItem.netflixId,
+    mediaType: discItem.mediaType,
+    status: 'matched',
+    viewingStatus: 'unwatched',
+    externalId: discItem.tmdbId,
+    externalTitle: discItem.title,
+    releaseYear: discItem.releaseYear,
+    releaseDate: discItem.releaseDate,
+    posterPath: discItem.posterPath,
+    backdropPath: discItem.backdropPath,
+    rating: discItem.rating,
+    imdbRating: discItem.imdbRating,
+    rottenTomatoesRating: discItem.rottenTomatoesRating,
+    voteCount: discItem.voteCount,
+    synopsis: discItem.synopsis,
+    genres: discItem.genres,
+    countries: discItem.countries,
+    languages: discItem.audioLanguages,
+    originalLanguage: discItem.originalLanguage,
+    runtimeMinutes: discItem.runtimeMinutes,
+    totalSeasons: discItem.totalSeasons,
+    totalEpisodes: discItem.totalEpisodes,
+    averageEpisodeMinutes: discItem.averageEpisodeMinutes,
+    episodes: discItem.episodes,
+    trailer: discItem.trailer,
+    cast: discItem.cast,
+    director: discItem.director,
+    creator: discItem.creator,
+    addedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTabType>(() => {
@@ -75,6 +116,11 @@ export const App: React.FC = () => {
   const [isSurpriseMeOpen, setIsSurpriseMeOpen] = useState(false);
   const [surpriseMeCustomPool, setSurpriseMeCustomPool] = useState<LibraryItem[] | null>(null);
 
+  // Global Movie & TV Search Modal state (Ctrl + Space)
+  const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
+  const [discoveryCatalog, setDiscoveryCatalog] = useState<DiscoveryTitle[]>([]);
+  const [discoveryTitleStack, setDiscoveryTitleStack] = useState<DiscoveryTitle[]>([]);
+
   // Drop modal state
   const [itemToDrop, setItemToDrop] = useState<LibraryItem | null>(null);
 
@@ -123,6 +169,9 @@ export const App: React.FC = () => {
         // Auto-enrich library items with enriched discovery catalog data if any matching items were enriched
         try {
           const discoveryTitles = await getAllDiscoveryTitles();
+          const loadedCatalog = (discoveryTitles && discoveryTitles.length > 0) ? discoveryTitles : SEED_NETFLIX_INDIA_TITLES;
+          setDiscoveryCatalog(loadedCatalog);
+
           if (discoveryTitles && discoveryTitles.length > 0) {
             const { updatedItems, upgradedCount } = syncEnrichedDiscoveryTitlesIntoLibrary(validItems, discoveryTitles);
             if (upgradedCount > 0) {
@@ -425,6 +474,38 @@ export const App: React.FC = () => {
   const handleSelectMatch = async (updatedItem: LibraryItem) => {
     setMatchingItem(null);
     await handleUpdateItem(updatedItem);
+  };
+
+  // Global Ctrl + Space keyboard shortcut to open/toggle search from anywhere
+  useEffect(() => {
+    const handleGlobalSearchKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.code === 'Space' || e.key === ' ')) {
+        e.preventDefault();
+        setIsGlobalSearchOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalSearchKey);
+    return () => window.removeEventListener('keydown', handleGlobalSearchKey);
+  }, []);
+
+  // Opens appropriate detail modal for item selected from search
+  const handleOpenSearchItemDetail = (item: DiscoveryTitle | LibraryItem) => {
+    const existingLibItem = items.find(
+      (i) =>
+        i.id === item.id ||
+        ('netflixId' in item && item.netflixId && i.videoId === item.netflixId) ||
+        ('videoId' in item && item.videoId && i.videoId === item.videoId) ||
+        ('tmdbId' in item && item.tmdbId && i.externalId === item.tmdbId) ||
+        i.originalTitle.toLowerCase().trim() === (('title' in item ? item.title : item.originalTitle) || '').toLowerCase().trim()
+    );
+
+    if (existingLibItem) {
+      setSelectedDetailItem(existingLibItem);
+    } else if ('title' in item) {
+      setDiscoveryTitleStack([item as DiscoveryTitle]);
+    } else {
+      setSelectedDetailItem(item as LibraryItem);
+    }
   };
 
   if (loading) {
@@ -880,6 +961,94 @@ export const App: React.FC = () => {
         onClose={() => setIsBackupOpen(false)}
         onRefreshLibrary={handleRefreshLibrary}
       />
+
+      {/* Modal: Global Movie & TV Search (Ctrl + Space) */}
+      <GlobalSearchModal
+        isOpen={isGlobalSearchOpen}
+        onClose={() => setIsGlobalSearchOpen(false)}
+        catalog={discoveryCatalog}
+        libraryItems={items}
+        onOpenItemDetail={handleOpenSearchItemDetail}
+        onAddToLibrary={async (item) => {
+          if ('title' in item) {
+            const newLibItem = convertDiscoveryTitleToLibraryItem(item as DiscoveryTitle);
+            await handleAddNewItem(newLibItem);
+            setSyncToast({
+              message: `Added "${item.title}" to your library!`,
+              type: 'success',
+            });
+            setTimeout(() => setSyncToast(null), 3000);
+          } else {
+            await handleAddNewItem(item as LibraryItem);
+            setSyncToast({
+              message: `Added "${item.externalTitle || item.originalTitle}" to your library!`,
+              type: 'success',
+            });
+            setTimeout(() => setSyncToast(null), 3000);
+          }
+        }}
+        isInLibrary={(item) =>
+          items.some((i) => {
+            if ('title' in item) {
+              const d = item as DiscoveryTitle;
+              return (
+                (d.netflixId && i.videoId === d.netflixId) ||
+                (d.tmdbId && i.externalId === d.tmdbId) ||
+                i.originalTitle.toLowerCase().trim() === d.title.toLowerCase().trim()
+              );
+            } else {
+              const l = item as LibraryItem;
+              return i.id === l.id || (l.videoId && i.videoId === l.videoId);
+            }
+          })
+        }
+      />
+
+      {/* Modal: Discovery Title Details (for catalog items opened via Global Search) */}
+      {discoveryTitleStack.length > 0 && (
+        <DiscoveryDetailModal
+          titleStack={discoveryTitleStack}
+          catalog={discoveryCatalog}
+          onClose={() => setDiscoveryTitleStack([])}
+          onPushTitle={(t) => setDiscoveryTitleStack((prev) => [...prev, t])}
+          onPopTitle={() => setDiscoveryTitleStack((prev) => prev.slice(0, -1))}
+          onAddToLibrary={async (discItem) => {
+            const newItem = convertDiscoveryTitleToLibraryItem(discItem);
+            await handleAddNewItem(newItem);
+            setSyncToast({
+              message: `Added "${discItem.title}" to your library!`,
+              type: 'success',
+            });
+            setTimeout(() => setSyncToast(null), 3000);
+          }}
+          onStartWatching={async (discItem) => {
+            const newItem = convertDiscoveryTitleToLibraryItem(discItem);
+            newItem.viewingStatus = 'still_watching';
+            newItem.isCompleted = false;
+            newItem.progress = { percentage: 1, watchedMinutes: 1 };
+            await handleAddNewItem(newItem);
+            setSyncToast({
+              message: `Started watching "${discItem.title}"!`,
+              type: 'success',
+            });
+            setTimeout(() => setSyncToast(null), 3000);
+          }}
+          onGoToLibrary={() => {
+            setDiscoveryTitleStack([]);
+            handleTabChange('movies-series');
+          }}
+          isInLibrary={(discItem) =>
+            items.some(
+              (i) =>
+                (discItem.netflixId && i.videoId === discItem.netflixId) ||
+                (discItem.tmdbId && i.externalId === discItem.tmdbId) ||
+                i.originalTitle.toLowerCase().trim() === discItem.title.toLowerCase().trim()
+            )
+          }
+          settings={settings}
+          libraryItems={items}
+        />
+      )}
 
       {/* Sync Notification Toast */}
       {syncToast && (
