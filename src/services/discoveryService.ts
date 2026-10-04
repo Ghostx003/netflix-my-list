@@ -1,8 +1,9 @@
 import { DiscoveryTitle, EpisodeInfo, TrailerInfo, LibraryItem } from '../types';
 import { DEFAULT_PUBLIC_TMDB_KEY, fetchOMDBMetadata, selectBestTrailer } from './tmdb';
-import { getCachedMetadata, setCachedMetadata, saveDiscoveryTitles, getAllDiscoveryTitles } from './db';
+import { getCachedMetadata, setCachedMetadata, saveDiscoveryTitles, getAllDiscoveryTitles, getDiscoveryCatalogMeta, setDiscoveryCatalogMeta } from './db';
 import { normalizeCountriesList, normalizeTitle, createDuplicateKey, NETFLIX_HINDI_DUBBED_TITLES } from './normalizer';
 import { extractThemesFromKeywords, generateFallbackTagline } from './themeMapper';
+import { enrichDiscoveryTitleWithTMDBDetails } from './tmdbEnrichmentService';
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 
@@ -3719,3 +3720,598 @@ export async function syncUnfetchedNetflixIds(options: {
     wasCancelled,
   };
 }
+
+/**
+ * Checks whether a Discovery title card is incomplete or missing essential details:
+ * - Missing or placeholder poster thumbnail
+ * - Missing synopsis / overview
+ * - Missing themes
+ * - Missing genre tags
+ * - Missing director (for movies)
+ * - Missing creator/cast (for TV series)
+ * - Missing audio languages
+ * - Missing TMDB enrichment completion status
+ */
+export function isDiscoveryCardIncomplete(t: DiscoveryTitle): boolean {
+  if (!t.posterPath || t.posterPath.includes('placeholder') || t.posterPath.includes('via.placeholder')) {
+    return true;
+  }
+  if (!t.synopsis || t.synopsis.trim() === '') {
+    return true;
+  }
+  if (!t.themes || t.themes.length === 0) {
+    return true;
+  }
+  if (!t.genres || t.genres.length === 0) {
+    return true;
+  }
+  if (t.mediaType === 'movie' && !t.director) {
+    return true;
+  }
+  if (t.mediaType === 'tv' && !t.creator && (!t.cast || t.cast.length === 0)) {
+    return true;
+  }
+  if (!t.audioLanguages || t.audioLanguages.length === 0) {
+    return true;
+  }
+  if (!t.tmdbEnrichment || t.tmdbEnrichment.status !== 'completed') {
+    return true;
+  }
+  return false;
+}
+
+export interface UnifiedNetflixSyncOptions {
+  existingTitles: DiscoveryTitle[];
+  libraryItems?: LibraryItem[];
+  months?: number; // 1 to 120 months (1 month to 10 years). Default 3 if no lastSync
+  tmdbApiKey?: string;
+  watchmodeApiKey?: string;
+  enrichIncompleteCards?: boolean;
+  onProgress: (p: UnifiedSyncProgress) => void;
+  onBatchUpdated?: (updatedCatalog: DiscoveryTitle[]) => void;
+  shouldCancel?: () => boolean;
+}
+
+export interface UnifiedSyncProgress {
+  phase: 'init' | 'tmdb_discover' | 'watchmode_discover' | 'deduplicating' | 'enriching' | 'saving' | 'completed' | 'cancelled' | 'error';
+  message: string;
+  currentTitle?: string;
+  percentage: number;
+  totalToProcess: number;
+  processedCount: number;
+  newTitlesDiscovered: number;
+  newTitlesAdded: number;
+  incompleteEnriched: number;
+  skippedComplete: number;
+}
+
+/**
+ * Unified "Sync with Netflix" Pipeline:
+ * Single, clutter-free engine combining TMDB Discover and Watchmode India catalog.
+ * - Fetches movies & TV shows from both APIs from the specified time window (slider: 1 mo to 10 yrs, default 3 mo).
+ * - Deduplicates incoming candidates: if TMDB found a movie and Watchmode also found it, retains strictly 1 unique copy.
+ * - Compares against local DB:
+ *   * New unique titles are added.
+ *   * Any existing titles with missing thumbnails, incomplete cards, or missing themes/directors/audio tracks are auto-enriched.
+ * - Fully enriches each card (themes, audio tracks, origin countries, genre tags, director, creator, cast, ratings, high-res posters).
+ * - Streams live updates to the UI, updates quota, and records the new sync timestamp.
+ */
+export async function syncWithNetflixUnified(
+  options: UnifiedNetflixSyncOptions
+): Promise<{
+  allTitles: DiscoveryTitle[];
+  newTitlesAdded: number;
+  incompleteEnriched: number;
+  skippedComplete: number;
+  wasCancelled: boolean;
+}> {
+  const {
+    existingTitles,
+    libraryItems = [],
+    months = 3,
+    tmdbApiKey,
+    watchmodeApiKey,
+    enrichIncompleteCards = true,
+    onProgress,
+    onBatchUpdated,
+    shouldCancel,
+  } = options;
+
+  const tmdbKey = tmdbApiKey || DEFAULT_PUBLIC_TMDB_KEY;
+  const wmKey = watchmodeApiKey || DEFAULT_WATCHMODE_KEY;
+  const monthsToSync = Math.max(1, Math.min(120, months));
+
+  // Compute cutoff date from slider months
+  const cutoffDate = new Date();
+  cutoffDate.setMonth(cutoffDate.getMonth() - monthsToSync);
+  const cutoffIso = cutoffDate.toISOString().slice(0, 10);
+  const cutoffYear = cutoffDate.getFullYear();
+
+  onProgress({
+    phase: 'init',
+    message: `Starting unified Netflix sync for the last ${monthsToSync} month(s) (since ${cutoffIso})...`,
+    percentage: 2,
+    totalToProcess: 0,
+    processedCount: 0,
+    newTitlesDiscovered: 0,
+    newTitlesAdded: 0,
+    incompleteEnriched: 0,
+    skippedComplete: 0,
+  });
+
+  const discoveredRawTitles: DiscoveryTitle[] = [];
+
+  // 1. DISCOVER FROM TMDB (Movies and TV Shows in Netflix India region)
+  onProgress({
+    phase: 'tmdb_discover',
+    message: `Discovering Netflix India movies & series from TMDB (released since ${cutoffIso})...`,
+    percentage: 8,
+    totalToProcess: 0,
+    processedCount: 0,
+    newTitlesDiscovered: 0,
+    newTitlesAdded: 0,
+    incompleteEnriched: 0,
+    skippedComplete: 0,
+  });
+
+  try {
+    const tmdbUrls: Array<{ url: string; type: 'movie' | 'tv' }> = [];
+    const pagesPerCategory = monthsToSync > 12 ? 4 : 3;
+
+    for (let p = 1; p <= pagesPerCategory; p++) {
+      // Recent movies
+      tmdbUrls.push({
+        url: `${TMDB_BASE_URL}/discover/movie?api_key=${tmdbKey}&watch_region=IN&with_watch_providers=8&primary_release_date.gte=${cutoffIso}&sort_by=primary_release_date.desc&page=${p}`,
+        type: 'movie',
+      });
+      // Popular movies
+      tmdbUrls.push({
+        url: `${TMDB_BASE_URL}/discover/movie?api_key=${tmdbKey}&watch_region=IN&with_watch_providers=8&primary_release_date.gte=${cutoffIso}&sort_by=popularity.desc&page=${p}`,
+        type: 'movie',
+      });
+      // Recent TV series
+      tmdbUrls.push({
+        url: `${TMDB_BASE_URL}/discover/tv?api_key=${tmdbKey}&watch_region=IN&with_watch_providers=8&first_air_date.gte=${cutoffIso}&sort_by=first_air_date.desc&page=${p}`,
+        type: 'tv',
+      });
+      // Popular TV series
+      tmdbUrls.push({
+        url: `${TMDB_BASE_URL}/discover/tv?api_key=${tmdbKey}&watch_region=IN&with_watch_providers=8&first_air_date.gte=${cutoffIso}&sort_by=popularity.desc&page=${p}`,
+        type: 'tv',
+      });
+    }
+
+    const tmdbResponses = await Promise.all(
+      tmdbUrls.map(async (u) => {
+        try {
+          const res = await fetch(u.url);
+          if (!res.ok) return [];
+          const data = await res.json();
+          if (!Array.isArray(data?.results)) return [];
+          return data.results.map((r: any) => {
+            const norm = normalizeTmdbToDiscovery(r, u.type);
+            norm.netflixIndiaAvailable = true;
+            norm.isNetflixIndiaVerified = true;
+            norm.availabilityState = 'available';
+            norm.availabilitySource = 'Netflix India';
+            return norm;
+          });
+        } catch {
+          return [];
+        }
+      })
+    );
+
+    tmdbResponses.forEach((list) => {
+      discoveredRawTitles.push(...list);
+    });
+  } catch (err) {
+    console.warn('[syncWithNetflixUnified] TMDB discover encountered a minor issue:', err);
+  }
+
+  // 2. DISCOVER FROM WATCHMODE (Netflix India Source ID 203)
+  if (wmKey) {
+    onProgress({
+      phase: 'watchmode_discover',
+      message: `Fetching Netflix India titles from Watchmode (year >= ${cutoffYear})...`,
+      percentage: 20,
+      totalToProcess: 0,
+      processedCount: 0,
+      newTitlesDiscovered: discoveredRawTitles.length,
+      newTitlesAdded: 0,
+      incompleteEnriched: 0,
+      skippedComplete: 0,
+    });
+
+    try {
+      const wmPagesToScan = monthsToSync > 24 ? 4 : 2;
+      for (let p = 1; p <= wmPagesToScan; p++) {
+        if (shouldCancel && shouldCancel()) break;
+        const pageData = await fetchWatchmodePage(p, 250, wmKey);
+        if (!Array.isArray(pageData?.titles) || pageData.titles.length === 0) break;
+
+        let passedCutoffCount = 0;
+        for (const raw of pageData.titles) {
+          // Filter by year if available
+          if (!raw.year || raw.year >= cutoffYear) {
+            const norm = normalizeWatchmodeToDiscovery(raw);
+            norm.netflixIndiaAvailable = true;
+            norm.isNetflixIndiaVerified = true;
+            norm.availabilityState = 'available';
+            norm.availabilitySource = 'Watchmode (Netflix India)';
+            discoveredRawTitles.push(norm);
+            passedCutoffCount++;
+          }
+        }
+
+        // If very few titles on this page are recent, we can stop scanning older pages
+        if (passedCutoffCount === 0 && p > 1) break;
+        await sleep(150);
+      }
+    } catch (err) {
+      console.warn('[syncWithNetflixUnified] Watchmode discover encountered a minor issue:', err);
+    }
+  }
+
+  // Also include any user library items that might not yet be in discovery catalogue
+  if (libraryItems && libraryItems.length > 0) {
+    for (const lib of libraryItems) {
+      if (lib.originalTitle || lib.externalTitle) {
+        discoveredRawTitles.push({
+          id: `lib_${lib.id}`,
+          title: lib.externalTitle || lib.originalTitle,
+          originalTitle: lib.originalTitle,
+          mediaType: lib.mediaType === 'tv' ? 'tv' : 'movie',
+          releaseYear: lib.releaseYear,
+          releaseDate: lib.releaseDate,
+          posterPath: lib.posterPath,
+          backdropPath: lib.backdropPath,
+          rating: lib.rating,
+          imdbRating: lib.imdbRating,
+          rottenTomatoesRating: lib.rottenTomatoesRating,
+          synopsis: lib.synopsis,
+          genres: lib.genres || [],
+          countries: lib.countries || [],
+          originalLanguage: lib.originalLanguage,
+          audioLanguages: lib.languages || [],
+          netflixId: lib.videoId,
+          cast: lib.cast,
+          director: lib.director,
+          creator: lib.creator,
+          tagline: lib.tagline,
+          themes: lib.themes,
+          isNetflixIndiaVerified: true,
+          netflixIndiaAvailable: true,
+          availabilityState: 'available',
+          availabilitySource: 'User Library (Netflix)',
+        });
+      }
+    }
+  }
+
+  // 3. CROSS-API DEDUPLICATION: TMDB vs Watchmode candidate merge
+  onProgress({
+    phase: 'deduplicating',
+    message: 'Merging and deduplicating unique candidates from TMDB & Watchmode...',
+    percentage: 30,
+    totalToProcess: discoveredRawTitles.length,
+    processedCount: 0,
+    newTitlesDiscovered: discoveredRawTitles.length,
+    newTitlesAdded: 0,
+    incompleteEnriched: 0,
+    skippedComplete: 0,
+  });
+
+  const candidatesMap = new Map<string, DiscoveryTitle>();
+  const candidateIndex = new Map<string, string>(); // Key -> candidateId
+
+  function registerCandidateIndex(t: DiscoveryTitle, id: string) {
+    if (t.tmdbId) candidateIndex.set(`tmdb_${t.mediaType}_${t.tmdbId}`, id);
+    if (t.imdbId) candidateIndex.set(`imdb_${t.imdbId}`, id);
+    if (t.watchmodeId) candidateIndex.set(`wm_${t.watchmodeId}`, id);
+    if (t.netflixId && /^\d+$/.test(t.netflixId.trim())) candidateIndex.set(`netflix_${t.netflixId.trim()}`, id);
+    const norm = normalizeTitle(t.title);
+    if (norm) {
+      if (t.releaseYear) candidateIndex.set(`title_${norm}_${t.releaseYear}`, id);
+      candidateIndex.set(`title_${norm}_0`, id);
+    }
+  }
+
+  function findCandidateMatch(t: DiscoveryTitle): string | undefined {
+    if (t.tmdbId && candidateIndex.has(`tmdb_${t.mediaType}_${t.tmdbId}`)) {
+      return candidateIndex.get(`tmdb_${t.mediaType}_${t.tmdbId}`);
+    }
+    if (t.imdbId && candidateIndex.has(`imdb_${t.imdbId}`)) {
+      return candidateIndex.get(`imdb_${t.imdbId}`);
+    }
+    if (t.watchmodeId && candidateIndex.has(`wm_${t.watchmodeId}`)) {
+      return candidateIndex.get(`wm_${t.watchmodeId}`);
+    }
+    if (t.netflixId && /^\d+$/.test(t.netflixId.trim()) && candidateIndex.has(`netflix_${t.netflixId.trim()}`)) {
+      return candidateIndex.get(`netflix_${t.netflixId.trim()}`);
+    }
+    const norm = normalizeTitle(t.title);
+    if (norm) {
+      if (t.releaseYear && candidateIndex.has(`title_${norm}_${t.releaseYear}`)) {
+        return candidateIndex.get(`title_${norm}_${t.releaseYear}`);
+      }
+      if (candidateIndex.has(`title_${norm}_0`)) {
+        return candidateIndex.get(`title_${norm}_0`);
+      }
+    }
+    return undefined;
+  }
+
+  for (const raw of discoveredRawTitles) {
+    const matchId = findCandidateMatch(raw);
+    if (matchId) {
+      // Merge into single unique candidate: combine IDs and retain richest metadata
+      const target = candidatesMap.get(matchId)!;
+      if (!target.watchmodeId && raw.watchmodeId) target.watchmodeId = raw.watchmodeId;
+      if (!target.tmdbId && raw.tmdbId) target.tmdbId = raw.tmdbId;
+      if (!target.imdbId && raw.imdbId) target.imdbId = raw.imdbId;
+      if (!target.netflixId && raw.netflixId) target.netflixId = raw.netflixId;
+      if (!target.posterPath && raw.posterPath) target.posterPath = raw.posterPath;
+      if (!target.backdropPath && raw.backdropPath) target.backdropPath = raw.backdropPath;
+      if (!target.synopsis && raw.synopsis) target.synopsis = raw.synopsis;
+      if (!target.rating && raw.rating) target.rating = raw.rating;
+      if (!target.releaseYear && raw.releaseYear) target.releaseYear = raw.releaseYear;
+      if (!target.releaseDate && raw.releaseDate) target.releaseDate = raw.releaseDate;
+      if (raw.genres && raw.genres.length > 0) {
+        target.genres = Array.from(new Set([...(target.genres || []), ...raw.genres]));
+      }
+      registerCandidateIndex(target, target.id);
+    } else {
+      candidatesMap.set(raw.id, raw);
+      registerCandidateIndex(raw, raw.id);
+    }
+  }
+
+  // 4. MAP AGAINST LOCAL DATABASE
+  const dbTitlesMap = new Map<string, DiscoveryTitle>();
+  const dbIndex = new Map<string, string>(); // Key -> dbId
+
+  function registerDbIndex(t: DiscoveryTitle) {
+    dbTitlesMap.set(t.id, t);
+    if (t.tmdbId) dbIndex.set(`tmdb_${t.mediaType}_${t.tmdbId}`, t.id);
+    if (t.imdbId) dbIndex.set(`imdb_${t.imdbId}`, t.id);
+    if (t.watchmodeId) dbIndex.set(`wm_${t.watchmodeId}`, t.id);
+    if (t.netflixId && /^\d+$/.test(t.netflixId.trim())) dbIndex.set(`netflix_${t.netflixId.trim()}`, t.id);
+    const norm = normalizeTitle(t.title);
+    if (norm) {
+      if (t.releaseYear) dbIndex.set(`title_${norm}_${t.releaseYear}`, t.id);
+      dbIndex.set(`title_${norm}_0`, t.id);
+    }
+  }
+
+  for (const existing of existingTitles) {
+    registerDbIndex(existing);
+  }
+
+  function findDbMatch(t: DiscoveryTitle): DiscoveryTitle | undefined {
+    if (t.tmdbId && dbIndex.has(`tmdb_${t.mediaType}_${t.tmdbId}`)) {
+      return dbTitlesMap.get(dbIndex.get(`tmdb_${t.mediaType}_${t.tmdbId}`)!);
+    }
+    if (t.imdbId && dbIndex.has(`imdb_${t.imdbId}`)) {
+      return dbTitlesMap.get(dbIndex.get(`imdb_${t.imdbId}`)!);
+    }
+    if (t.watchmodeId && dbIndex.has(`wm_${t.watchmodeId}`)) {
+      return dbTitlesMap.get(dbIndex.get(`wm_${t.watchmodeId}`)!);
+    }
+    if (t.netflixId && /^\d+$/.test(t.netflixId.trim()) && dbIndex.has(`netflix_${t.netflixId.trim()}`)) {
+      return dbTitlesMap.get(dbIndex.get(`netflix_${t.netflixId.trim()}`)!);
+    }
+    const norm = normalizeTitle(t.title);
+    if (norm) {
+      if (t.releaseYear && dbIndex.has(`title_${norm}_${t.releaseYear}`)) {
+        return dbTitlesMap.get(dbIndex.get(`title_${norm}_${t.releaseYear}`)!);
+      }
+      if (dbIndex.has(`title_${norm}_0`)) {
+        return dbTitlesMap.get(dbIndex.get(`title_${norm}_0`)!);
+      }
+    }
+    return undefined;
+  }
+
+  const titlesToEnrich: Array<{ item: DiscoveryTitle; isNew: boolean }> = [];
+  const queuedIds = new Set<string>();
+  let skippedComplete = 0;
+
+  // Check discovered candidates against local DB
+  for (const candidate of candidatesMap.values()) {
+    const dbMatch = findDbMatch(candidate);
+    if (dbMatch) {
+      // Merge candidate IDs into existing DB match if DB was missing them
+      let updatedIds = false;
+      if (!dbMatch.watchmodeId && candidate.watchmodeId) {
+        dbMatch.watchmodeId = candidate.watchmodeId;
+        updatedIds = true;
+      }
+      if (!dbMatch.tmdbId && candidate.tmdbId) {
+        dbMatch.tmdbId = candidate.tmdbId;
+        updatedIds = true;
+      }
+      if (!dbMatch.imdbId && candidate.imdbId) {
+        dbMatch.imdbId = candidate.imdbId;
+        updatedIds = true;
+      }
+      if (!dbMatch.netflixId && candidate.netflixId) {
+        dbMatch.netflixId = candidate.netflixId;
+        updatedIds = true;
+      }
+
+      // Check if card is incomplete or missing thumbnail
+      if (isDiscoveryCardIncomplete(dbMatch) || updatedIds) {
+        if (!queuedIds.has(dbMatch.id)) {
+          queuedIds.add(dbMatch.id);
+          titlesToEnrich.push({ item: dbMatch, isNew: false });
+        }
+      } else {
+        skippedComplete++;
+      }
+    } else {
+      // Brand new unique title
+      if (!queuedIds.has(candidate.id)) {
+        queuedIds.add(candidate.id);
+        titlesToEnrich.push({ item: candidate, isNew: true });
+      }
+    }
+  }
+
+  // Also scan all existing DB titles for incomplete cards or missing thumbnails
+  if (enrichIncompleteCards) {
+    for (const dbItem of dbTitlesMap.values()) {
+      if (!queuedIds.has(dbItem.id) && isDiscoveryCardIncomplete(dbItem)) {
+        queuedIds.add(dbItem.id);
+        titlesToEnrich.push({ item: dbItem, isNew: false });
+      }
+    }
+  }
+
+  // 5. ENRICHMENT PIPELINE: Themes, Audio Tracks, Country, Genre Tags, Directors/Creators, Posters
+  let newTitlesAdded = 0;
+  let incompleteEnriched = 0;
+  let processedCount = 0;
+  let wasCancelled = false;
+
+  const totalToEnrich = titlesToEnrich.length;
+  const BATCH_SIZE = 4;
+  const currentBatchToPersist: DiscoveryTitle[] = [];
+
+  for (let i = 0; i < totalToEnrich; i++) {
+    if (shouldCancel && shouldCancel()) {
+      wasCancelled = true;
+      break;
+    }
+
+    const { item, isNew } = titlesToEnrich[i];
+    processedCount++;
+
+    const pct = Math.min(99, Math.round(30 + (processedCount / Math.max(1, totalToEnrich)) * 65));
+    onProgress({
+      phase: 'enriching',
+      message: `Enriching (${processedCount}/${totalToEnrich}): ${item.title}...`,
+      currentTitle: item.title,
+      percentage: pct,
+      totalToProcess: totalToEnrich,
+      processedCount,
+      newTitlesDiscovered: candidatesMap.size,
+      newTitlesAdded,
+      incompleteEnriched,
+      skippedComplete,
+    });
+
+    try {
+      // 1. Comprehensive TMDB metadata enrichment (genres, themes, taglines, ratings, cast, director, creator, trailer, episodes)
+      let enriched = await enrichDiscoveryTitleWithTMDBDetails(item, tmdbKey);
+
+      // 2. Resolve verified direct Netflix ID if missing or non-numeric
+      if (!enriched.netflixId || !/^\d+$/.test(enriched.netflixId.trim())) {
+        try {
+          const resolvedNetflixId = await resolveNetflixIdForTitle(enriched, wmKey);
+          if (resolvedNetflixId) {
+            enriched.netflixId = resolvedNetflixId;
+          }
+        } catch {}
+      }
+
+      // 3. Strict Audio Tracks check (Hindi & English tracks)
+      const normTitle = normalizeTitle(enriched.title);
+      const origLang = (enriched.originalLanguage || '').toLowerCase();
+      const spokenLanguages = enriched.audioLanguages || [];
+
+      if (origLang === 'hi' || NETFLIX_HINDI_DUBBED_TITLES.has(normTitle)) {
+        enriched.hindiAudio = true;
+        if (!spokenLanguages.includes('hi')) spokenLanguages.push('hi');
+      }
+      if (origLang === 'en' || spokenLanguages.includes('en')) {
+        enriched.englishAudio = true;
+      }
+      enriched.audioLanguages = spokenLanguages;
+
+      // 4. Mark availability
+      enriched.isNetflixIndiaVerified = true;
+      enriched.netflixIndiaAvailable = true;
+      enriched.availabilityState = 'available';
+      enriched.availabilitySource = 'Netflix India';
+
+      // Save into DB map
+      registerDbIndex(enriched);
+      currentBatchToPersist.push(enriched);
+
+      if (isNew) {
+        newTitlesAdded++;
+      } else {
+        incompleteEnriched++;
+      }
+
+      // Persist in small batches to IDB and notify UI
+      if (currentBatchToPersist.length >= BATCH_SIZE || i === totalToEnrich - 1) {
+        await saveDiscoveryTitles([...currentBatchToPersist]);
+        onBatchUpdated?.(Array.from(dbTitlesMap.values()));
+        currentBatchToPersist.length = 0;
+      }
+
+      await sleep(100);
+    } catch (err) {
+      console.warn(`[syncWithNetflixUnified] Failed enriching "${item.title}":`, err);
+      // Even if detailed enrichment fails, ensure it is registered and preserved
+      registerDbIndex(item);
+    }
+  }
+
+  // 6. SAVE COMPLETE CATALOG & WRITE NEW SYNC TIMESTAMP
+  const allFinalTitles = Array.from(dbTitlesMap.values());
+  await saveDiscoveryTitles(allFinalTitles);
+
+  const syncIso = new Date().toISOString();
+  const syncIsoFormatted = new Date().toLocaleString('en-IN', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+
+  // Check quota status if Watchmode was used
+  let quotaStatus = null;
+  if (wmKey) {
+    try {
+      quotaStatus = await getWatchmodeQuotaStatus(wmKey);
+    } catch {}
+  }
+
+  await setDiscoveryCatalogMeta({
+    lastSync: syncIso,
+    lastSyncFormatted: syncIsoFormatted,
+    totalAvailable: allFinalTitles.filter((t) => t.availabilityState === 'available').length,
+    totalTitles: allFinalTitles.length,
+    watchmodeQuota: quotaStatus?.quota,
+    watchmodeQuotaUsed: quotaStatus?.quotaUsed,
+  });
+
+  try {
+    localStorage.setItem('discovery_last_sync_iso', syncIso);
+    localStorage.setItem('discovery_last_sync_time', syncIsoFormatted);
+  } catch {}
+
+  onProgress({
+    phase: wasCancelled ? 'cancelled' : 'completed',
+    message: wasCancelled
+      ? `⏸️ Sync paused: Added ${newTitlesAdded} new title(s), enriched ${incompleteEnriched} incomplete card(s).`
+      : `✨ Sync complete! Added ${newTitlesAdded} new titles, fully enriched ${incompleteEnriched} cards, and verified ${allFinalTitles.length} total titles.`,
+    percentage: 100,
+    totalToProcess: totalToEnrich,
+    processedCount,
+    newTitlesDiscovered: candidatesMap.size,
+    newTitlesAdded,
+    incompleteEnriched,
+    skippedComplete,
+  });
+
+  return {
+    allTitles: allFinalTitles,
+    newTitlesAdded,
+    incompleteEnriched,
+    skippedComplete,
+    wasCancelled,
+  };
+}
+

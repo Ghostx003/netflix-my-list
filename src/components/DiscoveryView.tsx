@@ -33,6 +33,7 @@ import {
   syncNetflixIndiaCatalog,
   syncAndEnrichLibraryItemsToDiscovery,
   syncUnfetchedNetflixIds,
+  syncWithNetflixUnified,
   getWatchmodeQuotaStatus,
   resetWatchmodeQuotaStatus,
   deduplicateDiscoveryTitles,
@@ -41,6 +42,7 @@ import {
   SyncProgressCallback,
   WatchmodeStatusResponse,
   UnfetchedSyncProgress,
+  UnifiedSyncProgress,
 } from '../services/discoveryService';
 import {
   getAllDiscoveryTitles,
@@ -54,10 +56,6 @@ import { DiscoveryCard } from './DiscoveryCard';
 import { DiscoveryDetailModal } from './DiscoveryDetailModal';
 import { TagExploreModal } from './TagExploreModal';
 import { ShuffleSurpriseModal } from './ShuffleSurpriseModal';
-import {
-  enrichCatalogWithTMDB,
-  TMDBEnrichmentProgress,
-} from '../services/tmdbEnrichmentService';
 import { CANONICAL_THEMES } from '../services/themeMapper';
 import {
   DiscoveryFilterState,
@@ -253,11 +251,37 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   // API Manager Modal State
   const [showApiModal, setShowApiModal] = useState(false);
 
-  // TMDB Catalog Enrichment State
-  const [showEnrichModal, setShowEnrichModal] = useState(false);
-  const [enrichmentProgress, setEnrichmentProgress] = useState<TMDBEnrichmentProgress | null>(null);
-  const [isEnriching, setIsEnriching] = useState(false);
-  const cancelEnrichmentRef = useRef(false);
+  // Unified "Sync with Netflix" Pipeline State
+  const [isSyncingNetflix, setIsSyncingNetflix] = useState(false);
+  const [unifiedSyncProgress, setUnifiedSyncProgress] = useState<UnifiedSyncProgress | null>(null);
+  const cancelNetflixSyncRef = useRef(false);
+  const [enrichIncompleteCards, setEnrichIncompleteCards] = useState(true);
+  const [syncMonths, setSyncMonths] = useState<number>(() => {
+    try {
+      const savedIso = localStorage.getItem('discovery_last_sync_iso');
+      if (savedIso) {
+        const diffMs = Date.now() - new Date(savedIso).getTime();
+        const m = Math.round(diffMs / (1000 * 60 * 60 * 24 * 30.44));
+        if (m >= 1 && m <= 120) return m;
+      }
+    } catch {}
+    return 3; // Default 3 months
+  });
+
+  const formatSyncMonthsLabel = (m: number) => {
+    if (m === 1) return '1 Month';
+    if (m < 12) return `${m} Months`;
+    const yrs = Math.floor(m / 12);
+    const rem = m % 12;
+    if (rem === 0) return `${yrs} Year${yrs > 1 ? 's' : ''} (${m} Months)`;
+    return `${yrs} Year${yrs > 1 ? 's' : ''} ${rem} Mo (${m} Months)`;
+  };
+
+  const getCutoffDisplayDate = (m: number) => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - m);
+    return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  };
 
   // Targeted Unfetched Netflix ID Mapping State
   const [isMappingUnfetchedIds, setIsMappingUnfetchedIds] = useState(false);
@@ -497,68 +521,6 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     };
   }, [settings.tmdbApiKey, settings.watchmodeApiKey]);
 
-  // Handle manual "Sync Netflix India Catalogue"
-  const handleStartCatalogueSync = async (options?: { maxMovies?: number; maxTvShows?: number }) => {
-    if (isSyncing) return;
-    setIsSyncing(true);
-    setSyncError(null);
-    setShowSyncModal(false);
-
-    try {
-      const res = await syncNetflixIndiaCatalog({
-        watchmodeApiKey: settings.watchmodeApiKey,
-        tmdbApiKey: settings.tmdbApiKey,
-        existingTitles: catalog,
-        maxMovies: options?.maxMovies,
-        maxTvShows: options?.maxTvShows,
-        onBatchEnriched: (updatedTitles) => {
-          // Immediately update state so user sees titles rendered as each batch finishes enriching!
-          setCatalog([...updatedTitles]);
-        },
-        onProgress: (prog) => {
-          setSyncProgress(prog);
-        },
-      });
-
-      // Save complete synced catalog to IndexedDB
-      setCatalog(res.allTitles);
-      await saveDiscoveryTitles(res.allTitles);
-
-      const syncIso = new Date().toLocaleString('en-IN', {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-      });
-      setLastSyncTime(syncIso);
-
-      // Refresh quota
-      const q = await getWatchmodeQuotaStatus(settings.watchmodeApiKey);
-      if (q) setQuotaInfo(q);
-
-      await setDiscoveryCatalogMeta({
-        lastSync: syncIso,
-        totalAvailable: res.allTitles.filter((t) => t.availabilityState === 'available').length,
-        totalTitles: res.allTitles.length,
-        watchmodeQuota: q?.quota,
-        watchmodeQuotaUsed: q?.quotaUsed,
-      });
-
-      try {
-        confetti({ particleCount: 50, spread: 70, origin: { y: 0.6 } });
-      } catch {}
-
-      setTimeout(() => {
-        setIsSyncing(false);
-        setSyncProgress(null);
-      }, 2500);
-    } catch (err: any) {
-      console.error('Catalogue sync failed:', err);
-      setSyncError(err.message || 'Catalogue sync failed. Check your API key or network.');
-      setIsSyncing(false);
-    }
-  };
-
-  // Dedicated "Refresh from API" handler - fetches live Netflix India titles from TMDB API with forceRefresh, merges and updates tags
-  const [isRefreshingApi, setIsRefreshingApi] = useState(false);
   const [refreshNotification, setRefreshNotification] = useState<string | null>(null);
 
   // Dedicated Watchmode Quota Reset & Live Refresh handler
@@ -586,126 +548,68 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     }
   };
 
-  const handleRefreshCatalogFromApi = async () => {
-    if (isRefreshingApi || isSyncing) return;
-    setIsRefreshingApi(true);
+  // Dedicated Unified "Sync with Netflix" Handler:
+  // Fetches movies & series from TMDB + Watchmode India, deduplicates, and fills every card completely.
+  const handleStartUnifiedNetflixSync = async () => {
+    if (isSyncingNetflix) return;
+    cancelNetflixSyncRef.current = false;
+    setIsSyncingNetflix(true);
     setSyncError(null);
-    setRefreshNotification('Contacting TMDB API to discover & refresh Netflix India titles and tags...');
 
     try {
-      // Fetch 6 pages of live Netflix India titles (with_genres for Thriller & Crime included)
-      const res = await fetchNetflixIndiaDiscovery({
-        page: 1,
-        apiKey: settings.tmdbApiKey,
-        pagesToFetch: 6,
-        forceRefresh: true,
-      });
-
-      const freshTitles = res.titles || [];
-      if (freshTitles.length > 0) {
-        // Merge with seed titles and current catalog so existing enrichments and verified seeds are preserved
-        const combined = ensureTvThrillerGenres(
-          deduplicateDiscoveryTitles([
-            ...SEED_NETFLIX_INDIA_TITLES,
-            ...catalog,
-            ...freshTitles,
-          ])
-        );
-
-        setCatalog(combined);
-        await saveDiscoveryTitles(combined);
-
-        const syncIso = new Date().toLocaleString('en-IN', {
-          dateStyle: 'medium',
-          timeStyle: 'short',
-        });
-        setLastSyncTime(syncIso);
-
-        const currentMeta = (await getDiscoveryCatalogMeta()) || {};
-        await setDiscoveryCatalogMeta({
-          ...currentMeta,
-          lastSync: syncIso,
-          totalAvailable: combined.filter((t) => t.availabilityState === 'available').length,
-          totalTitles: combined.length,
-        });
-
-        setRefreshNotification(`✨ Refreshed successfully! Catalogue updated with ${combined.length} titles and categorized tags.`);
-        try {
-          confetti({ particleCount: 40, spread: 60, origin: { y: 0.5 } });
-        } catch {}
-      } else {
-        setRefreshNotification('Catalog is already up to date with the latest titles.');
-      }
-    } catch (err: any) {
-      console.error('API Refresh failed:', err);
-      setSyncError(err.message || 'Failed refreshing catalog from TMDB API.');
-    } finally {
-      setIsRefreshingApi(false);
-      setTimeout(() => {
-        setRefreshNotification(null);
-      }, 4000);
-    }
-  };
-
-  // Dedicated "Refresh With Library & Enrich via TMDB" handler:
-  // Refreshes the discovery catalogue with all items in the user's library and runs TMDB API on newly added stuff
-  const handleRefreshLibraryToDiscoveryAndEnrich = async () => {
-    if (isSyncingLibrary || isSyncing || isRefreshingApi) return;
-    if (!libraryItems || libraryItems.length === 0) {
-      setRefreshNotification('Your library is currently empty. Add items first to sync them!');
-      setTimeout(() => setRefreshNotification(null), 3000);
-      return;
-    }
-
-    cancelLibrarySyncRef.current = false;
-    setIsSyncingLibrary(true);
-    setSyncError(null);
-    setRefreshNotification(`Matching Discovery catalogue with ${libraryItems.length} library titles...`);
-
-    try {
-      const res = await syncAndEnrichLibraryItemsToDiscovery({
+      const res = await syncWithNetflixUnified({
+        existingTitles: catalog,
         libraryItems,
+        months: syncMonths,
         tmdbApiKey: settings.tmdbApiKey,
-        onProgress: (msg) => {
-          setRefreshNotification(msg);
+        watchmodeApiKey: settings.watchmodeApiKey,
+        enrichIncompleteCards,
+        onProgress: (p) => {
+          setUnifiedSyncProgress(p);
         },
-        shouldCancel: () => cancelLibrarySyncRef.current,
+        onBatchUpdated: (updatedCatalog) => {
+          setCatalog([...updatedCatalog]);
+        },
+        shouldCancel: () => cancelNetflixSyncRef.current,
       });
 
-      // Reload fresh discovery titles from IndexedDB
-      const allUpdated = await getAllDiscoveryTitles();
-      if (allUpdated && allUpdated.length > 0) {
-        setCatalog(allUpdated);
+      setCatalog(res.allTitles);
+      const syncFormatted = new Date().toLocaleString('en-IN', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      });
+      setLastSyncTime(syncFormatted);
+
+      if (settings.watchmodeApiKey) {
+        const q = await getWatchmodeQuotaStatus(settings.watchmodeApiKey, true);
+        if (q) setQuotaInfo(q);
       }
 
-      if (res.wasCancelled) {
+      if (res.newTitlesAdded > 0 || res.incompleteEnriched > 0) {
+        try {
+          confetti({ particleCount: 55, spread: 75, origin: { y: 0.6 } });
+        } catch {}
         setRefreshNotification(
-          `⏸️ Library sync paused. Saved ${res.enrichedCount} newly enriched title(s). You can resume anytime!`
-        );
-      } else if (res.enrichedCount === 0 && res.skippedCount > 0) {
-        setRefreshNotification(
-          `✨ Done! All ${res.syncedCount} library titles were already enriched and matched.`
+          `✨ Done! Synced ${res.newTitlesAdded} new title(s) and fully enriched ${res.incompleteEnriched} card(s).`
         );
       } else {
-        setRefreshNotification(
-          `✨ Done! Enriched ${res.enrichedCount} new title(s) (skimmed ${res.skippedCount} already completed) from ${res.syncedCount} library items.`
-        );
-        try {
-          confetti({ particleCount: 45, spread: 65, origin: { y: 0.5 } });
-        } catch {}
+        setRefreshNotification('✨ Done! All titles for this timeframe are already synced and fully enriched.');
       }
+
+      setTimeout(() => {
+        setIsSyncingNetflix(false);
+        setUnifiedSyncProgress(null);
+      }, 3500);
     } catch (err: any) {
-      console.error('Failed syncing & enriching library items to Discovery:', err);
-      setSyncError(err.message || 'Failed refreshing library items with TMDB.');
-    } finally {
-      setIsSyncingLibrary(false);
-      setTimeout(() => setRefreshNotification(null), 5000);
+      console.error('Unified Netflix sync error:', err);
+      setSyncError(err.message || 'Sync with Netflix encountered an error.');
+      setIsSyncingNetflix(false);
     }
   };
 
   // Dedicated "Only Fetch Unfetched IDs" handler - strictly maps titles missing Netflix IDs without wasting quota
   const handleSyncUnfetchedIds = async () => {
-    if (isMappingUnfetchedIds || isSyncing || isEnriching) return;
+    if (isMappingUnfetchedIds || isSyncing || isSyncingNetflix) return;
     if (unfetchedCount === 0) {
       setRefreshNotification('✓ All titles in your catalogue already have verified direct Netflix IDs!');
       setTimeout(() => setRefreshNotification(null), 3500);
@@ -1361,63 +1265,6 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     setTitleStack([]);
   };
 
-  // TMDB Catalogue Enrichment Execution
-  const handleStartTMDBEnrichment = async (force: boolean = false) => {
-    if (isEnriching || catalog.length === 0) return;
-    setIsEnriching(true);
-    cancelEnrichmentRef.current = false;
-
-    try {
-      const result = await enrichCatalogWithTMDB({
-        titles: catalog,
-        apiKey: settings.tmdbApiKey,
-        concurrency: 2,
-        delayBetweenBatchesMs: 200,
-        forceReenrich: force,
-        shouldCancel: () => cancelEnrichmentRef.current,
-        onProgress: (p) => {
-          setEnrichmentProgress(p);
-        },
-        onBatchSaved: async (batch) => {
-          // Update catalog in memory and save to IndexedDB incrementally
-          setCatalog((prev) => {
-            const map = new Map<string, DiscoveryTitle>(prev.map((t) => [t.id, t]));
-            batch.forEach((b) => map.set(b.id, b));
-            return Array.from(map.values());
-          });
-          await saveDiscoveryTitles(batch);
-        },
-      });
-
-      // Save full enriched catalog to IndexedDB and update meta
-      setCatalog(result.enrichedTitles);
-      await saveDiscoveryTitles(result.enrichedTitles);
-
-      const syncIso = new Date().toLocaleString('en-IN', {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-      });
-      const currentMeta = (await getDiscoveryCatalogMeta()) || {};
-      await setDiscoveryCatalogMeta({
-        ...currentMeta,
-        lastTMDBEnrichment: syncIso,
-      });
-
-      setRefreshNotification(
-        `✨ TMDB Enrichment finished! ${result.completedCount} titles enriched, ${result.skippedCount} already up-to-date.`
-      );
-      try {
-        confetti({ particleCount: 50, spread: 70, origin: { y: 0.6 } });
-      } catch {}
-    } catch (err: any) {
-      console.error('TMDB Enrichment error:', err);
-      setSyncError(`TMDB Enrichment paused: ${err.message || 'Rate limit or network error'}`);
-    } finally {
-      setIsEnriching(false);
-      setTimeout(() => setRefreshNotification(null), 5000);
-    }
-  };
-
   // Active filters count
   const activeFiltersCount = useMemo(() => {
     let count = 0;
@@ -1496,14 +1343,14 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
 
         {/* API, Analytics, Surprise Me & Filter Action Buttons */}
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-          {/* Single Consolidated API Button */}
+          {/* Single Consolidated API & Sync Button */}
           <button
             onClick={() => setShowApiModal(true)}
-            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-zinc-800 hover:bg-zinc-700 text-white border border-white/10 shadow-md transition-all active:scale-95"
-            title="Open API Management: Netflix Enrichment, TMDB Enrichment, and Refresh API"
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs bg-zinc-800 hover:bg-zinc-700 text-white border border-white/10 shadow-md transition-all active:scale-95 cursor-pointer"
+            title="Open API Management: Sync with Netflix, Watchmode quota & ID mapping"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${(isEnriching || isSyncing || isRefreshingApi) ? 'animate-spin text-purple-400' : 'text-zinc-400'}`} />
-            <span>API</span>
+            <RefreshCw className={`w-3.5 h-3.5 ${(isSyncingNetflix || isSyncing) ? 'animate-spin text-[#E50914]' : 'text-zinc-400'}`} />
+            <span>Sync / API</span>
           </button>
 
           {/* Toggle Catalog Analytics Stats */}
@@ -1541,44 +1388,42 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
         </div>
       </div>
 
-      {/* Persistent Background TMDB Enrichment Banner (Visible when enriching even if modal is closed) */}
-      {isEnriching && enrichmentProgress && !showEnrichModal && (
-        <div className="bg-gradient-to-r from-purple-950/90 via-zinc-900 to-purple-950/90 border border-purple-500/50 rounded-2xl p-3.5 shadow-xl animate-fade-in flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+      {/* Persistent Background Unified "Sync with Netflix" Banner (Visible when syncing even if modal is closed) */}
+      {isSyncingNetflix && unifiedSyncProgress && !showApiModal && (
+        <div className="bg-gradient-to-r from-red-950/90 via-zinc-900 to-zinc-950 border border-red-500/50 rounded-2xl p-3.5 shadow-xl animate-fade-in flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="p-2 rounded-xl bg-purple-500/20 text-purple-400 shrink-0">
-              <Sparkles className="w-4 h-4 animate-spin text-purple-300" />
+            <div className="p-2 rounded-xl bg-red-600/20 text-[#E50914] shrink-0">
+              <RefreshCw className="w-4 h-4 animate-spin text-red-500" />
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="font-bold text-white">Enriching Catalogue in Background:</span>
-                <span className="text-purple-300 truncate max-w-[220px]">
-                  {enrichmentProgress.currentTitle || 'Processing queue...'}
+                <span className="font-bold text-white">Syncing & Enriching with Netflix:</span>
+                <span className="text-red-300 truncate max-w-[220px]">
+                  {unifiedSyncProgress.currentTitle || unifiedSyncProgress.message}
                 </span>
-                <span className="font-mono text-purple-400 font-bold bg-purple-950/80 px-2 py-0.5 rounded border border-purple-500/30 text-[10px]">
-                  {enrichmentProgress.percentage}%
+                <span className="font-mono text-red-400 font-bold bg-red-950/80 px-2 py-0.5 rounded border border-red-500/30 text-[10px]">
+                  {unifiedSyncProgress.percentage}%
                 </span>
               </div>
               <div className="text-[11px] text-zinc-400 flex items-center gap-3 mt-0.5">
-                <span>Processed: {enrichmentProgress.processedCount} / {enrichmentProgress.totalTitles}</span>
-                <span className="text-emerald-400">Enriched: {enrichmentProgress.completedCount}</span>
-                <span className="text-blue-400">Skipped: {enrichmentProgress.skippedCount}</span>
-                {enrichmentProgress.failedCount > 0 && (
-                  <span className="text-red-400">Failed: {enrichmentProgress.failedCount}</span>
-                )}
+                <span>Discovered: {unifiedSyncProgress.newTitlesDiscovered}</span>
+                <span className="text-emerald-400">New: {unifiedSyncProgress.newTitlesAdded}</span>
+                <span className="text-purple-400">Enriched: {unifiedSyncProgress.incompleteEnriched}</span>
+                <span className="text-blue-400">Skipped: {unifiedSyncProgress.skippedComplete}</span>
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
             <button
-              onClick={() => setShowEnrichModal(true)}
+              onClick={() => setShowApiModal(true)}
               className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-white/10"
             >
               View Details
             </button>
             <button
               onClick={() => {
-                cancelEnrichmentRef.current = true;
+                cancelNetflixSyncRef.current = true;
               }}
               className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-300 bg-red-950/80 border border-red-500/40 hover:bg-red-900"
             >
@@ -1658,29 +1503,17 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
         </div>
       )}
 
-      {/* Refresh / Library Sync Notification Banner */}
+      {/* Sync / Notification Banner */}
       {refreshNotification && (
         <div className="bg-amber-950/80 border border-amber-500/50 rounded-xl p-4 flex items-center gap-3 text-amber-200 text-xs animate-fade-in shadow-lg">
-          <RefreshCw className={`w-4 h-4 text-amber-400 shrink-0 ${isRefreshingApi || isSyncingLibrary ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`w-4 h-4 text-amber-400 shrink-0 ${isSyncingNetflix ? 'animate-spin' : ''}`} />
           <div className="flex-1 font-medium">{refreshNotification}</div>
-          {isSyncingLibrary ? (
-            <button
-              onClick={() => {
-                cancelLibrarySyncRef.current = true;
-              }}
-              className="px-2.5 py-1 rounded-lg bg-red-600/30 hover:bg-red-600 border border-red-500/40 text-red-200 hover:text-white text-[11px] font-bold transition-all active:scale-95"
-              title="Pause / Stop TMDB enrichment. Progress will be saved!"
-            >
-              Cancel / Pause
-            </button>
-          ) : !isRefreshingApi ? (
-            <button
-              onClick={() => setRefreshNotification(null)}
-              className="text-amber-400 hover:text-white"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          ) : null}
+          <button
+            onClick={() => setRefreshNotification(null)}
+            className="text-amber-400 hover:text-white p-1 rounded-lg hover:bg-white/10"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
@@ -1837,31 +1670,188 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               </button>
             </div>
 
-            <div className="space-y-3 pt-2">
-              {/* Only Fetch Unfetched IDs Action - Quota-Safe targeted prefetch */}
-              <div className="flex items-center justify-between p-4 bg-gradient-to-r from-red-950/40 via-zinc-800/70 to-zinc-800/60 border border-red-500/30 rounded-xl hover:border-red-500/50 transition-all shadow-lg">
+            <div className="space-y-4 pt-2">
+              {/* PRIMARY HERO CARD: Unified "Sync with Netflix" */}
+              <div className="p-5 bg-gradient-to-b from-red-950/40 via-zinc-900 to-zinc-900 border border-red-500/40 rounded-2xl shadow-xl space-y-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded bg-[#E50914] text-white text-[10px] font-black uppercase tracking-wider">
+                      Unified Engine
+                    </span>
+                    <h4 className="text-base font-bold text-white flex items-center gap-1.5">
+                      <Film className="w-4 h-4 text-[#E50914]" />
+                      <span>Sync with Netflix</span>
+                    </h4>
+                  </div>
+                  <p className="text-xs text-zinc-300 leading-relaxed">
+                    Fetches new Netflix India movies & TV shows from TMDB & Watchmode, eliminates duplicates, and automatically fills every card with themes, audio tracks, origin countries, genre tags, directors, creators, cast, and high-res thumbnails.
+                  </p>
+                </div>
+
+                {/* Time Window Slider (1 month to 10 years) */}
+                <div className="space-y-2 bg-black/40 p-3.5 rounded-xl border border-white/5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-zinc-300">Sync Content Window:</span>
+                    <span className="font-mono font-bold text-red-400 bg-red-950/70 border border-red-500/30 px-2 py-0.5 rounded">
+                      {formatSyncMonthsLabel(syncMonths)}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={1}
+                    max={120}
+                    step={1}
+                    value={syncMonths}
+                    onChange={(e) => setSyncMonths(parseInt(e.target.value, 10))}
+                    disabled={isSyncingNetflix}
+                    className="w-full accent-[#E50914] cursor-pointer"
+                  />
+                  <div className="flex items-center justify-between text-[10px] text-zinc-400 font-mono">
+                    <span>1 Mo</span>
+                    <span>1 Yr</span>
+                    <span>3 Yrs</span>
+                    <span>5 Yrs</span>
+                    <span>10 Yrs</span>
+                  </div>
+
+                  {/* Fast Presets */}
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {[
+                      { label: '3 Mo (Default)', val: 3 },
+                      { label: '6 Mo', val: 6 },
+                      { label: '1 Yr', val: 12 },
+                      { label: '2 Yrs', val: 24 },
+                      { label: '5 Yrs', val: 60 },
+                      { label: '10 Yrs', val: 120 },
+                    ].map((preset) => (
+                      <button
+                        key={preset.val}
+                        type="button"
+                        disabled={isSyncingNetflix}
+                        onClick={() => setSyncMonths(preset.val)}
+                        className={`text-[10px] px-2 py-1 rounded font-semibold transition-all ${
+                          syncMonths === preset.val
+                            ? 'bg-[#E50914] text-white shadow-sm'
+                            : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="text-[11px] text-zinc-400 pt-1 flex items-center justify-between">
+                    <span>🗓️ Fetching content from <strong className="text-white">{getCutoffDisplayDate(syncMonths)}</strong> to today</span>
+                    {lastSyncTime && (
+                      <span className="text-[10px] text-zinc-500 font-mono">Last: {lastSyncTime}</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Incomplete cards auto-enrich option */}
+                <label className="flex items-center gap-2.5 text-xs text-zinc-300 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={enrichIncompleteCards}
+                    onChange={(e) => setEnrichIncompleteCards(e.target.checked)}
+                    disabled={isSyncingNetflix}
+                    className="accent-[#E50914] rounded w-4 h-4 cursor-pointer"
+                  />
+                  <span>Auto-enrich missing cards & thumbnails (completes any movie or series with missing posters, themes, or audio tracks)</span>
+                </label>
+
+                {/* Progress Monitor or Big Action Button */}
+                {isSyncingNetflix && unifiedSyncProgress ? (
+                  <div className="space-y-3 bg-black/60 p-4 rounded-xl border border-red-500/30 animate-fade-in">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-bold text-white flex items-center gap-2">
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-red-500" />
+                        <span className="truncate max-w-[260px]">
+                          {unifiedSyncProgress.currentTitle || unifiedSyncProgress.message}
+                        </span>
+                      </span>
+                      <span className="font-mono font-bold text-red-400">
+                        {unifiedSyncProgress.percentage}%
+                      </span>
+                    </div>
+
+                    {/* Progress bar */}
+                    <div className="w-full bg-zinc-800 rounded-full h-2.5 overflow-hidden">
+                      <div
+                        className="bg-gradient-to-r from-red-600 via-pink-600 to-red-500 h-full transition-all duration-300"
+                        style={{ width: `${unifiedSyncProgress.percentage}%` }}
+                      />
+                    </div>
+
+                    {/* Live Stats */}
+                    <div className="grid grid-cols-4 gap-2 text-center text-[10px] font-mono">
+                      <div className="bg-zinc-900 p-1.5 rounded-lg border border-white/5">
+                        <div className="text-zinc-500">Discovered</div>
+                        <div className="text-white font-bold">{unifiedSyncProgress.newTitlesDiscovered}</div>
+                      </div>
+                      <div className="bg-zinc-900 p-1.5 rounded-lg border border-emerald-500/30">
+                        <div className="text-emerald-400">New Added</div>
+                        <div className="text-emerald-300 font-bold">{unifiedSyncProgress.newTitlesAdded}</div>
+                      </div>
+                      <div className="bg-zinc-900 p-1.5 rounded-lg border border-purple-500/30">
+                        <div className="text-purple-400">Enriched</div>
+                        <div className="text-purple-300 font-bold">{unifiedSyncProgress.incompleteEnriched}</div>
+                      </div>
+                      <div className="bg-zinc-900 p-1.5 rounded-lg border border-blue-500/30">
+                        <div className="text-blue-400">Skipped</div>
+                        <div className="text-blue-300 font-bold">{unifiedSyncProgress.skippedComplete}</div>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          cancelNetflixSyncRef.current = true;
+                        }}
+                        className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-300 bg-red-950/80 border border-red-500/40 hover:bg-red-900"
+                      >
+                        Pause / Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleStartUnifiedNetflixSync}
+                    disabled={isSyncingNetflix || isMappingUnfetchedIds}
+                    className="w-full py-3.5 rounded-xl font-black text-sm bg-[#E50914] hover:bg-red-700 text-white shadow-xl shadow-red-950/50 hover:shadow-red-700/40 transition-all transform active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Film className="w-4 h-4 fill-white" />
+                    <span>Sync with Netflix</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Targeted Unfetched Netflix ID Mapping (Secondary Utility) */}
+              <div className="flex items-center justify-between p-3.5 bg-zinc-800/60 border border-white/5 rounded-xl hover:border-zinc-700 transition-all">
                 <div className="space-y-0.5 max-w-[70%]">
-                  <div className="text-sm font-bold text-white flex items-center gap-2 flex-wrap">
-                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  <div className="text-xs font-bold text-white flex items-center gap-2">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
                     <span>Only Fetch Unfetched IDs</span>
                     <span
-                      className={`px-2 py-0.5 text-[10px] font-mono font-bold rounded-full border ${
+                      className={`px-1.5 py-0.5 text-[9px] font-mono font-bold rounded-full border ${
                         unfetchedCount > 0
                           ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
                           : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
                       }`}
                     >
-                      {unfetchedCount > 0 ? `${unfetchedCount} Unfetched` : '✓ All IDs Mapped'}
+                      {unfetchedCount > 0 ? `${unfetchedCount} Unfetched` : '✓ All Mapped'}
                     </span>
                   </div>
-                  <div className="text-[11px] text-zinc-300 leading-relaxed">
-                    Scans your catalogue and queries Watchmode <strong>only</strong> for titles missing a direct Netflix ID. Strictly skips already-mapped titles so 0 quota credits are wasted.
+                  <div className="text-[10px] text-zinc-400">
+                    Scans your catalogue and queries Watchmode <strong>only</strong> for titles missing a direct Netflix ID.
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={handleSyncUnfetchedIds}
-                  disabled={isMappingUnfetchedIds || isSyncing || unfetchedCount === 0}
+                  disabled={isMappingUnfetchedIds || isSyncingNetflix || unfetchedCount === 0}
                   className="px-3.5 py-2 rounded-xl text-xs font-bold bg-[#E50914] hover:bg-red-600 text-white shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1.5 shrink-0"
                 >
                   {isMappingUnfetchedIds ? (
@@ -1876,102 +1866,6 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                   )}
                 </button>
               </div>
-
-              {/* TMDB Enrichment Action */}
-              <div className="flex items-center justify-between p-4 bg-zinc-800/60 border border-white/5 rounded-xl hover:border-purple-500/30 transition-all">
-                <div className="space-y-0.5 max-w-[70%]">
-                  <div className="text-sm font-bold text-white flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-purple-400" />
-                    <span>TMDB Enrichment</span>
-                  </div>
-                  <div className="text-[11px] text-zinc-400">
-                    Enrich titles with IMDb ratings, Rotten Tomatoes scores, taglines, cast, themes & similar titles.
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowApiModal(false);
-                    setShowEnrichModal(true);
-                  }}
-                  disabled={isEnriching || isSyncing || catalog.length === 0}
-                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-md transition-all active:scale-95 disabled:opacity-50"
-                >
-                  {isEnriching ? 'Enriching...' : 'Open TMDB'}
-                </button>
-              </div>
-
-              {/* Netflix Enrichment (Watchmode Sync) Action */}
-              <div className="flex items-center justify-between p-4 bg-zinc-800/60 border border-white/5 rounded-xl hover:border-red-500/30 transition-all">
-                <div className="space-y-0.5 max-w-[70%]">
-                  <div className="text-sm font-bold text-white flex items-center gap-2">
-                    <Film className="w-4 h-4 text-[#E50914]" />
-                    <span>Netflix Enrichment</span>
-                  </div>
-                  <div className="text-[11px] text-zinc-400">
-                    Sync official Netflix India catalog titles from Watchmode and cache locally.
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowApiModal(false);
-                    setShowSyncModal(true);
-                  }}
-                  disabled={isSyncing || isRefreshingApi}
-                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-[#E50914] hover:bg-red-700 text-white shadow-md transition-all active:scale-95 disabled:opacity-50"
-                >
-                  {isSyncing ? 'Syncing...' : 'Sync Netflix'}
-                </button>
-              </div>
-
-              {/* Refresh With Library & TMDB Enrichment Action */}
-              <div className="flex items-center justify-between p-4 bg-zinc-800/60 border border-white/5 rounded-xl hover:border-emerald-500/30 transition-all">
-                <div className="space-y-0.5 max-w-[70%]">
-                  <div className="text-sm font-bold text-white flex items-center gap-2">
-                    <PlusCircle className={`w-4 h-4 text-emerald-400 ${isSyncingLibrary ? 'animate-spin' : ''}`} />
-                    <span>Refresh With Library & TMDB</span>
-                  </div>
-                  <div className="text-[11px] text-zinc-400">
-                    Sync your personal library titles directly into the Discovery catalogue and fetch full TMDB metadata & ratings.
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowApiModal(false);
-                    handleRefreshLibraryToDiscoveryAndEnrich();
-                  }}
-                  disabled={isSyncingLibrary || isSyncing || isRefreshingApi || libraryItems.length === 0}
-                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md transition-all active:scale-95 disabled:opacity-50"
-                >
-                  {isSyncingLibrary ? 'Syncing...' : 'Sync & Enrich'}
-                </button>
-              </div>
-
-              {/* Refresh API Action */}
-              <div className="flex items-center justify-between p-4 bg-zinc-800/60 border border-white/5 rounded-xl hover:border-amber-500/30 transition-all">
-                <div className="space-y-0.5 max-w-[70%]">
-                  <div className="text-sm font-bold text-white flex items-center gap-2">
-                    <RefreshCw className={`w-4 h-4 text-amber-400 ${isRefreshingApi ? 'animate-spin' : ''}`} />
-                    <span>Refresh API</span>
-                  </div>
-                  <div className="text-[11px] text-zinc-400">
-                    Force re-pull fresh catalog updates and re-verify streaming availability directly.
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowApiModal(false);
-                    handleRefreshCatalogFromApi();
-                  }}
-                  disabled={isRefreshingApi || isSyncing}
-                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white shadow-md transition-all active:scale-95 disabled:opacity-50"
-                >
-                  {isRefreshingApi ? 'Refreshing...' : 'Refresh API'}
-                </button>
-              </div>
             </div>
 
             <div className="flex justify-end pt-2 border-t border-white/5">
@@ -1981,191 +1875,6 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                 className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700"
               >
                 Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Sync Configuration Modal */}
-      {showSyncModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-          <div className="relative w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-5">
-            <button
-              onClick={() => setShowSyncModal(false)}
-              className="absolute top-4 right-4 p-1.5 rounded-full text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center gap-3">
-              <div className="p-3 rounded-xl bg-[#E50914]/20 text-[#E50914] border border-[#E50914]/30">
-                <RefreshCw className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-white">Sync Netflix India Catalogue</h3>
-                <p className="text-xs text-zinc-400">
-                  Select how many movies and TV series to discover and enrich from Watchmode & TMDB.
-                </p>
-              </div>
-            </div>
-
-            {/* Mode selection tabs */}
-            <div className="grid grid-cols-2 gap-2 bg-black/40 p-1.5 rounded-xl border border-white/5 text-xs font-bold">
-              <button
-                type="button"
-                onClick={() => setSyncMode('custom')}
-                className={`py-2 rounded-lg transition-all ${
-                  syncMode === 'custom'
-                    ? 'bg-[#E50914] text-white shadow-md'
-                    : 'text-zinc-400 hover:text-white'
-                }`}
-              >
-                Custom Counts
-              </button>
-              <button
-                type="button"
-                onClick={() => setSyncMode('all')}
-                className={`py-2 rounded-lg transition-all ${
-                  syncMode === 'all'
-                    ? 'bg-[#E50914] text-white shadow-md'
-                    : 'text-zinc-400 hover:text-white'
-                }`}
-              >
-                Entire Catalogue (All 4,200+)
-              </button>
-            </div>
-
-            {syncMode === 'custom' ? (
-              <div className="space-y-4 bg-black/30 p-4 rounded-xl border border-white/5">
-                {/* Movies Count Slider & Input */}
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
-                    <span className="flex items-center gap-1.5">
-                      <Film className="w-3.5 h-3.5 text-[#E50914]" />
-                      <span>Number of Movies to Sync</span>
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setSyncMoviesCount(3500)}
-                        className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#E50914]/20 hover:bg-[#E50914]/30 text-red-400 border border-[#E50914]/40 transition-colors"
-                        title="Set to all available movies"
-                      >
-                        All Movies (~3,500)
-                      </button>
-                      <input
-                        type="number"
-                        min={10}
-                        max={3500}
-                        value={syncMoviesCount}
-                        onChange={(e) => setSyncMoviesCount(Math.max(10, Math.min(3500, parseInt(e.target.value, 10) || 10)))}
-                        className="w-20 px-2 py-1 rounded-lg bg-zinc-800 border border-white/10 text-right text-xs font-mono font-bold text-white focus:outline-none focus:border-[#E50914]"
-                      />
-                    </div>
-                  </div>
-                  <input
-                    type="range"
-                    min={10}
-                    max={3500}
-                    step={25}
-                    value={syncMoviesCount}
-                    onChange={(e) => setSyncMoviesCount(parseInt(e.target.value, 10))}
-                    className="w-full accent-[#E50914] cursor-pointer"
-                  />
-                  <div className="flex justify-between text-[10px] text-zinc-500 font-mono">
-                    <span>10 movies</span>
-                    <span>500</span>
-                    <span>1,000</span>
-                    <span>2,000</span>
-                    <span>3,500 (All)</span>
-                  </div>
-                </div>
-
-                {/* TV Series Count Slider & Input */}
-                <div className="space-y-1.5 pt-2 border-t border-white/5">
-                  <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
-                    <span className="flex items-center gap-1.5">
-                      <Tv className="w-3.5 h-3.5 text-purple-400" />
-                      <span>Number of TV Series to Sync</span>
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setSyncTvShowsCount(2000)}
-                        className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 border border-purple-500/40 transition-colors"
-                        title="Set to all available series"
-                      >
-                        All Series (~2,000)
-                      </button>
-                      <input
-                        type="number"
-                        min={10}
-                        max={2000}
-                        value={syncTvShowsCount}
-                        onChange={(e) => setSyncTvShowsCount(Math.max(10, Math.min(2000, parseInt(e.target.value, 10) || 10)))}
-                        className="w-20 px-2 py-1 rounded-lg bg-zinc-800 border border-white/10 text-right text-xs font-mono font-bold text-white focus:outline-none focus:border-[#E50914]"
-                      />
-                    </div>
-                  </div>
-                  <input
-                    type="range"
-                    min={10}
-                    max={2000}
-                    step={25}
-                    value={syncTvShowsCount}
-                    onChange={(e) => setSyncTvShowsCount(parseInt(e.target.value, 10))}
-                    className="w-full accent-purple-500 cursor-pointer"
-                  />
-                  <div className="flex justify-between text-[10px] text-zinc-500 font-mono">
-                    <span>10 series</span>
-                    <span>250</span>
-                    <span>500</span>
-                    <span>1,000</span>
-                    <span>2,000 (All)</span>
-                  </div>
-                </div>
-
-                <div className="text-[11px] text-zinc-400 bg-zinc-950/60 p-2.5 rounded-lg border border-white/5">
-                  ⚡ Total to sync: <span className="font-bold text-white">{(syncMoviesCount + syncTvShowsCount).toLocaleString()} titles</span>. Titles will be displayed and saved immediately in batches as they are enriched.
-                </div>
-              </div>
-            ) : (
-              <div className="bg-black/30 p-4 rounded-xl border border-white/5 space-y-2 text-xs text-zinc-300">
-                <p>
-                  Will sync the entire Netflix India catalog across all available Watchmode pages (~4,200+ titles) and enrich posters/metadata progressively.
-                </p>
-                <p className="text-zinc-400 text-[11px]">
-                  Enriched titles will appear on screen live as each small batch completes.
-                </p>
-              </div>
-            )}
-
-            {/* Action Buttons */}
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowSyncModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (syncMode === 'custom') {
-                    handleStartCatalogueSync({
-                      maxMovies: syncMoviesCount,
-                      maxTvShows: syncTvShowsCount,
-                    });
-                  } else {
-                    handleStartCatalogueSync();
-                  }
-                }}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-[#E50914] hover:bg-red-700 text-white shadow-lg shadow-red-600/30 transition-all active:scale-95"
-              >
-                <RefreshCw className="w-4 h-4" />
-                <span>Start Sync</span>
               </button>
             </div>
           </div>
@@ -3444,133 +3153,6 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                 Done
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* TMDB Catalog Enrichment Modal / Progress Monitor */}
-      {showEnrichModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-          <div className="relative w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-5">
-            <button
-              onClick={() => {
-                // Closing the modal lets enrichment continue running in the background!
-                setShowEnrichModal(false);
-              }}
-              className="absolute top-4 right-4 p-1.5 rounded-full text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
-              title="Close modal (enrichment will continue running in background)"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center gap-3">
-              <div className="p-3 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
-                <Sparkles className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-white">Enrich Catalogue with TMDB</h3>
-                <p className="text-xs text-zinc-400">
-                  Enrich titles with taglines, themes, ratings, cast, trailers, and recommendations.
-                </p>
-              </div>
-            </div>
-
-            {/* Status overview */}
-            {isEnriching && enrichmentProgress ? (
-              <div className="space-y-4 bg-black/40 p-4 rounded-xl border border-white/5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-white flex items-center gap-2">
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-purple-400" />
-                    <span>Enriching: {enrichmentProgress.currentTitle || 'Processing queue...'}</span>
-                  </span>
-                  <span className="font-mono text-purple-400 font-black">
-                    {enrichmentProgress.percentage}%
-                  </span>
-                </div>
-
-                {/* Progress Bar */}
-                <div className="w-full bg-zinc-800 rounded-full h-2.5 overflow-hidden">
-                  <div
-                    className="bg-gradient-to-r from-purple-600 to-indigo-500 h-full transition-all duration-300"
-                    style={{ width: `${enrichmentProgress.percentage}%` }}
-                  />
-                </div>
-
-                {/* Counters */}
-                <div className="grid grid-cols-4 gap-2 text-center text-[10px] font-mono pt-1">
-                  <div className="bg-zinc-900 p-2 rounded-lg border border-white/5">
-                    <div className="text-zinc-500">Processed</div>
-                    <div className="text-white font-bold">{enrichmentProgress.processedCount}</div>
-                  </div>
-                  <div className="bg-zinc-900 p-2 rounded-lg border border-emerald-500/30">
-                    <div className="text-emerald-400">Enriched</div>
-                    <div className="text-emerald-300 font-bold">{enrichmentProgress.completedCount}</div>
-                  </div>
-                  <div className="bg-zinc-900 p-2 rounded-lg border border-blue-500/30">
-                    <div className="text-blue-400">Skipped</div>
-                    <div className="text-blue-300 font-bold">{enrichmentProgress.skippedCount}</div>
-                  </div>
-                  <div className="bg-zinc-900 p-2 rounded-lg border border-red-500/30">
-                    <div className="text-red-400">Failed</div>
-                    <div className="text-red-300 font-bold">{enrichmentProgress.failedCount}</div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between pt-2">
-                  <span className="text-[11px] text-zinc-500">
-                    Total in Catalog: {catalog.length} titles
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      cancelEnrichmentRef.current = true;
-                    }}
-                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-300 bg-red-950/60 border border-red-500/40 hover:bg-red-900"
-                  >
-                    Pause / Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="bg-black/30 p-4 rounded-xl border border-white/5 space-y-2 text-xs text-zinc-300">
-                  <p>
-                    This process is completely <strong className="text-white font-semibold">idempotent</strong>: it will inspect the local Netflix catalog ({catalog.length.toLocaleString()} titles) and safely enrich titles with TMDB data.
-                  </p>
-                  <p className="text-zinc-400 text-[11px]">
-                    Already enriched titles are skipped automatically to respect API quotas and rate limits.
-                  </p>
-                </div>
-
-                <div className="flex items-center justify-end gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowEnrichModal(false)}
-                    className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700"
-                  >
-                    Close
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleStartTMDBEnrichment(true)}
-                    className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-300 hover:text-white bg-zinc-800 hover:bg-zinc-700 border border-white/10"
-                    title="Force re-enrichment of all titles even if already marked completed"
-                  >
-                    Force Re-Enrich All
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleStartTMDBEnrichment(false)}
-                    className="flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-600/30 transition-all active:scale-95"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    <span>Start Enrichment</span>
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       )}
