@@ -88,45 +88,51 @@ class LocalQwenEngine:
         self.n_ctx = n_ctx
         self.n_gpu_layers = n_gpu_layers
         self.server_proc = None
-        self.llm_cpu_fallback = None
 
         self._init_gpu_engine()
 
     def _init_gpu_engine(self):
-        """Ensures GPU llama-server is healthy and running on NVIDIA GTX 1650."""
+        """Ensures GPU llama-server is healthy and running on NVIDIA GTX 1650. Strictly NO CPU fallback."""
         if self._is_server_alive():
-            print(f"[Qwen Engine: NVIDIA GTX 1650 GPU Active] Connected to running server at {self.server_url}.")
+            print(f"[Qwen Engine: 100% NVIDIA GTX 1650 GPU ACTIVE] Connected to GPU server at {self.server_url}.")
             return
 
         server_bin = os.path.join("runtime", "llama_bin", "llama-server.exe")
-        if os.path.exists(server_bin) and os.path.exists(self.model_path):
-            print(f"[Qwen Engine] Launching llama-server on NVIDIA GTX 1650 (layers={self.n_gpu_layers})...")
-            cmd = [
-                server_bin,
-                "-m", self.model_path,
-                "-ngl", str(self.n_gpu_layers),
-                "--port", str(self.server_port),
-                "--host", "127.0.0.1",
-                "-c", str(self.n_ctx)
-            ]
-            self.server_proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-            )
+        if not os.path.exists(server_bin):
+            raise FileNotFoundError(f"[Qwen Engine Error] GPU binary not found at '{server_bin}'. GPU execution is mandatory.")
+        if not os.path.exists(self.model_path):
+            raise FileNotFoundError(f"[Qwen Engine Error] GGUF Model weights not found at '{self.model_path}'.")
 
-            # Wait for server to come up
-            for _ in range(20):
-                time.sleep(0.5)
-                if self._is_server_alive():
-                    print(f"[Qwen Engine: NVIDIA GTX 1650 GPU Active] Server ready at {self.server_url}!")
-                    return
+        print(f"[Qwen Engine: FORCING GPU] Launching native llama-server on NVIDIA GeForce GTX 1650 (layers={self.n_gpu_layers}/35)...")
+        cmd = [
+            server_bin,
+            "-m", self.model_path,
+            "-ngl", str(self.n_gpu_layers),
+            "--port", str(self.server_port),
+            "--host", "127.0.0.1",
+            "-c", str(self.n_ctx)
+        ]
+        self.server_proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        )
 
-            print("[Qwen Engine Warning] GPU server launch timed out. Falling back to CPU.")
+        # Wait up to 60 seconds for GPU Turing shader compilation and VRAM allocation
+        print("[Qwen Engine] Allocating VRAM and compiling Vulkan/Turing shaders on GTX 1650...")
+        for i in range(1, 61):
+            time.sleep(1.0)
+            if self._is_server_alive():
+                print(f"[Qwen Engine: 100% NVIDIA GTX 1650 GPU READY] Server operational at {self.server_url} (booted in {i}s)!")
+                return
+            if i % 5 == 0:
+                print(f"       [GPU Init] Waiting for GTX 1650 VRAM allocation... ({i}/60s)")
 
-        # Fallback to local CPU if server not available
-        self._init_cpu_fallback()
+        raise RuntimeError(
+            f"[CRITICAL ERROR] Failed to initialize GPU llama-server on NVIDIA GTX 1650 after 60s!\n"
+            f"CPU execution is permanently disabled by configuration. Please verify port {self.server_port} is free."
+        )
 
     def _is_server_alive(self) -> bool:
         if not requests:
@@ -136,19 +142,6 @@ class LocalQwenEngine:
             return r.status_code == 200
         except Exception:
             return False
-
-    def _init_cpu_fallback(self):
-        if Llama is not None and os.path.exists(self.model_path):
-            print("[Qwen Engine] Initializing CPU AVX2 fallback...")
-            try:
-                self.llm_cpu_fallback = Llama(
-                    model_path=self.model_path,
-                    n_ctx=self.n_ctx,
-                    n_threads=4,
-                    verbose=False
-                )
-            except Exception as e:
-                print(f"[Qwen Engine] CPU fallback error: {e}")
 
     def analyze_title(self, title: str, year: Optional[int], media_type: str, evidence: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         synopsis = evidence.get("combined_synopsis", "").strip()
@@ -179,9 +172,9 @@ Factual Synopsis / Plot Evidence:
                             {"role": "user", "content": user_content}
                         ],
                         "temperature": 0.1,
-                        "max_tokens": 350
+                        "max_tokens": 650
                     },
-                    timeout=20
+                    timeout=35
                 )
                 if resp.status_code == 200:
                     raw_text = resp.json()["choices"][0]["message"]["content"]
@@ -197,32 +190,8 @@ Factual Synopsis / Plot Evidence:
                         print(f"       [GPU: GTX 1650 ({dt:.2f}s)] Analyzed '{title}' successfully.")
                         return data
             except Exception as e:
-                pass
-
-        # 2. Try CPU Fallback if GPU call failed
-        if self.llm_cpu_fallback:
-            try:
-                prompt = f"<|im_start|>system\n{QWEN_SYSTEM_PROMPT}<|im_end|>\n<|im_start|>user\n{user_content}<|im_end|>\n<|im_start|>assistant\n"
-                response = self.llm_cpu_fallback(
-                    prompt,
-                    max_tokens=320,
-                    temperature=0.1,
-                    top_p=0.9,
-                    stop=["<|im_end|>", "```"]
-                )
-                raw_text = response["choices"][0]["text"].strip()
-                cleaned = self._clean_json_text(raw_text)
-                data = json.loads(cleaned)
-                if "primary_genre" in data and "scores" in data:
-                    data["title"] = title
-                    data["year"] = year
-                    data["media_type"] = media_type
-                    data["sources"] = evidence.get("sources", [])
-                    data["confidence_score"] = 0.95
-                    print(f"       [CPU Fallback] Analyzed '{title}' successfully.")
-                    return data
-            except Exception:
-                pass
+                print(f"       [GPU Warning] Request error on '{title}': {e}. Retrying on GTX 1650...")
+                time.sleep(1.0)
 
         return None
 
@@ -231,6 +200,11 @@ Factual Synopsis / Plot Evidence:
         text = re.sub(r"```$", "", text.strip(), flags=re.MULTILINE)
         start = text.find("{")
         end = text.rfind("}")
-        if start != -1 and end != -1:
-            return text[start:end+1]
+        if start != -1:
+            if end != -1 and end > start:
+                chunk = text[start:end+1]
+            else:
+                chunk = text[start:] + "\n}"
+            chunk = re.sub(r",\s*([\}\]])", r"\1", chunk)
+            return chunk
         return text.strip()
