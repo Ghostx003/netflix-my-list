@@ -23,6 +23,7 @@ import { InfoView } from './components/InfoView';
 import { DiscoveryView } from './components/DiscoveryView';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { DiscoveryDetailModal } from './components/DiscoveryDetailModal';
+import { AskNettyModal } from './components/AskNettyModal';
 import { SEED_NETFLIX_INDIA_TITLES } from './services/discoveryService';
 import { DiscoveryTitle } from './types';
 
@@ -1049,6 +1050,14 @@ export const App: React.FC = () => {
           libraryItems={items}
         />
       )}
+
+      {/* Floating Ask Netty AI Modal */}
+      <AskNettyModal
+        libraryItems={items}
+        onOpenMovieDetail={(movie) => {
+          handleOpenSearchItemDetail(movie);
+        }}
+      />
 
       {/* Sync Notification Toast */}
       {syncToast && (

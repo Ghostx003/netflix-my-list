@@ -195,10 +195,12 @@ export interface DiscoveryTitle {
   metadataUpdatedAt?: string;
   catalogUpdatedAt?: string;
 
-  // TMDB Enrichment & Provenance
+  // TMDB & Local Knowledge Base Enrichment
   tagline?: string;
   tmdbKeywords?: string[];
   themes?: string[];
+  moods?: string[];
+  parameters_100?: Record<string, number>;
   watchmodeOriginCountry?: string;
   tmdbOriginCountry?: string;
   tmdbProductionCountries?: string[];
