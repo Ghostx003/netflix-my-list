@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { AlertOctagon, RotateCcw, Trash2, Search, Film, Tv, Calendar, MessageSquare, Tag, Play, Sparkles, X, HeartHandshake } from 'lucide-react';
 import { LibraryItem } from '../types';
 import { getNetflixUrl, openNetflixInNewTab } from '../services/normalizer';
+import { CachedImage } from './CachedImage';
 
 interface DroppedViewProps {
   items: LibraryItem[];
@@ -157,19 +158,14 @@ export const DroppedView: React.FC<DroppedViewProps> = ({
                   <X className="w-3.5 h-3.5" />
                 </button>
 
-                <div className="aspect-[2/3] w-full rounded-xl overflow-hidden bg-zinc-800 mb-2 relative">
-                  {item.posterPath ? (
-                    <img
-                      src={item.posterPath}
-                      alt={item.externalTitle || item.originalTitle}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-zinc-600">
-                      {item.mediaType === 'tv' ? <Tv className="w-6 h-6" /> : <Film className="w-6 h-6" />}
-                    </div>
-                  )}
-                  <span className="absolute bottom-1 left-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-950/90 text-amber-300 border border-amber-500/40 uppercase">
+                <div className="aspect-[2/3] w-full rounded-xl overflow-hidden bg-zinc-800 mb-2 relative flex items-center justify-center">
+                  <CachedImage
+                    src={item.posterPath}
+                    fallbackSrc={item.backdropPath}
+                    alt={item.externalTitle || item.originalTitle}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                  />
+                  <span className="absolute bottom-1 left-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-950/90 text-amber-300 border border-amber-500/40 uppercase pointer-events-none">
                     2nd Chance
                   </span>
                 </div>
@@ -244,18 +240,13 @@ export const DroppedView: React.FC<DroppedViewProps> = ({
               >
                 <div className="flex gap-3">
                   {/* Poster */}
-                  <div className="w-20 h-28 rounded-xl overflow-hidden bg-zinc-800 shrink-0 border border-zinc-700 relative">
-                    {item.posterPath ? (
-                      <img
-                        src={item.posterPath}
-                        alt=""
-                        className="w-full h-full object-cover grayscale opacity-75 group-hover:grayscale-0 group-hover:opacity-100 transition-all"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-zinc-600">
-                        {isTV ? <Tv className="w-8 h-8" /> : <Film className="w-8 h-8" />}
-                      </div>
-                    )}
+                  <div className="w-20 h-28 rounded-xl overflow-hidden bg-zinc-800 shrink-0 border border-zinc-700 relative flex items-center justify-center">
+                    <CachedImage
+                      src={item.posterPath}
+                      fallbackSrc={item.backdropPath}
+                      alt={item.externalTitle || item.originalTitle}
+                      className="w-full h-full object-cover grayscale opacity-75 group-hover:grayscale-0 group-hover:opacity-100 transition-all"
+                    />
                   </div>
 
                   {/* Info */}

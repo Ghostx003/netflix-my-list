@@ -1,17 +1,18 @@
 import React from 'react';
-import { Film, Tv, BarChart3, UploadCloud, Settings as SettingsIcon, RefreshCw, CheckSquare, Info, Compass, Play } from 'lucide-react';
+import { Film, Tv, BarChart3, UploadCloud, Settings as SettingsIcon, RefreshCw, CheckSquare, Info, Compass, Play, Sparkles, Search } from 'lucide-react';
 import { AppSettings, LibraryItem } from '../types';
 import { openNetflixInNewTab } from '../services/normalizer';
 
 interface NavbarProps {
-  activeTab: 'import' | 'movies-series' | 'still-watching' | 'dropped' | 'tracker' | 'discovery' | 'analytics' | 'info';
-  setActiveTab: (tab: 'import' | 'movies-series' | 'still-watching' | 'dropped' | 'tracker' | 'discovery' | 'analytics' | 'info') => void;
+  activeTab: 'import' | 'movies-series' | 'still-watching' | 'dropped' | 'tracker' | 'discovery' | 'recommendations' | 'analytics' | 'info';
+  setActiveTab: (tab: 'import' | 'movies-series' | 'still-watching' | 'dropped' | 'tracker' | 'discovery' | 'recommendations' | 'analytics' | 'info') => void;
   items: LibraryItem[];
   settings: AppSettings;
   onOpenSettings: () => void;
   onOpenBackup: () => void;
   onRescan: () => void;
   isRescanning: boolean;
+  onOpenGlobalSearch?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -23,6 +24,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenBackup,
   onRescan,
   isRescanning,
+  onOpenGlobalSearch,
 }) => {
   // Detect Android device
   const isAndroid = typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent || '');
@@ -96,10 +98,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               }`}
             >
               <Film className="w-3.5 h-3.5" />
-              <span>Movies / Series</span>
-              {items.length > 0 && (
-                <span className="ml-0.5 text-[10px] px-1.5 py-0.2 bg-black/40 rounded-full font-semibold">
-                  {movieCount}M·{tvCount}S
+              <span>Movies/Series</span>
+              {(movieCount + tvCount > 0 || items.length > 0) && (
+                <span className="ml-0.5 text-[10px] px-1.5 py-0.2 bg-black/40 rounded-full font-bold">
+                  {movieCount + tvCount || items.length}
                 </span>
               )}
             </button>
@@ -155,6 +157,21 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
 
             <button
+              onClick={() => setActiveTab('recommendations')}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-medium transition-all whitespace-nowrap ${
+                activeTab === 'recommendations'
+                  ? 'bg-[#E50914] text-white shadow-lg shadow-red-600/30 font-semibold'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-[#E50914]" />
+              <span>Recommendations</span>
+              <span className="ml-0.5 text-[9px] px-1 py-0.1 bg-red-500/20 text-red-300 rounded-full font-bold">
+                AI
+              </span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('discovery')}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-medium transition-all whitespace-nowrap ${
                 activeTab === 'discovery'
@@ -187,6 +204,22 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Action Controls — always visible, no text-clipping */}
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Global Search Bar Trigger (Ctrl + Space) */}
+            <button
+              type="button"
+              onClick={onOpenGlobalSearch}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-zinc-900/90 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-white/10 hover:border-red-500/40 transition-all text-xs font-medium cursor-pointer shadow-inner group"
+              title="Search movies, series, vibes (Ctrl + Space)"
+            >
+              <Search className="w-3.5 h-3.5 text-red-500 group-hover:scale-110 transition-transform" />
+              <span className="hidden xl:inline text-zinc-300">Search catalog...</span>
+              <span className="xl:hidden hidden md:inline text-zinc-300">Search</span>
+              <div className="hidden sm:flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-black/50 border border-white/10 text-[9px] font-mono text-zinc-400">
+                <span>Ctrl</span>
+                <span>Space</span>
+              </div>
+            </button>
+
             {items.length > 0 && (
               <button
                 onClick={onRescan}
@@ -223,6 +256,16 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="xl:hidden border-t border-white/5 overflow-x-auto scrollbar-none">
           <nav className="flex items-center gap-1 px-3 py-1.5 min-w-max">
             <button
+              type="button"
+              onClick={onOpenGlobalSearch}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-600/20 text-red-300 border border-red-500/30 hover:bg-red-600/30 transition-all whitespace-nowrap cursor-pointer shadow-sm"
+              title="Search catalog (Ctrl + Space)"
+            >
+              <Search className="w-3.5 h-3.5 text-red-400" />
+              <span>Search</span>
+              <span className="text-[10px] font-mono opacity-80">Ctrl+Space</span>
+            </button>
+            <button
               onClick={() => setActiveTab('import')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
                 activeTab === 'import'
@@ -246,9 +289,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               }`}
             >
               <Film className="w-3.5 h-3.5" />
-              <span>Catalog</span>
-              {items.length > 0 && (
-                <span className="text-[10px] px-1.5 py-0.5 bg-black/40 rounded-full font-semibold">{movieCount}M·{tvCount}S</span>
+              <span>Movies/Series</span>
+              {(movieCount + tvCount > 0 || items.length > 0) && (
+                <span className="text-[10px] px-1.5 py-0.5 bg-black/40 rounded-full font-bold">
+                  {movieCount + tvCount || items.length}
+                </span>
               )}
             </button>
 
@@ -326,6 +371,17 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* Sleek Mobile Bottom Navigation Bar (Docked) */}
       <div className={`${isAndroid ? 'flex' : 'xl:hidden flex'} fixed bottom-0 left-0 right-0 z-50 bg-[#121212]/95 backdrop-blur-xl border-t border-white/10 px-2 py-1.5 pb-safe items-center justify-around shadow-2xl`}>
+        {onOpenGlobalSearch && (
+          <button
+            onClick={onOpenGlobalSearch}
+            className="flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all relative text-zinc-400 hover:text-white cursor-pointer"
+            title="Search movies, series, vibes (Ctrl + Space)"
+          >
+            <Search className="w-5 h-5 mb-0.5 stroke-2 text-red-500" />
+            <span className="text-[10px] tracking-tight text-zinc-300">Search</span>
+          </button>
+        )}
+
         <button
           onClick={() => setActiveTab('movies-series')}
           className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all relative ${
@@ -333,7 +389,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           }`}
         >
           <Film className={`w-5 h-5 mb-0.5 ${activeTab === 'movies-series' ? 'stroke-[2.5]' : 'stroke-2'}`} />
-          <span className="text-[10px] tracking-tight">Catalog</span>
+          <span className="text-[10px] tracking-tight">Movies/Series</span>
           {activeTab === 'movies-series' && (
             <span className="absolute -bottom-1 w-4 h-0.5 bg-[#E50914] rounded-full" />
           )}
@@ -396,6 +452,19 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span className="text-[10px] tracking-tight">Done</span>
           {activeTab === 'tracker' && (
             <span className="absolute -bottom-1 w-4 h-0.5 bg-emerald-400 rounded-full" />
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('recommendations')}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all relative ${
+            activeTab === 'recommendations' ? 'text-[#E50914] font-bold' : 'text-zinc-400 hover:text-white'
+          }`}
+        >
+          <Sparkles className={`w-5 h-5 mb-0.5 ${activeTab === 'recommendations' ? 'stroke-[2.5]' : 'stroke-2'}`} />
+          <span className="text-[10px] tracking-tight">For You</span>
+          {activeTab === 'recommendations' && (
+            <span className="absolute -bottom-1 w-4 h-0.5 bg-[#E50914] rounded-full" />
           )}
         </button>
 

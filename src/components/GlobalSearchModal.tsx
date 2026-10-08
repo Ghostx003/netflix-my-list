@@ -23,6 +23,12 @@ import {
   SearchIndexItem,
   SEARCH_CONFIG,
 } from '../services/searchEngine';
+import {
+  analyzeSearchQueryWithQwen,
+  findSimilarCatalogTitles,
+  AISearchAnalysis,
+  SimilarRecommendationResult,
+} from '../services/aiSearchIntelligence';
 import { DiscoveryTitle, LibraryItem } from '../types';
 import { getNetflixUrl, openNetflixInNewTab } from '../services/normalizer';
 import { formatRuntime } from '../services/analytics';
@@ -51,6 +57,11 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
+
+  // Qwen 28B AI Search Intelligence & Spell Check State
+  const [aiAnalysis, setAiAnalysis] = useState<AISearchAnalysis | null>(null);
+  const [similarRecommendations, setSimilarRecommendations] = useState<SimilarRecommendationResult[]>([]);
+  const [isAiThinking, setIsAiThinking] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsContainerRef = useRef<HTMLDivElement>(null);
@@ -85,7 +96,43 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
     return () => clearTimeout(handler);
   }, [query]);
 
-  // Execute search through searchEngine
+  // Parallel Qwen 28B AI Query Analysis & Landmark Discovery
+  useEffect(() => {
+    if (!debouncedQuery || debouncedQuery.length < 2) {
+      setAiAnalysis(null);
+      setSimilarRecommendations([]);
+      setIsAiThinking(false);
+      return;
+    }
+
+    let isMounted = true;
+    setIsAiThinking(true);
+
+    analyzeSearchQueryWithQwen(debouncedQuery)
+      .then((analysis) => {
+        if (!isMounted) return;
+        setIsAiThinking(false);
+        if (analysis) {
+          setAiAnalysis(analysis);
+          const similar = findSimilarCatalogTitles(analysis, catalog, libraryItems, debouncedQuery);
+          setSimilarRecommendations(similar);
+        } else {
+          setAiAnalysis(null);
+          setSimilarRecommendations([]);
+        }
+      })
+      .catch((err) => {
+        if (!isMounted) return;
+        setIsAiThinking(false);
+        console.warn('AI search query analysis error:', err);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [debouncedQuery, catalog, libraryItems]);
+
+  // Execute search through local fast searchEngine (<10ms)
   const searchResponse = useMemo(() => {
     if (!debouncedQuery) {
       return {
@@ -100,6 +147,29 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
 
   const { results, didYouMean, parsedQuery } = searchResponse;
 
+  // Unified spell check recommendation: prioritize Qwen AI typo detection, fallback to local Trie
+  const effectiveDidYouMean = useMemo(() => {
+    const cleanQuery = debouncedQuery.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (aiAnalysis?.isTypo && aiAnalysis.correctedQuery) {
+      const cleanCorrected = aiAnalysis.correctedQuery.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (cleanCorrected !== cleanQuery) {
+        return {
+          suggestedTitle: aiAnalysis.correctedQuery,
+          source: 'qwen' as const,
+          vibe: aiAnalysis.vibe,
+        };
+      }
+    }
+    if (didYouMean) {
+      return {
+        suggestedTitle: didYouMean.suggestedTitle,
+        source: 'local' as const,
+        vibe: undefined,
+      };
+    }
+    return null;
+  }, [aiAnalysis, didYouMean, debouncedQuery]);
+
   // Keyboard navigation handler inside modal
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -108,7 +178,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
       return;
     }
 
-    const totalNavigableItems = (didYouMean ? 1 : 0) + results.length;
+    const totalNavigableItems = (effectiveDidYouMean ? 1 : 0) + results.length;
     if (totalNavigableItems === 0) return;
 
     if (e.key === 'ArrowDown') {
@@ -123,18 +193,18 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
         // If didYouMean exists and no item selected, Enter defaults to first result or correction
         if (results.length > 0) {
           handleSelectResult(results[0].item);
-        } else if (didYouMean) {
-          handleApplyDidYouMean(didYouMean.suggestedTitle);
+        } else if (effectiveDidYouMean) {
+          handleApplyDidYouMean(effectiveDidYouMean.suggestedTitle);
         }
         return;
       }
 
-      if (didYouMean && selectedIndex === 0) {
+      if (effectiveDidYouMean && selectedIndex === 0) {
         // "Did you mean?" suggestion is selected
-        handleApplyDidYouMean(didYouMean.suggestedTitle);
+        handleApplyDidYouMean(effectiveDidYouMean.suggestedTitle);
       } else {
         // Result item is selected
-        const resultIdx = didYouMean ? selectedIndex - 1 : selectedIndex;
+        const resultIdx = effectiveDidYouMean ? selectedIndex - 1 : selectedIndex;
         if (results[resultIdx]) {
           handleSelectResult(results[resultIdx].item);
         }
@@ -231,14 +301,22 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
             </div>
           )}
 
-          {/* "Did you mean?" Suggestion Banner */}
-          {didYouMean && (
+          {/* AI Thinking banner */}
+          {isAiThinking && debouncedQuery && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-purple-950/30 border border-purple-500/20 text-xs text-purple-300 animate-pulse">
+              <Sparkles className="w-3.5 h-3.5 text-purple-400 animate-spin" />
+              <span>Qwen 28B analyzing vibe, landmark recommendations & spell-checking...</span>
+            </div>
+          )}
+
+          {/* "Did you mean?" Suggestion Banner (AI Spell-Check or Local Trie) */}
+          {effectiveDidYouMean && (
             <div
-              onClick={() => handleApplyDidYouMean(didYouMean.suggestedTitle)}
+              onClick={() => handleApplyDidYouMean(effectiveDidYouMean.suggestedTitle)}
               className={`p-3 sm:p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
                 selectedIndex === 0
-                  ? 'bg-purple-950/80 border-purple-400 text-white shadow-lg ring-2 ring-purple-500/50'
-                  : 'bg-purple-950/40 hover:bg-purple-950/70 border-purple-500/30 text-purple-200'
+                  ? 'bg-purple-950/90 border-purple-400 text-white shadow-xl ring-2 ring-purple-500/50'
+                  : 'bg-gradient-to-r from-purple-950/50 via-indigo-950/40 to-zinc-900/60 hover:bg-purple-950/70 border-purple-500/40 text-purple-200'
               }`}
             >
               <div className="flex items-start sm:items-center gap-2.5 min-w-0">
@@ -246,25 +324,22 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
                   <Sparkles className="w-4 h-4" />
                 </span>
                 <div className="min-w-0">
-                  <span className="text-xs text-purple-300 font-semibold uppercase tracking-wider block sm:inline mr-2">
-                    Did you mean:
+                  <span className="text-xs text-purple-300 font-bold uppercase tracking-wider block sm:inline mr-2">
+                    {effectiveDidYouMean.source === 'qwen' ? '✨ AI Spell Check — Did you mean:' : 'Did you mean:'}
                   </span>
                   <span className="text-sm sm:text-base font-black text-white hover:underline">
-                    {didYouMean.suggestedTitle}
+                    {effectiveDidYouMean.suggestedTitle}
                   </span>
-                  {didYouMean.item.releaseYear && (
-                    <span className="ml-2 px-1.5 py-0.5 rounded bg-black/40 text-[10px] text-zinc-300 font-mono">
-                      {didYouMean.item.releaseYear}
+                  {effectiveDidYouMean.vibe && (
+                    <span className="ml-2 text-xs text-purple-300/80 font-normal hidden sm:inline">
+                      • {effectiveDidYouMean.vibe}
                     </span>
                   )}
-                  <span className="ml-1.5 px-1.5 py-0.5 rounded bg-black/40 text-[10px] uppercase font-bold text-zinc-400">
-                    {didYouMean.item.mediaType === 'movie' ? 'Movie' : 'Series'}
-                  </span>
                 </div>
               </div>
 
-              <div className="flex items-center gap-1.5 text-xs text-purple-300 font-bold shrink-0 self-end sm:self-center">
-                <span>Search this instead</span>
+              <div className="flex items-center gap-1.5 text-xs text-purple-300 font-bold shrink-0 self-end sm:self-center bg-purple-900/40 px-2.5 py-1 rounded-lg border border-purple-500/30">
+                <span>Search "{effectiveDidYouMean.suggestedTitle}" instead</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </div>
             </div>
@@ -280,169 +355,296 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
             </div>
           )}
 
-          {/* Search Results List */}
-          {results.length > 0 ? (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs text-zinc-400 px-1 pb-1 border-b border-white/5">
-                <span>Found <strong className="text-white">{results.length}</strong> relevant matches</span>
-                <span className="text-[10px] text-zinc-500 font-mono">Ranked by intent relevance</span>
-              </div>
-
-              {results.map((res, idx) => {
-                const item = res.item;
-                const visualIndex = didYouMean ? idx + 1 : idx;
-                const isSelected = selectedIndex === visualIndex;
-                const netflixUrl = getNetflixUrl({
-                  videoId: item.netflixId || item.videoId,
-                  netflixId: item.netflixId || item.videoId,
-                  originalTitle: item.title,
-                  externalTitle: item.externalTitle || item.title,
-                });
-
-                const inLib = isInLibrary ? isInLibrary(item.sourceItem) : false;
-
-                return (
-                  <div
-                    key={item.id}
-                    onClick={() => handleSelectResult(item)}
-                    className={`p-2.5 sm:p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 group ${
-                      isSelected
-                        ? 'bg-zinc-800/90 border-red-500 text-white shadow-xl ring-2 ring-red-500/40'
-                        : 'bg-zinc-900/60 hover:bg-zinc-800/60 border-white/5 text-zinc-200'
-                    }`}
-                  >
-                    {/* Poster + Info */}
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="w-12 sm:w-14 aspect-[2/3] rounded-lg overflow-hidden bg-zinc-800 shrink-0 border border-white/10 shadow relative">
-                        <CachedImage
-                          src={item.posterPath}
-                          alt={item.title}
-                          className="w-full h-full object-cover"
-                          fallbackIcon={<Film className="w-5 h-5 text-zinc-600 m-auto" />}
-                        />
-                      </div>
-
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <h4 className="text-sm sm:text-base font-bold text-white truncate group-hover:text-red-400 transition-colors">
-                            {item.title}
-                          </h4>
-
-                          {/* Media Type Badge */}
-                          <span
-                            className={`text-[9px] px-1.5 py-0.2 rounded font-black uppercase tracking-wider ${
-                              item.mediaType === 'movie'
-                                ? 'bg-red-600/30 text-red-300 border border-red-500/40'
-                                : 'bg-purple-600/30 text-purple-300 border border-purple-500/40'
-                            }`}
-                          >
-                            {item.mediaType === 'movie' ? 'Movie' : 'Series'}
-                          </span>
-
-                          {/* Release Year */}
-                          {item.releaseYear && (
-                            <span
-                              className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold ${
-                                res.yearMatchStatus === 'exact'
-                                  ? 'bg-amber-500/30 text-amber-300 border border-amber-500/40'
-                                  : 'bg-black/40 text-zinc-400'
-                              }`}
-                              title={res.yearMatchStatus === 'exact' ? 'Exact year match' : undefined}
-                            >
-                              {item.releaseYear}
-                              {res.yearMatchStatus === 'exact' && ' ✓'}
-                            </span>
-                          )}
-
-                          {/* Ratings */}
-                          {item.imdbRating && (
-                            <span className="px-1.5 py-0.2 rounded bg-black/40 border border-amber-500/30 text-amber-400 text-[10px] font-black flex items-center gap-0.5">
-                              <Star className="w-2.5 h-2.5 fill-amber-400" />
-                              {item.imdbRating}
-                            </span>
-                          )}
-
-                          {item.rottenTomatoesRating !== undefined && item.rottenTomatoesRating > 0 && (
-                            <span className="px-1.5 py-0.2 rounded bg-black/40 border border-red-500/30 text-red-300 text-[10px] font-bold">
-                              🍅 {item.rottenTomatoesRating}%
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Subtitle / Genres / Match Reason */}
-                        <div className="flex flex-wrap items-center gap-1.5 text-xs text-zinc-400">
-                          {item.genres?.slice(0, 3).map((g) => (
-                            <span key={g} className="text-[10px] text-zinc-400 bg-white/5 px-1.5 py-0.2 rounded">
-                              {g}
-                            </span>
-                          ))}
-
-                          {item.director && (
-                            <span className="text-[10px] text-zinc-500 truncate max-w-[140px]">
-                              Dir: {item.director}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Quick Action Buttons */}
-                    <div
-                      className="flex items-center gap-1.5 shrink-0"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {onAddToLibrary && (
-                        <button
-                          type="button"
-                          onClick={() => onAddToLibrary(item.sourceItem)}
-                          className={`p-2 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
-                            inLib
-                              ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30'
-                              : 'bg-zinc-800 hover:bg-zinc-700 text-white border border-white/10'
-                          }`}
-                          title={inLib ? 'In your library' : 'Add to library'}
-                        >
-                          {inLib ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                        </button>
-                      )}
-
-                      <a
-                        href={netflixUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => openNetflixInNewTab(netflixUrl, e)}
-                        className="flex items-center gap-1 px-3 py-2 rounded-xl bg-[#E50914] hover:bg-red-700 text-white text-xs font-bold shadow-md shadow-red-600/30 transition-transform active:scale-95 no-underline cursor-pointer"
-                        title="Watch on Netflix (opens in new tab)"
-                      >
-                        <Play className="w-3 h-3 fill-white" />
-                        <span className="hidden sm:inline">Netflix</span>
-                      </a>
-
-                      <button
-                        type="button"
-                        onClick={() => handleSelectResult(item)}
-                        className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors cursor-pointer border border-white/5"
-                        title="View Full Details"
-                      >
-                        <Info className="w-4 h-4" />
-                      </button>
-                    </div>
+              {/* Search Results List */}
+              {results.length > 0 ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs text-zinc-400 px-1 pb-1 border-b border-white/5">
+                    <span>Found <strong className="text-white">{results.length}</strong> relevant matches</span>
+                    <span className="text-[10px] text-zinc-500 font-mono">Ranked by intent relevance</span>
                   </div>
-                );
-              })}
-            </div>
-          ) : debouncedQuery && !isSearching ? (
-            /* Empty State */
-            <div className="py-12 px-4 text-center space-y-3">
-              <AlertCircle className="w-10 h-10 text-zinc-600 mx-auto" />
-              <h3 className="text-base font-bold text-white">
-                No matching movies or series found
-              </h3>
-              <p className="text-xs sm:text-sm text-zinc-400 max-w-md mx-auto leading-relaxed">
-                No titles in your local database match <span className="text-white font-mono">"{debouncedQuery}"</span>. Try checking for typos or searching by character, director, or release year.
-              </p>
-            </div>
-          ) : !debouncedQuery ? (
+
+                  {results.map((res, idx) => {
+                    const item = res.item;
+                    const visualIndex = effectiveDidYouMean ? idx + 1 : idx;
+                    const isSelected = selectedIndex === visualIndex;
+                    const netflixUrl = getNetflixUrl({
+                      videoId: item.netflixId || item.videoId,
+                      netflixId: item.netflixId || item.videoId,
+                      originalTitle: item.title,
+                      externalTitle: item.externalTitle || item.title,
+                    });
+
+                    const inLib = isInLibrary ? isInLibrary(item.sourceItem) : false;
+
+                    return (
+                      <div
+                        key={item.id}
+                        onClick={() => handleSelectResult(item)}
+                        className={`p-2.5 sm:p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 group ${
+                          isSelected
+                            ? 'bg-zinc-800/90 border-red-500 text-white shadow-xl ring-2 ring-red-500/40'
+                            : 'bg-zinc-900/60 hover:bg-zinc-800/60 border-white/5 text-zinc-200'
+                        }`}
+                      >
+                        {/* Poster + Info */}
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className="w-12 sm:w-14 aspect-[2/3] rounded-lg overflow-hidden bg-zinc-800 shrink-0 border border-white/10 shadow relative">
+                            <CachedImage
+                              src={item.posterPath}
+                              alt={item.title}
+                              className="w-full h-full object-cover"
+                              fallbackIcon={<Film className="w-5 h-5 text-zinc-600 m-auto" />}
+                            />
+                          </div>
+
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <h4 className="text-sm sm:text-base font-bold text-white truncate group-hover:text-red-400 transition-colors">
+                                {item.title}
+                              </h4>
+
+                              {/* Media Type Badge */}
+                              <span
+                                className={`text-[9px] px-1.5 py-0.2 rounded font-black uppercase tracking-wider ${
+                                  item.mediaType === 'movie'
+                                    ? 'bg-red-600/30 text-red-300 border border-red-500/40'
+                                    : 'bg-purple-600/30 text-purple-300 border border-purple-500/40'
+                                }`}
+                              >
+                                {item.mediaType === 'movie' ? 'Movie' : 'Series'}
+                              </span>
+
+                              {/* Release Year */}
+                              {item.releaseYear && (
+                                <span
+                                  className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold ${
+                                    res.yearMatchStatus === 'exact'
+                                      ? 'bg-amber-500/30 text-amber-300 border border-amber-500/40'
+                                      : 'bg-black/40 text-zinc-400'
+                                  }`}
+                                  title={res.yearMatchStatus === 'exact' ? 'Exact year match' : undefined}
+                                >
+                                  {item.releaseYear}
+                                  {res.yearMatchStatus === 'exact' && ' ✓'}
+                                </span>
+                              )}
+
+                              {/* Ratings */}
+                              {item.imdbRating && (
+                                <span className="px-1.5 py-0.2 rounded bg-black/40 border border-amber-500/30 text-amber-400 text-[10px] font-black flex items-center gap-0.5">
+                                  <Star className="w-2.5 h-2.5 fill-amber-400" />
+                                  {item.imdbRating}
+                                </span>
+                              )}
+
+                              {item.rottenTomatoesRating !== undefined && item.rottenTomatoesRating > 0 && (
+                                <span className="px-1.5 py-0.2 rounded bg-black/40 border border-red-500/30 text-red-300 text-[10px] font-bold">
+                                  🍅 {item.rottenTomatoesRating}%
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Subtitle / Genres / Match Reason */}
+                            <div className="flex flex-wrap items-center gap-1.5 text-xs text-zinc-400">
+                              {item.genres?.slice(0, 3).map((g) => (
+                                <span key={g} className="text-[10px] text-zinc-400 bg-white/5 px-1.5 py-0.2 rounded">
+                                  {g}
+                                </span>
+                              ))}
+
+                              {item.director && (
+                                <span className="text-[10px] text-zinc-500 truncate max-w-[140px]">
+                                  Dir: {item.director}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Quick Action Buttons */}
+                        <div
+                          className="flex items-center gap-1.5 shrink-0"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {onAddToLibrary && (
+                            <button
+                              type="button"
+                              onClick={() => onAddToLibrary(item.sourceItem)}
+                              className={`p-2 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                                inLib
+                                  ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30'
+                                  : 'bg-zinc-800 hover:bg-zinc-700 text-white border border-white/10'
+                              }`}
+                              title={inLib ? 'In your library' : 'Add to library'}
+                            >
+                              {inLib ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                            </button>
+                          )}
+
+                          <a
+                            href={netflixUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => openNetflixInNewTab(netflixUrl, e)}
+                            className="flex items-center gap-1 px-3 py-2 rounded-xl bg-[#E50914] hover:bg-red-700 text-white text-xs font-bold shadow-md shadow-red-600/30 transition-transform active:scale-95 no-underline cursor-pointer"
+                            title="Watch on Netflix (opens in new tab)"
+                          >
+                            <Play className="w-3 h-3 fill-white" />
+                            <span className="hidden sm:inline">Netflix</span>
+                          </a>
+
+                          <button
+                            type="button"
+                            onClick={() => handleSelectResult(item)}
+                            className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors cursor-pointer border border-white/5"
+                            title="View Full Details"
+                          >
+                            <Info className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : debouncedQuery && !isSearching ? (
+                /* Empty State */
+                <div className="py-8 px-4 text-center space-y-2.5 bg-zinc-900/40 rounded-xl border border-white/5">
+                  <AlertCircle className="w-8 h-8 text-zinc-500 mx-auto" />
+                  <h3 className="text-sm font-bold text-white">
+                    No direct title matches for "{debouncedQuery}"
+                  </h3>
+                  <p className="text-xs text-zinc-400 max-w-md mx-auto leading-relaxed">
+                    {effectiveDidYouMean ? (
+                      <>
+                        Did you mean <button type="button" onClick={() => handleApplyDidYouMean(effectiveDidYouMean.suggestedTitle)} className="text-purple-400 font-bold underline hover:text-purple-300">"{effectiveDidYouMean.suggestedTitle}"</button>?
+                      </>
+                    ) : (
+                      'Check spelling or explore landmark titles matching this vibe below.'
+                    )}
+                  </p>
+                </div>
+              ) : null}
+
+              {/* AI Similar Titles Section ("Tenet"-type recommendations) */}
+              {debouncedQuery && similarRecommendations.length > 0 && (
+                <div className="pt-3 border-t border-white/10 space-y-2.5">
+                  <div className="flex items-center justify-between px-1">
+                    <div className="flex items-center gap-2">
+                      <span className="p-1 rounded-md bg-purple-600/20 border border-purple-500/30 text-purple-400">
+                        <Sparkles className="w-3.5 h-3.5" />
+                      </span>
+                      <h4 className="text-xs sm:text-sm font-bold text-white">
+                        Similar to "{aiAnalysis?.similarReferenceTitle || debouncedQuery}"
+                        {aiAnalysis?.vibe && (
+                          <span className="text-zinc-400 font-normal ml-1.5 text-xs hidden sm:inline">
+                            — {aiAnalysis.vibe}
+                          </span>
+                        )}
+                      </h4>
+                    </div>
+                    <span className="text-[10px] text-purple-300 font-mono bg-purple-950/60 border border-purple-500/30 px-2 py-0.5 rounded-full font-bold">
+                      ✨ Qwen 28B Vibe Match
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {similarRecommendations.map((rec) => {
+                      const item = rec.title;
+                      const netflixUrl = getNetflixUrl({
+                        videoId: item.netflixId || (item as any).videoId,
+                        netflixId: item.netflixId || (item as any).videoId,
+                        originalTitle: item.title,
+                        externalTitle: (item as any).externalTitle || item.title,
+                      });
+                      const inLib = isInLibrary ? isInLibrary(item) : false;
+
+                      return (
+                        <div
+                          key={`sim-${item.id}`}
+                          onClick={() => {
+                            onClose();
+                            onOpenItemDetail(item);
+                          }}
+                          className="p-2.5 rounded-xl bg-zinc-900/90 hover:bg-zinc-800 border border-white/5 hover:border-purple-500/40 transition-all cursor-pointer flex items-center justify-between gap-3 group relative overflow-hidden shadow"
+                        >
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <div className="w-11 sm:w-12 aspect-[2/3] rounded-lg overflow-hidden bg-zinc-800 shrink-0 border border-white/10 shadow relative">
+                              <CachedImage
+                                src={item.posterPath}
+                                alt={item.title}
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                                fallbackIcon={<Film className="w-5 h-5 text-zinc-600 m-auto" />}
+                              />
+                            </div>
+
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="flex items-center gap-1.5">
+                                <h5 className="text-xs sm:text-sm font-bold text-white truncate group-hover:text-purple-300 transition-colors">
+                                  {item.title}
+                                </h5>
+                                {item.releaseYear && (
+                                  <span className="text-[10px] text-zinc-400 font-mono">
+                                    {item.releaseYear}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-purple-600/20 text-purple-300 border border-purple-500/30">
+                                  {rec.vibeBadge}
+                                </span>
+                                {(item.rating || item.imdbRating) && (
+                                  <span className="text-[9px] px-1 py-0.2 rounded bg-black/40 text-amber-400 font-bold flex items-center gap-0.5">
+                                    <Star className="w-2.5 h-2.5 fill-amber-400" />
+                                    {item.rating || item.imdbRating}
+                                  </span>
+                                )}
+                              </div>
+
+                              <p className="text-[10px] text-zinc-400 line-clamp-1">
+                                {rec.matchReason}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div
+                            className="flex items-center gap-1.5 shrink-0"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {onAddToLibrary && (
+                              <button
+                                type="button"
+                                onClick={() => onAddToLibrary(item)}
+                                className={`p-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                                  inLib
+                                    ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30'
+                                    : 'bg-zinc-800 hover:bg-zinc-700 text-white border border-white/10'
+                                }`}
+                                title={inLib ? 'In your library' : 'Add to library'}
+                              >
+                                {inLib ? <Check className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+                              </button>
+                            )}
+                            <a
+                              href={netflixUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => openNetflixInNewTab(netflixUrl, e)}
+                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#E50914] hover:bg-red-700 text-white text-xs font-bold shadow transition-transform active:scale-95 no-underline cursor-pointer"
+                              title="Watch on Netflix"
+                            >
+                              <Play className="w-3 h-3 fill-white" />
+                              <span className="hidden sm:inline text-[11px]">Watch</span>
+                            </a>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+          {!debouncedQuery ? (
             /* Idle Quick Guide State */
             <div className="py-10 px-4 text-center space-y-4 text-zinc-400">
               <div className="w-12 h-12 rounded-2xl bg-zinc-900 border border-white/10 flex items-center justify-center mx-auto text-red-500">

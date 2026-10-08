@@ -4,6 +4,8 @@ import { getCachedMetadata, setCachedMetadata, saveDiscoveryTitles, getAllDiscov
 import { normalizeCountriesList, normalizeTitle, createDuplicateKey, NETFLIX_HINDI_DUBBED_TITLES } from './normalizer';
 import { extractThemesFromKeywords, generateFallbackTagline } from './themeMapper';
 import { enrichDiscoveryTitleWithTMDBDetails } from './tmdbEnrichmentService';
+import { EXPANDED_NETFLIX_CATALOG_TITLES } from './seedCatalogData';
+import { sanitizeImageUrl } from './imageResolver';
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 
@@ -136,7 +138,7 @@ export const SEED_NETFLIX_INDIA_TITLES: DiscoveryTitle[] = [
     releaseYear: 2023,
     releaseDate: '2023-07-15',
     netflixAddedDate: '2023-07-15',
-    posterPath: 'https://image.tmdb.org/t/p/w500/kohrra_poster.jpg',
+    posterPath: 'https://image.tmdb.org/t/p/w500/oZbiASZweEKFOHsl56QTeNJ6a8R.jpg',
     rating: 7.7,
     imdbRating: 7.6,
     rottenTomatoesRating: 86,
@@ -299,7 +301,7 @@ export const SEED_NETFLIX_INDIA_TITLES: DiscoveryTitle[] = [
     releaseYear: 2012,
     releaseDate: '2012-11-30',
     netflixAddedDate: '2018-10-01',
-    posterPath: 'https://image.tmdb.org/t/p/w500/talaash_poster.jpg',
+    posterPath: 'https://image.tmdb.org/t/p/w500/oCxyN7HmJ7zWp8jtJeMRHABnutF.jpg',
     rating: 7.3,
     imdbRating: 7.2,
     rottenTomatoesRating: 81,
@@ -414,7 +416,7 @@ export const SEED_NETFLIX_INDIA_TITLES: DiscoveryTitle[] = [
     releaseYear: 2019,
     releaseDate: '2019-12-14',
     netflixAddedDate: '2019-12-14',
-    posterPath: 'https://image.tmdb.org/t/p/w500/cloy_poster.jpg',
+    posterPath: 'https://image.tmdb.org/t/p/w500/fgBNLPr6mC8pxuR79ENAJY4nBmj.jpg',
     rating: 8.7,
     imdbRating: 8.7,
     rottenTomatoesRating: 90,
@@ -442,7 +444,7 @@ export const SEED_NETFLIX_INDIA_TITLES: DiscoveryTitle[] = [
     releaseYear: 2024,
     releaseDate: '2024-03-09',
     netflixAddedDate: '2024-03-09',
-    posterPath: 'https://image.tmdb.org/t/p/w500/qot_poster.jpg',
+    posterPath: 'https://image.tmdb.org/t/p/w500/7ZXLZ3KYL3IVvsSHBZaHjcNQzNU.jpg',
     rating: 8.8,
     imdbRating: 8.3,
     rottenTomatoesRating: 92,
@@ -470,7 +472,7 @@ export const SEED_NETFLIX_INDIA_TITLES: DiscoveryTitle[] = [
     releaseYear: 2020,
     releaseDate: '2020-04-29',
     netflixAddedDate: '2020-04-29',
-    posterPath: 'https://image.tmdb.org/t/p/w500/extra_poster.jpg',
+    posterPath: 'https://image.tmdb.org/t/p/w500/zuNOQVI4rEaqwknrfQUVKtlKE2C.jpg',
     rating: 8.0,
     imdbRating: 7.6,
     rottenTomatoesRating: 88,
@@ -498,7 +500,7 @@ export const SEED_NETFLIX_INDIA_TITLES: DiscoveryTitle[] = [
     releaseYear: 2020,
     releaseDate: '2020-12-18',
     netflixAddedDate: '2020-12-18',
-    posterPath: 'https://image.tmdb.org/t/p/w500/sweet_poster.jpg',
+    posterPath: 'https://image.tmdb.org/t/p/w500/zcugNxDg59YwIf3dUHsrHmO7pc1.jpg',
     rating: 8.2,
     imdbRating: 7.3,
     rottenTomatoesRating: 84,
@@ -1208,6 +1210,7 @@ export const SEED_NETFLIX_INDIA_TITLES: DiscoveryTitle[] = [
     isNetflixIndiaVerified: true,
     availabilitySource: 'Netflix India',
   },
+  ...EXPANDED_NETFLIX_CATALOG_TITLES,
 ];
 
 const TMDB_GENRE_ID_MAP: Record<number, string> = {
@@ -1601,15 +1604,36 @@ export function deduplicateDiscoveryTitles(titles: DiscoveryTitle[]): DiscoveryT
       key = `title_${createDuplicateKey(item.title)}_${item.releaseYear || '0'}`;
     }
 
+    const sanitizedPoster = sanitizeImageUrl(item.posterPath, item.title);
+    const sanitizedBackdrop = sanitizeImageUrl(item.backdropPath, item.title);
+    const normalizedItem: DiscoveryTitle = {
+      ...item,
+      posterPath: sanitizedPoster || item.posterPath,
+      backdropPath: sanitizedBackdrop || item.backdropPath,
+    };
+
     if (!map.has(key)) {
-      map.set(key, { ...item });
+      map.set(key, { ...normalizedItem });
     } else {
       // Merge records - keep best metadata
       const existing = map.get(key)!;
       existing.imdbRating = existing.imdbRating || item.imdbRating;
       existing.rottenTomatoesRating = existing.rottenTomatoesRating || item.rottenTomatoesRating;
-      existing.posterPath = existing.posterPath || item.posterPath;
-      existing.backdropPath = existing.backdropPath || item.backdropPath;
+
+      const isClean = (u?: string) =>
+        Boolean(u && !u.includes('_poster.jpg') && !u.includes('placeholder') && !u.includes('last_dance_poster') && u.length > 10);
+
+      if (!isClean(existing.posterPath) && isClean(normalizedItem.posterPath)) {
+        existing.posterPath = normalizedItem.posterPath;
+      } else if (!existing.posterPath && normalizedItem.posterPath) {
+        existing.posterPath = normalizedItem.posterPath;
+      }
+
+      if (!isClean(existing.backdropPath) && isClean(normalizedItem.backdropPath)) {
+        existing.backdropPath = normalizedItem.backdropPath;
+      } else if (!existing.backdropPath && normalizedItem.backdropPath) {
+        existing.backdropPath = normalizedItem.backdropPath;
+      }
       existing.synopsis = existing.synopsis || item.synopsis;
       existing.runtimeMinutes = existing.runtimeMinutes || item.runtimeMinutes;
       existing.totalSeasons = existing.totalSeasons || item.totalSeasons;

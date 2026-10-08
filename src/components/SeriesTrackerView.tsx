@@ -23,6 +23,7 @@ import {
 import confetti from 'canvas-confetti';
 import { AppSettings, LibraryItem } from '../types';
 import { formatRuntime, calculateSeriesRuntime } from '../services/analytics';
+import { CachedImage } from './CachedImage';
 import { searchTMDB, enrichLibraryItem } from '../services/tmdb';
 import { getNetflixUrl, openNetflixInNewTab } from '../services/normalizer';
 
@@ -445,18 +446,13 @@ export const SeriesTrackerView: React.FC<SeriesTrackerViewProps> = ({
                   <X className="w-3.5 h-3.5" />
                 </button>
 
-                <div className="aspect-[2/3] w-full rounded-xl overflow-hidden bg-zinc-800 mb-2 relative">
-                  {item.posterPath ? (
-                    <img
-                      src={item.posterPath}
-                      alt={item.externalTitle || item.originalTitle}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-zinc-600">
-                      {item.mediaType === 'tv' ? <Tv className="w-6 h-6" /> : <Film className="w-6 h-6" />}
-                    </div>
-                  )}
+                <div className="aspect-[2/3] w-full rounded-xl overflow-hidden bg-zinc-800 mb-2 relative flex items-center justify-center">
+                  <CachedImage
+                    src={item.posterPath}
+                    fallbackSrc={item.backdropPath}
+                    alt={item.externalTitle || item.originalTitle}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                  />
                   <div className="absolute bottom-1 left-1 flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-black/80 text-yellow-400 text-[10px] font-bold">
                     <Star className="w-2.5 h-2.5 fill-yellow-400" />
                     <span>{item.userStarRating || 5}</span>
@@ -565,17 +561,14 @@ export const SeriesTrackerView: React.FC<SeriesTrackerViewProps> = ({
                 className="p-2.5 flex items-center justify-between gap-3 hover:bg-white/5 transition-colors"
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  {it.posterPath ? (
-                    <img
+                  <div className="w-8 h-12 rounded-md overflow-hidden bg-neutral-800 flex-shrink-0 flex items-center justify-center">
+                    <CachedImage
                       src={it.posterPath}
-                      alt={it.originalTitle}
-                      className="w-8 h-12 object-cover rounded-md flex-shrink-0"
+                      fallbackSrc={it.backdropPath}
+                      alt={it.externalTitle || it.originalTitle}
+                      className="w-full h-full object-cover"
                     />
-                  ) : (
-                    <div className="w-8 h-12 bg-neutral-800 rounded-md flex items-center justify-center flex-shrink-0">
-                      {it.mediaType === 'movie' ? <Film className="w-4 h-4 text-gray-500" /> : <Tv className="w-4 h-4 text-gray-500" />}
-                    </div>
-                  )}
+                  </div>
                   <div className="truncate">
                     <h4 className="text-xs font-bold text-white truncate">
                       {it.externalTitle || it.originalTitle}
@@ -610,17 +603,13 @@ export const SeriesTrackerView: React.FC<SeriesTrackerViewProps> = ({
                 className="p-2.5 flex items-center justify-between gap-3 hover:bg-white/5 transition-colors"
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  {c.posterPath ? (
-                    <img
+                  <div className="w-8 h-12 rounded-md overflow-hidden bg-neutral-800 flex-shrink-0 flex items-center justify-center">
+                    <CachedImage
                       src={c.posterPath}
                       alt={c.title}
-                      className="w-8 h-12 object-cover rounded-md flex-shrink-0"
+                      className="w-full h-full object-cover"
                     />
-                  ) : (
-                    <div className="w-8 h-12 bg-neutral-800 rounded-md flex items-center justify-center flex-shrink-0">
-                      <Tv className="w-4 h-4 text-gray-500" />
-                    </div>
-                  )}
+                  </div>
                   <div className="truncate">
                     <h4 className="text-xs font-bold text-white truncate">{c.title}</h4>
                     <span className="text-[10px] text-gray-400 uppercase font-mono">
@@ -675,18 +664,13 @@ export const SeriesTrackerView: React.FC<SeriesTrackerViewProps> = ({
                     onClick={() => onOpenDetail?.(item)}
                     className="flex items-center gap-3.5 min-w-0 cursor-pointer flex-1"
                   >
-                    <div className="w-14 h-20 rounded-xl overflow-hidden bg-neutral-900 flex-shrink-0 shadow-md border border-white/10 group-hover:border-emerald-500/40 transition-colors">
-                      {item.posterPath ? (
-                        <img
-                          src={item.posterPath}
-                          alt={item.externalTitle || item.originalTitle}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-600">
-                          {item.mediaType === 'movie' ? <Film className="w-5 h-5" /> : <Tv className="w-5 h-5" />}
-                        </div>
-                      )}
+                    <div className="w-14 h-20 rounded-xl overflow-hidden bg-neutral-900 flex-shrink-0 shadow-md border border-white/10 group-hover:border-emerald-500/40 transition-colors flex items-center justify-center">
+                      <CachedImage
+                        src={item.posterPath}
+                        fallbackSrc={item.backdropPath}
+                        alt={item.externalTitle || item.originalTitle}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      />
                     </div>
 
                     <div className="min-w-0 flex-1">

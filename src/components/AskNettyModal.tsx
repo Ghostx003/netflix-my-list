@@ -18,10 +18,17 @@ import {
   PanelLeftOpen
 } from 'lucide-react';
 import { DiscoveryTitle, LibraryItem } from '../types';
-import { getAllDiscoveryTitles } from '../services/db';
+import {
+  getAllDiscoveryTitles,
+  getNettyConversations,
+  saveNettyConversations,
+  deleteNettyConversation,
+} from '../services/db';
 import { SEED_NETFLIX_INDIA_TITLES } from '../services/discoveryService';
 import { queryCatalogIntelligence, ScoredTitleResult } from '../services/discoveryIntelligenceService';
 import { groqService } from '../services/groqService';
+import { CachedImage } from './CachedImage';
+import { VERIFIED_POSTER_MAP, normalizeTitleKey } from '../services/imageResolver';
 
 interface AskNettyProps {
   libraryItems: LibraryItem[];
@@ -47,6 +54,14 @@ const STORAGE_KEY = 'netty_ai_conversations_v3';
 const ACTIVE_CONV_STORAGE_KEY = 'netty_active_conv_id_v3';
 const SUGGESTIONS_STORAGE_KEY = 'netty_try_suggestions_v3';
 
+// Purge bloated legacy localStorage keys to free quota and prevent QuotaExceededError
+try {
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem('netty_ai_conversations_v3');
+  localStorage.removeItem('netty_ai_conversations_v2');
+  localStorage.removeItem('netty_ai_conversations');
+} catch {}
+
 const DEFAULT_TRY_SUGGESTIONS = [
   'Movie about a strong girl',
   'Mind-bending sci-fi like Tenet',
@@ -65,7 +80,7 @@ const CURATED_IDEA_ROTATION = [
 
 /**
  * Strips huge duplicate vectors and internal state from catalog items so that
- * all conversations and movie card results comfortably persist in localStorage.
+ * all conversations and movie card results comfortably persist in IndexedDB.
  */
 function sanitizeConversationsForStorage(convs: Conversation[]): Conversation[] {
   return convs.map((c) => ({
@@ -105,6 +120,20 @@ function sanitizeConversationsForStorage(convs: Conversation[]): Conversation[] 
   }));
 }
 
+const DEFAULT_WELCOME_CONVERSATION: Conversation = {
+  id: 'conv_default',
+  title: 'New Movie Chat',
+  messages: [
+    {
+      id: 'welcome',
+      sender: 'netty',
+      text: "Hey! I'm Netty, your local AI discovery engine. Ask me anything like \"Movie about a strong girl\", \"Mind-bending sci-fi like Tenet\", or \"10 thrillers under 2 hours\" — I'll analyze the whole Netflix India catalog and find the best matches!",
+      timestamp: 'Just now',
+    },
+  ],
+  updatedAt: new Date().toISOString(),
+};
+
 export const AskNettyModal: React.FC<AskNettyProps> = ({ libraryItems, onOpenMovieDetail }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [inputQuery, setInputQuery] = useState('');
@@ -113,27 +142,7 @@ export const AskNettyModal: React.FC<AskNettyProps> = ({ libraryItems, onOpenMov
   const [allCatalogTitles, setAllCatalogTitles] = useState<DiscoveryTitle[]>([]);
 
   // Multi-conversation state
-  const [conversations, setConversations] = useState<Conversation[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('netty_ai_conversations_v2');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return [
-      {
-        id: 'conv_default',
-        title: 'New Movie Chat',
-        messages: [
-          {
-            id: 'welcome',
-            sender: 'netty',
-            text: "Hey! I'm Netty, your local AI discovery engine. Ask me anything like \"Movie about a strong girl\", \"Mind-bending sci-fi like Tenet\", or \"10 thrillers under 2 hours\" — I'll analyze the whole Netflix India catalog and find the best matches!",
-            timestamp: 'Just now',
-          },
-        ],
-        updatedAt: new Date().toISOString(),
-      },
-    ];
-  });
+  const [conversations, setConversations] = useState<Conversation[]>([DEFAULT_WELCOME_CONVERSATION]);
 
   const [activeConvId, setActiveConvId] = useState<string>(() => {
     try {
@@ -154,6 +163,12 @@ export const AskNettyModal: React.FC<AskNettyProps> = ({ libraryItems, onOpenMov
   const rotationIdxRef = useRef(0);
   const [showSidebar, setShowSidebar] = useState<boolean>(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const libraryItemsRef = useRef(libraryItems);
+  const hasLoadedFromDBRef = useRef(false);
+
+  useEffect(() => {
+    libraryItemsRef.current = libraryItems;
+  }, [libraryItems]);
 
   // Sync activeConvId to localStorage
   useEffect(() => {
@@ -162,32 +177,54 @@ export const AskNettyModal: React.FC<AskNettyProps> = ({ libraryItems, onOpenMov
     } catch {}
   }, [activeConvId]);
 
-  // Sync sanitized conversations to localStorage
+  // Sync sanitized conversations to IndexedDB (only after initial load has finished)
   useEffect(() => {
-    try {
+    if (!hasLoadedFromDBRef.current) return;
+    if (conversations && conversations.length > 0) {
       const sanitized = sanitizeConversationsForStorage(conversations);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
-    } catch (err) {
-      console.warn('Failed to save Netty conversations:', err);
+      saveNettyConversations(sanitized).catch((err) => {
+        console.warn('Failed to save Netty conversations to IDB:', err);
+      });
     }
   }, [conversations]);
 
-  // Load all discovery titles from /netflix_enriched_kb.json, IndexedDB, or fallback to seed catalog
+  // Load saved conversations from IndexedDB and catalog titles on initial mount
   useEffect(() => {
     let isMounted = true;
-    async function loadCatalog() {
+    async function initNetty() {
+      // 1. Load saved conversations from IndexedDB
+      try {
+        const saved = await getNettyConversations();
+        if (isMounted && saved && saved.length > 0) {
+          setConversations(saved);
+          const activeSaved = localStorage.getItem(ACTIVE_CONV_STORAGE_KEY);
+          if (activeSaved && saved.some((c: any) => c.id === activeSaved)) {
+            setActiveConvId(activeSaved);
+          } else {
+            setActiveConvId(saved[0].id);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load Netty conversations from IDB:', err);
+      } finally {
+        hasLoadedFromDBRef.current = true;
+      }
+
+      // 2. Load catalog
       const mergedMap = new Map<string, DiscoveryTitle>();
 
-      // 1. Seed fallback base
+      // Seed fallback base
       for (const t of SEED_NETFLIX_INDIA_TITLES) {
+        if (!t || !t.title) continue;
         mergedMap.set(t.title.toLowerCase().trim(), t);
       }
 
-      // 2. Load from IndexedDB
+      // Load from IndexedDB
       try {
         const stored = await getAllDiscoveryTitles();
         if (stored && stored.length > 0) {
           for (const t of stored) {
+            if (!t || !t.title) continue;
             mergedMap.set(t.title.toLowerCase().trim(), t);
           }
         }
@@ -195,7 +232,37 @@ export const AskNettyModal: React.FC<AskNettyProps> = ({ libraryItems, onOpenMov
         console.warn('IndexedDB catalog fetch error:', err);
       }
 
-      // 3. Load from enriched knowledge base JSON (deployed to public/netflix_enriched_kb.json)
+      // Incorporate current library items
+      const currentLibs = libraryItemsRef.current;
+      if (currentLibs && currentLibs.length > 0) {
+        for (const lib of currentLibs) {
+          if (!lib) continue;
+          const libTitle = lib.externalTitle || lib.originalTitle || lib.normalizedTitle || '';
+          if (!libTitle) continue;
+          const key = libTitle.toLowerCase().trim();
+          if (!mergedMap.has(key)) {
+            mergedMap.set(key, {
+              id: lib.id,
+              title: libTitle,
+              originalTitle: lib.originalTitle || libTitle,
+              mediaType: lib.mediaType === 'tv' ? 'tv' : 'movie',
+              releaseYear: lib.releaseYear,
+              runtimeMinutes: lib.runtimeMinutes,
+              totalSeasons: lib.totalSeasons,
+              genres: lib.genres || [],
+              synopsis: lib.synopsis || '',
+              rating: lib.imdbRating || lib.rating || 7.5,
+              imdbRating: lib.imdbRating || 7.5,
+              isNetflixIndiaVerified: true,
+              countries: lib.countries || ['India'],
+              posterPath: lib.posterPath,
+              backdropPath: lib.backdropPath,
+            });
+          }
+        }
+      }
+
+      // Load from enriched knowledge base JSON
       try {
         const res = await fetch('/netflix_enriched_kb.json');
         if (res.ok) {
@@ -210,7 +277,6 @@ export const AskNettyModal: React.FC<AskNettyProps> = ({ libraryItems, onOpenMov
             const themes = typeof r.themes === 'string' ? JSON.parse(r.themes || '[]') : (r.themes || []);
             const existing = mergedMap.get(key);
 
-            // Extract all 100 parameters from raw profile or param_* columns
             const params100: Record<string, number> = r.raw_profile?.parameters_100 ? { ...r.raw_profile.parameters_100 } : {};
             for (const [col, val] of Object.entries(r)) {
               if (col.startsWith('param_') && typeof val === 'number') {
@@ -218,11 +284,19 @@ export const AskNettyModal: React.FC<AskNettyProps> = ({ libraryItems, onOpenMov
               }
             }
 
+            const detectedMediaType: 'movie' | 'tv' = (r.media_type === 'tv' || r.media_type === 'tv_series')
+              ? 'tv'
+              : (r.media_type === 'movie' ? 'movie' : (existing?.mediaType || 'movie'));
+
+            const narrativeArchetypes = typeof r.narrative_archetypes === 'string'
+              ? (r.narrative_archetypes.startsWith('[') ? JSON.parse(r.narrative_archetypes || '[]') : [r.narrative_archetypes])
+              : (r.narrative_archetypes || []);
+
             const enrichedItem: DiscoveryTitle = {
               id: existing?.id || String(r.id || key),
               title: r.title,
               originalTitle: r.title,
-              mediaType: (r.media_type === 'tv' || r.media_type === 'tv_series') ? 'tv' : 'movie',
+              mediaType: detectedMediaType,
               releaseYear: r.release_year || existing?.releaseYear,
               genres: allGenres.length > 0 ? allGenres : (existing?.genres || ['Drama']),
               themes: themes.length > 0 ? themes : (existing?.themes || []),
@@ -232,9 +306,17 @@ export const AskNettyModal: React.FC<AskNettyProps> = ({ libraryItems, onOpenMov
               imdbRating: existing?.imdbRating || 7.5,
               isNetflixIndiaVerified: true,
               countries: existing?.countries || ['India'],
-              posterPath: existing?.posterPath,
-              backdropPath: existing?.backdropPath,
+              posterPath: existing?.posterPath || VERIFIED_POSTER_MAP[normalizeTitleKey(r.title || '')] || r.posterPath || r.poster_path,
+              backdropPath: existing?.backdropPath || r.backdropPath || r.backdrop_path,
               parameters_100: params100,
+              // Qwen SQLite Knowledge Base Fields
+              storyPace: r.story_pace || undefined,
+              endingType: r.ending_type || undefined,
+              timePeriod: r.time_period || undefined,
+              settingEnvironment: r.setting_environment || undefined,
+              audienceVibe: r.audience_vibe || undefined,
+              narrativeArchetypes,
+              qwenConfidence: typeof r.confidence_score === 'number' ? r.confidence_score : undefined,
             };
             mergedMap.set(key, enrichedItem);
           }
@@ -248,7 +330,7 @@ export const AskNettyModal: React.FC<AskNettyProps> = ({ libraryItems, onOpenMov
       }
     }
 
-    loadCatalog();
+    initNetty();
     return () => {
       isMounted = false;
     };
@@ -284,6 +366,7 @@ export const AskNettyModal: React.FC<AskNettyProps> = ({ libraryItems, onOpenMov
   // Delete conversation
   const handleDeleteConversation = (e: React.MouseEvent, convId: string) => {
     e.stopPropagation();
+    deleteNettyConversation(convId).catch(() => {});
     if (conversations.length === 1) {
       handleNewConversation();
       return;
@@ -330,24 +413,91 @@ export const AskNettyModal: React.FC<AskNettyProps> = ({ libraryItems, onOpenMov
     // Run semantic intelligence search + Groq conversational synthesis
     try {
       const catalog = allCatalogTitles.length > 0 ? allCatalogTitles : SEED_NETFLIX_INDIA_TITLES;
-      const scoredResults = queryCatalogIntelligence(catalog, query);
+      let scoredResults: ScoredTitleResult[] = [];
+      try {
+        scoredResults = queryCatalogIntelligence(catalog, query);
+      } catch (searchErr) {
+        console.error('Error during catalog intelligence search:', searchErr);
+        const qLower = query.toLowerCase();
+        scoredResults = catalog
+          .filter(t => (t.title && t.title.toLowerCase().includes(qLower)) || (t.synopsis && t.synopsis.toLowerCase().includes(qLower)))
+          .slice(0, 8)
+          .map(item => ({
+            item,
+            score: 0.8,
+            semanticMatchScore: 0.8,
+            themeMatchScore: 0.8,
+            genreMatchScore: 0.8,
+            qualityScore: (item.imdbRating || 7) / 10,
+            explanation: 'Matched search keywords in title/synopsis',
+            badges: [],
+          }));
+      }
 
-      let replyText = `Found ${scoredResults.length} title(s) matching your request:`;
-      if (scoredResults.length === 0) {
-        replyText = `I couldn't find a title matching all strict constraints. Try asking with different genres or removing the runtime cap!`;
-      } else if (groqService.isAvailable()) {
+      // Build intelligent conversational reply with Groq AI + Catalog grounding
+      let replyText = '';
+
+      if (groqService.isAvailable()) {
         try {
-          const topTitlesSummary = scoredResults.slice(0, 4).map(r => `${r.item.title} (${(r.item.genres || []).join(', ')}): ${(r.item.synopsis || '').slice(0, 100)}...`).join('\n');
-          const aiPrompt = `User asked: "${query}".\nTop matching movies found from Netflix catalog:\n${topTitlesSummary}\nWrite a punchy, 2-sentence conversational response explaining why these match the user's vibe. Do not list numbers, just a natural witty recommendation.`;
-          const groqReply = await groqService.chatCompletion([
-            { role: 'system', content: 'You are Netty, an expert film curator and AI discovery engine for Netflix India. Be concise, engaging, and enthusiastic.' },
-            { role: 'user', content: aiPrompt }
-          ], 0.3, 140);
+          // Prepare recent conversation messages (last 6 messages) for multi-turn conversational context
+          const historyForAI = activeConversation.messages.slice(-6).map((m) => ({
+            role: (m.sender === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
+            content: m.text,
+          }));
+
+          const candidateListStr = scoredResults.slice(0, 5).map((r, i) => {
+            const top100Params = Object.entries(r.item.parameters_100 || {})
+              .filter(([_, v]) => typeof v === 'number' && v >= 0.60)
+              .sort((a, b) => (b[1] as number) - (a[1] as number))
+              .slice(0, 4)
+              .map(([k, v]) => `${k.replace(/_/g, ' ')} (${Math.round((v as number) * 100)}%)`)
+              .join(', ');
+
+            const qwenDimensions = [
+              r.item.storyPace ? `Pace: ${r.item.storyPace}` : null,
+              r.item.endingType ? `Ending: ${r.item.endingType}` : null,
+              r.item.settingEnvironment ? `Setting: ${r.item.settingEnvironment}` : null,
+              r.item.timePeriod ? `Period: ${r.item.timePeriod}` : null,
+            ].filter(Boolean).join(' | ');
+
+            return `${i + 1}. **${r.item.title}** (${r.item.releaseYear || 'N/A'}, ${r.item.mediaType === 'tv' ? 'Series' : 'Movie'}, IMDb: ${r.item.imdbRating || r.item.rating || 'N/A'})\n   Genres: ${(r.item.genres || []).join(', ')}\n   Qwen 2B Local SQLite Analysis: ${qwenDimensions || 'Catalog title'}\n   Dominant Continuous Vectors: ${top100Params || (r.item.themes || []).join(', ') || 'Drama'}\n   Synopsis: ${(r.item.synopsis || '').slice(0, 160)}...`;
+          }).join('\n\n');
+
+          const systemPrompt = `You are Netty, Netflix India's ultimate AI film & series curator.
+You are powered by our Local Qwen 2B SQLite Knowledge Base containing 2,300+ titles enriched across 100 continuous emotional, thematic, and narrative parameters (pacing, ending types, setting, intensity).
+You are warm, intelligent, enthusiastic, and talk like a passionate cinephile friend.
+
+The user just sent: "${query}".
+
+Verified matching catalog titles from Local Qwen SQLite Knowledge Base:
+${candidateListStr || '(No direct title match in current catalog slice)'}
+
+Instructions:
+- If recommending titles, highlight 2-3 of the top titles above and explain why they match the user's vibe using the local Qwen narrative insights (e.g. story pace, twist ending, psychological intensity, or emotional warmth).
+- If the user asks a conversational question, greets you ("hi", "who are you"), or asks about a movie/show/actor, answer intelligently and conversationally.
+- Keep responses engaging, well-formatted, and helpful (2-4 concise paragraphs max). Use bold text for movie titles.`;
+
+          const aiMessages = [
+            { role: 'system' as const, content: systemPrompt },
+            ...historyForAI,
+            { role: 'user' as const, content: query }
+          ];
+
+          const groqReply = await groqService.chatCompletion(aiMessages, 0.4, 600);
           if (groqReply) {
             replyText = groqReply;
           }
         } catch (e) {
-          console.info('Groq synthesis fallback to default:', e);
+          console.warn('Groq synthesis fallback to default:', e);
+        }
+      }
+
+      // Fallback response if Groq is unavailable
+      if (!replyText) {
+        if (scoredResults.length > 0) {
+          replyText = `Found ${scoredResults.length} title(s) matching your request:`;
+        } else {
+          replyText = `I couldn't find titles matching all strict constraints. Try asking with different genres, moods, or removing the runtime cap!`;
         }
       }
 
@@ -365,6 +515,26 @@ export const AskNettyModal: React.FC<AskNettyProps> = ({ libraryItems, onOpenMov
             return {
               ...c,
               messages: [...c.messages, botMsg],
+              updatedAt: new Date().toISOString(),
+            };
+          }
+          return c;
+        })
+      );
+    } catch (err) {
+      console.error('Netty message processing failed:', err);
+      const fallbackBotMsg: ChatMessage = {
+        id: 'n_err_' + Date.now(),
+        sender: 'netty',
+        text: "I encountered an issue processing that query, but I'm ready for another! Try asking by mood, genre, or a favorite movie title.",
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id === activeConvId) {
+            return {
+              ...c,
+              messages: [...c.messages, fallbackBotMsg],
               updatedAt: new Date().toISOString(),
             };
           }
@@ -512,12 +682,12 @@ export const AskNettyModal: React.FC<AskNettyProps> = ({ libraryItems, onOpenMov
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="font-bold text-sm sm:text-base tracking-wide text-white">Ask Netty</h3>
-                      <span className="px-2 py-0.5 text-[10px] font-semibold bg-red-950/80 text-red-300 border border-red-800/60 rounded-full">
-                        Local Catalog AI
+                      <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-800/60 rounded-full flex items-center gap-1 shadow-sm">
+                        <Sparkles className="w-2.5 h-2.5 text-emerald-400" /> Qwen 2B SQLite Engine
                       </span>
                     </div>
                     <p className="text-[11px] text-zinc-400">
-                      Analyzing {allCatalogTitles.length || 42}+ verified Netflix titles with deep genre & theme intelligence
+                      Analyzing {allCatalogTitles.length || 2323}+ verified titles enriched across 100 narrative, emotional & pacing dimensions
                     </p>
                   </div>
                 </div>
@@ -606,22 +776,14 @@ export const AskNettyModal: React.FC<AskNettyProps> = ({ libraryItems, onOpenMov
                               >
                                 {/* Poster + Header */}
                                 <div className="flex gap-3.5">
-                                  {movie.posterPath ? (
-                                    <img
+                                  <div className="w-18 h-26 sm:w-20 sm:h-28 rounded-xl overflow-hidden shrink-0 shadow-md border border-zinc-800/80 group-hover:border-zinc-700 transition-colors bg-zinc-800 flex items-center justify-center">
+                                    <CachedImage
                                       src={movie.posterPath}
+                                      fallbackSrc={movie.backdropPath}
                                       alt={movie.title}
-                                      className="w-18 h-26 sm:w-20 sm:h-28 object-cover rounded-xl shrink-0 shadow-md border border-zinc-800/80 group-hover:border-zinc-700 transition-colors"
-                                      loading="lazy"
+                                      className="w-full h-full object-cover"
                                     />
-                                  ) : (
-                                    <div className="w-18 h-26 sm:w-20 sm:h-28 bg-zinc-800/80 rounded-xl shrink-0 flex items-center justify-center border border-zinc-700/50">
-                                      {movie.mediaType === 'tv' ? (
-                                        <Tv className="w-6 h-6 text-zinc-500" />
-                                      ) : (
-                                        <Film className="w-6 h-6 text-zinc-500" />
-                                      )}
-                                    </div>
-                                  )}
+                                  </div>
 
                                   <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
                                     <div>
@@ -666,19 +828,32 @@ export const AskNettyModal: React.FC<AskNettyProps> = ({ libraryItems, onOpenMov
                                   </div>
                                 </div>
 
-                                {/* Genres */}
-                                {movie.genres && movie.genres.length > 0 && (
-                                  <div className="flex flex-wrap gap-1.5 mt-3">
-                                    {movie.genres.slice(0, 4).map((g, gIdx) => (
-                                      <span
-                                        key={gIdx}
-                                        className="text-[10px] sm:text-[11px] font-medium px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-300 border border-zinc-700/40"
-                                      >
-                                        {g}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
+                                {/* Qwen SQLite Narrative Tags & Genres */}
+                                <div className="flex flex-wrap gap-1.5 mt-3">
+                                  {movie.storyPace && (
+                                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-950/70 text-amber-300 border border-amber-800/50">
+                                      ⚡ {movie.storyPace}
+                                    </span>
+                                  )}
+                                  {movie.endingType && (
+                                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-purple-950/70 text-purple-300 border border-purple-800/50">
+                                      🌀 {movie.endingType}
+                                    </span>
+                                  )}
+                                  {movie.settingEnvironment && (
+                                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-sky-950/70 text-sky-300 border border-sky-800/50">
+                                      📍 {movie.settingEnvironment}
+                                    </span>
+                                  )}
+                                  {movie.genres && movie.genres.slice(0, 3).map((g, gIdx) => (
+                                    <span
+                                      key={gIdx}
+                                      className="text-[10px] sm:text-[11px] font-medium px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-300 border border-zinc-700/40"
+                                    >
+                                      {g}
+                                    </span>
+                                  ))}
+                                </div>
 
                                 {/* Rationale / Explanation */}
                                 {res.explanation && (

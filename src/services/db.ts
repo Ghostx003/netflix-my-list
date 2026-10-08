@@ -2,7 +2,7 @@ import { openDB, IDBPDatabase } from 'idb';
 import { AppSettings, LibraryItem, DiscoveryTitle } from '../types';
 
 const DB_NAME = 'NetflixWatchlistDB';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 export const DEFAULT_SETTINGS: AppSettings = {
   tmdbApiKey: 'ec3ae1f9fde58cd94e4297c4cb3b77de',
@@ -51,6 +51,9 @@ function getDB() {
         }
         if (!db.objectStoreNames.contains('discovery_meta')) {
           db.createObjectStore('discovery_meta', { keyPath: 'key' });
+        }
+        if (!db.objectStoreNames.contains('netty_conversations')) {
+          db.createObjectStore('netty_conversations', { keyPath: 'id' });
         }
       },
     });
@@ -380,3 +383,50 @@ export async function setDiscoveryCatalogMeta(data: any): Promise<void> {
     console.warn('Failed to set discovery catalog meta:', err);
   }
 }
+
+// Netty AI Conversation Persistence (Unlimited quota in IndexedDB)
+export async function getNettyConversations(): Promise<any[]> {
+  try {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains('netty_conversations')) return [];
+    const convs = await db.getAll('netty_conversations');
+    if (convs && convs.length > 0) {
+      convs.sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
+      return convs;
+    }
+    return [];
+  } catch (err) {
+    console.error('Failed to get Netty conversations from IDB:', err);
+    return [];
+  }
+}
+
+export async function saveNettyConversations(conversations: any[]): Promise<void> {
+  if (!conversations || conversations.length === 0) return;
+  try {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains('netty_conversations')) return;
+    const tx = db.transaction('netty_conversations', 'readwrite');
+    await tx.store.clear();
+    for (const conv of conversations) {
+      if (conv && conv.id) {
+        await tx.store.put(conv);
+      }
+    }
+    await tx.done;
+  } catch (err) {
+    console.error('Failed to save Netty conversations to IDB:', err);
+  }
+}
+
+export async function deleteNettyConversation(id: string): Promise<void> {
+  if (!id) return;
+  try {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains('netty_conversations')) return;
+    await db.delete('netty_conversations', id);
+  } catch (err) {
+    console.error('Failed to delete Netty conversation from IDB:', err);
+  }
+}
+

@@ -356,12 +356,15 @@ export function analyzeQueryIntent(query: string, allTitles: DiscoveryTitle[]): 
 
   // Also check against catalog titles
   for (const t of allTitles) {
-    const tLower = t.title.toLowerCase();
+    if (!t) continue;
+    const title = t.title || t.originalTitle || '';
+    if (!title) continue;
+    const tLower = title.toLowerCase();
     if (tLower.length >= 4) {
       const likePattern = new RegExp(`\\b(?:like|similar\\s*to)\\s+${tLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
       if (likePattern.test(lower)) {
         if (!intent.referenceTitles.some(rt => rt.toLowerCase() === tLower)) {
-          intent.referenceTitles.push(t.title);
+          intent.referenceTitles.push(title);
         }
       }
     }
@@ -404,6 +407,29 @@ export function analyzeQueryIntent(query: string, allTitles: DiscoveryTitle[]): 
   if (/\b(?:revenge|vengeance|avenge|payback|retribution)\b/i.test(lower)) {
     intent.targetConcepts.push('revenge');
     intent.themes.push('Revenge');
+  }
+
+  // Concept E: Story Pace (Fast-paced vs Slow-burn) from Qwen SQLite KB
+  if (/\b(?:fast\s*paced|fast\s*pace|relentless|quick|speedy|high\s*octane)\b/i.test(lower)) {
+    intent.targetConcepts.push('fast_paced');
+  } else if (/\b(?:slow\s*burn|slow\s*paced|deliberate|atmospheric)\b/i.test(lower)) {
+    intent.targetConcepts.push('slow_burn');
+  }
+
+  // Concept F: Ending Type (Twist / Shocking ending)
+  if (/\b(?:twist|twist\s*ending|shocking\s*ending|mind\s*fuck|unpredictable\s*ending)\b/i.test(lower)) {
+    intent.targetConcepts.push('twist_ending');
+  }
+
+  // Concept G: Courtroom Drama / Legal
+  if (/\b(?:court|courtroom|lawyer|legal\s*drama|trial|judge)\b/i.test(lower)) {
+    intent.targetConcepts.push('courtroom');
+    intent.genres.push('Drama', 'Crime');
+  }
+
+  // Concept H: Heartwarming / Feel-good
+  if (/\b(?:heartwarming|feel\s*good|wholesome|uplifting|comfort)\b/i.test(lower)) {
+    intent.targetConcepts.push('heartwarming');
   }
 
   // 10. Mood & Genre lexicon identification
@@ -514,7 +540,7 @@ function scoreItem(
   const itemGenresLower = safeGenres.map((g: string) => String(g).toLowerCase());
   const itemThemesLower = safeThemes.map((t: string) => String(t).toLowerCase());
   const synLower = (item.synopsis || '').toLowerCase();
-  const titleLower = item.title.toLowerCase();
+  const titleLower = (item.title || item.originalTitle || '').toLowerCase();
 
   for (const excl of intent.hardExclusions) {
     if (itemGenresLower.includes(excl) || itemThemesLower.some((t: string) => t.includes(excl)) || synLower.includes(excl)) {
@@ -622,14 +648,19 @@ function scoreItem(
     }
   }
 
-  // 4. Local 100-Parameter Continuous AI Knowledge Base Match
+  // 4. Local 100-Parameter Continuous AI Knowledge Base Match (Qwen SQLite Engine)
+  const badges: string[] = [];
+  const explanations: string[] = [];
   let paramMatchScore = 0.1;
+  let qwenNarrativeScore = 0.0;
+
   if (item.parameters_100 && Object.keys(item.parameters_100).length > 0) {
     let paramBoost = 0;
     let paramMatches = 0;
     const rawLower = intent.raw.toLowerCase();
 
     for (const [paramName, scoreVal] of Object.entries(item.parameters_100)) {
+      if (typeof scoreVal !== 'number' || scoreVal <= 0.25) continue;
       const cleanParam = paramName.replace(/_/g, ' ').toLowerCase();
       if (rawLower.includes(cleanParam) || rawLower.includes(paramName.toLowerCase())) {
         paramBoost += scoreVal;
@@ -638,6 +669,43 @@ function scoreItem(
     }
     if (paramMatches > 0) {
       paramMatchScore = paramBoost / paramMatches;
+    }
+  }
+
+  // Qwen SQLite Narrative Architecture Dimensions Match
+  if (intent.targetConcepts.includes('fast_paced')) {
+    if (item.storyPace === 'fast-paced' || item.storyPace === 'relentless' || (item.parameters_100?.adrenaline_rush || 0) >= 0.7) {
+      qwenNarrativeScore += 0.40;
+      badges.push('⚡ Fast-Paced');
+      explanations.push('Fast-paced high-adrenaline Qwen narrative pace');
+    }
+  }
+  if (intent.targetConcepts.includes('slow_burn')) {
+    if (item.storyPace === 'slow-burn') {
+      qwenNarrativeScore += 0.40;
+      badges.push('🕯️ Slow-Burn');
+      explanations.push('Atmospheric slow-burn tension');
+    }
+  }
+  if (intent.targetConcepts.includes('twist_ending')) {
+    if (item.endingType === 'twist/shocking' || (item.parameters_100?.plot_twist_surprise || 0) >= 0.7) {
+      qwenNarrativeScore += 0.45;
+      badges.push('🌀 Twist Ending');
+      explanations.push('Mind-bending twist ending confirmed');
+    }
+  }
+  if (intent.targetConcepts.includes('courtroom')) {
+    if ((item.settingEnvironment || '').toLowerCase().includes('court') || (item.parameters_100?.courtroom_legal || 0) >= 0.6) {
+      qwenNarrativeScore += 0.50;
+      badges.push('⚖️ Courtroom');
+      explanations.push('High-stakes courtroom and legal trial drama');
+    }
+  }
+  if (intent.targetConcepts.includes('heartwarming')) {
+    if ((item.parameters_100?.heartwarming || 0) >= 0.7) {
+      qwenNarrativeScore += 0.45;
+      badges.push('☀️ Heartwarming');
+      explanations.push('Uplifting, feel-good emotional warmth');
     }
   }
 
@@ -692,7 +760,7 @@ function scoreItem(
       referenceMatchDetail = `Shares ${profile.vibe}`;
     } else {
       // Reference item in catalog
-      const refCatalogItem = allTitles.find(t => t.title.toLowerCase() === refTitleKey);
+      const refCatalogItem = allTitles.find(t => (t?.title || t?.originalTitle || '').toLowerCase() === refTitleKey);
       if (refCatalogItem) {
         const refG = Array.isArray(refCatalogItem.genres) ? refCatalogItem.genres : [];
         const refT = Array.isArray(refCatalogItem.themes) ? refCatalogItem.themes : [];
@@ -711,7 +779,7 @@ function scoreItem(
   const votes = item.voteCount || 500;
   const bayesianQuality = ((votes / (votes + 500)) * rating + (500 / (votes + 500)) * 6.5 - 1) / 9;
 
-  // Composite Score Calculation
+  // Composite Score Calculation with Qwen narrative architecture bonus
   const semanticMatchScore = Math.max(synopsisMatchScore, paramMatchScore);
 
   let finalScore =
@@ -719,6 +787,7 @@ function scoreItem(
     0.20 * genreMatchScore +
     0.15 * themeMatchScore +
     0.15 * bayesianQuality +
+    qwenNarrativeScore +
     referenceMatchScore +
     (synopsisMatchScore > 0.4 ? 0.25 : 0);
 
@@ -727,7 +796,6 @@ function scoreItem(
   finalScore = Math.max(0, finalScore + randomJitter);
 
   // Hidden Gem mode adjustment
-  const badges: string[] = [];
   if (intent.mode === 'hidden_gem') {
     if (rating >= 7.0 && votes <= 100000) {
       finalScore += 0.4;
@@ -742,7 +810,6 @@ function scoreItem(
   }
 
   // Create crisp explanation
-  const explanations: string[] = [];
   if (referenceMatchDetail) {
     explanations.push(referenceMatchDetail);
   } else if (synopsisMatchDetail) {
@@ -795,16 +862,13 @@ export function queryCatalogIntelligence(
   // Sort descending by preliminary score
   scoredResults.sort((a, b) => b.score - a.score);
 
-  // If strict constraints were specified (like negative exclusions or explicit max runtime or explicit genres),
-  // NEVER relax them just to pad results with garbage.
-  const hasHardConstraints =
-    intent.hardExclusions.length > 0 ||
-    intent.maxRuntimeMinutes !== undefined ||
-    intent.targetCountryOrLang !== undefined ||
-    intent.genres.length > 0;
-  if (scoredResults.length === 0 && !hasHardConstraints) {
+  // Fallback relaxation if zero results found
+  if (scoredResults.length === 0) {
     const relaxed = analyzeQueryIntent(query, allTitles);
     relaxed.minImdb = undefined;
+    if (intent.mediaType) {
+      relaxed.mediaType = undefined;
+    }
     for (const item of allTitles) {
       const res = scoreItem(item, relaxed, allTitles, 0.15);
       if (res) scoredResults.push(res);

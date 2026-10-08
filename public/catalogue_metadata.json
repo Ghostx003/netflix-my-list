@@ -1,0 +1,204 @@
+[
+  {
+    "id": "1",
+    "title": "Interstellar",
+    "year": 2014,
+    "runtime": null,
+    "type": "movie",
+    "genres": [
+      "Sci-Fi",
+      "Sci-fi",
+      "Science fiction",
+      "Drama"
+    ],
+    "mood_tags": [
+      "contemplative / dramatic"
+    ],
+    "themes": [
+      "Family Dynamics",
+      "Deep Space / Cosmic",
+      "Dystopian / Cyberpunk"
+    ],
+    "imdb_rating": 7.5,
+    "imdb_votes": 50000,
+    "bayesian_quality_score": 0.721,
+    "vector_index": 0
+  },
+  {
+    "id": "2",
+    "title": "Arrival",
+    "year": 2016,
+    "runtime": null,
+    "type": "movie",
+    "genres": [
+      "Sci-Fi",
+      "Sci-fi",
+      "Science fiction",
+      "Drama"
+    ],
+    "mood_tags": [
+      "contemplative / dramatic"
+    ],
+    "themes": [
+      "Deep Space / Cosmic"
+    ],
+    "imdb_rating": 7.5,
+    "imdb_votes": 50000,
+    "bayesian_quality_score": 0.721,
+    "vector_index": 1
+  },
+  {
+    "id": "3",
+    "title": "The Martian",
+    "year": 2015,
+    "runtime": null,
+    "type": "movie",
+    "genres": [
+      "Sci-Fi",
+      "Sci-fi",
+      "Science fiction",
+      "Drama"
+    ],
+    "mood_tags": [
+      "contemplative / dramatic"
+    ],
+    "themes": [
+      "Survival",
+      "Deep Space / Cosmic"
+    ],
+    "imdb_rating": 7.5,
+    "imdb_votes": 50000,
+    "bayesian_quality_score": 0.721,
+    "vector_index": 2
+  },
+  {
+    "id": "4",
+    "title": "Nightcrawler",
+    "year": 2014,
+    "runtime": null,
+    "type": "movie",
+    "genres": [
+      "Crime",
+      "Thriller",
+      "Drama"
+    ],
+    "mood_tags": [
+      "dark / gritty",
+      "tense / suspenseful"
+    ],
+    "themes": [
+      "Psychological"
+    ],
+    "imdb_rating": 7.5,
+    "imdb_votes": 50000,
+    "bayesian_quality_score": 0.721,
+    "vector_index": 3
+  },
+  {
+    "id": "5",
+    "title": "Gone Girl",
+    "year": 2014,
+    "runtime": null,
+    "type": "movie",
+    "genres": [
+      "Thriller",
+      "Mystery",
+      "Drama"
+    ],
+    "mood_tags": [
+      "tense / suspenseful",
+      "romantic / intimate"
+    ],
+    "themes": [
+      "Revenge",
+      "Psychological"
+    ],
+    "imdb_rating": 7.5,
+    "imdb_votes": 50000,
+    "bayesian_quality_score": 0.721,
+    "vector_index": 4
+  },
+  {
+    "id": "80215997",
+    "title": "100 Humans",
+    "year": null,
+    "runtime": null,
+    "type": "movie",
+    "genres": [
+      "Drama"
+    ],
+    "mood_tags": [
+      "contemplative / dramatic"
+    ],
+    "themes": [
+      "Psychological"
+    ],
+    "imdb_rating": 7.5,
+    "imdb_votes": 50000,
+    "bayesian_quality_score": 0.721,
+    "vector_index": 5
+  },
+  {
+    "id": "81464765",
+    "title": "14 Peaks: Nothing Is Impossible",
+    "year": null,
+    "runtime": null,
+    "type": "movie",
+    "genres": [
+      "Documentary"
+    ],
+    "mood_tags": [
+      "contemplative / dramatic"
+    ],
+    "themes": [],
+    "imdb_rating": 7.5,
+    "imdb_votes": 50000,
+    "bayesian_quality_score": 0.721,
+    "vector_index": 6
+  },
+  {
+    "id": "81397887",
+    "title": "28 Days Haunted",
+    "year": null,
+    "runtime": null,
+    "type": "movie",
+    "genres": [
+      "Drama"
+    ],
+    "mood_tags": [
+      "dark / gritty"
+    ],
+    "themes": [],
+    "imdb_rating": 7.5,
+    "imdb_votes": 50000,
+    "bayesian_quality_score": 0.721,
+    "vector_index": 7
+  },
+  {
+    "id": "80074220",
+    "title": "3%",
+    "year": null,
+    "runtime": null,
+    "type": "movie",
+    "genres": [
+      "Crime",
+      "Thriller",
+      "Drama"
+    ],
+    "mood_tags": [
+      "Serious",
+      "Tense",
+      "Suspenseful"
+    ],
+    "themes": [
+      "Family Secrets",
+      "Dark Secrets",
+      "Survival",
+      "Revenge"
+    ],
+    "imdb_rating": 7.5,
+    "imdb_votes": 50000,
+    "bayesian_quality_score": 0.721,
+    "vector_index": 8
+  }
+]

@@ -212,6 +212,14 @@ export interface DiscoveryTitle {
   watchmodeUserEnjoyment?: number;
   watchmodeRelevance?: number;
   watchmodeCriticScore?: number;
+  // Local Qwen SQLite Knowledge Base Fields
+  storyPace?: 'slow-burn' | 'moderate' | 'fast-paced' | 'relentless' | string;
+  endingType?: 'happy' | 'bittersweet' | 'tragic' | 'ambiguous' | 'twist/shocking' | 'open' | string;
+  timePeriod?: string;
+  settingEnvironment?: string;
+  audienceVibe?: string;
+  narrativeArchetypes?: string[];
+  qwenConfidence?: number;
   tmdbEnrichment?: {
     status: 'pending' | 'processing' | 'completed' | 'failed';
     lastFetchedAt?: string;
@@ -331,3 +339,73 @@ export interface AnalyticsStats {
   combinedDailyContentHours: number;
   combinedDailyClockHours: number;
 }
+
+export interface UserTasteProfile {
+  totalAnalyzed: number;
+  genreWeights: Record<string, number>;
+  themeWeights: Record<string, number>;
+  languageWeights: Record<string, number>;
+  mediaTypeRatio: { movie: number; tv: number };
+  averageReleaseYear: number;
+  averageRuntimeMinutes: number;
+  preferredDirectors: string[];
+  preferredCreators: string[];
+  preferredCast: string[];
+  recentlyWatchedTitles: string[];
+  topGenres: string[];
+  topThemes: string[];
+  isColdStart: boolean;
+  computedAt: string;
+}
+
+export interface CustomPreference {
+  id: string;
+  text: string;
+  weight: number;
+}
+
+export interface RecommendationCandidate {
+  item: DiscoveryTitle;
+  score: number;
+  matchPercentage: number;
+  reason: string;
+  matchedPreferences: string[];
+  breakdown: {
+    genreMatch: number;
+    themeMatch: number;
+    customIntentMatch: number;
+    tasteMatch: number;
+    qualityScore: number;
+    explorationBonus: number;
+  };
+}
+
+export interface RecommendationRowData {
+  id: string;
+  title: string;
+  subtitle?: string;
+  type:
+    | 'because_you_watched'
+    | 'loved_similar'
+    | 'genre_taste'
+    | 'theme_based'
+    | 'hidden_gems'
+    | 'explore_different'
+    | 'custom_intent'
+    | 'k_drama'
+    | 'anime'
+    | 'action'
+    | 'adventure'
+    | 'comedy'
+    | 'indie';
+  items: RecommendationCandidate[];
+  toggleOptions?: {
+    activeMode: 'movie' | 'tv';
+    movieItems: RecommendationCandidate[];
+    tvItems: RecommendationCandidate[];
+    anchorTitle: string;
+    availableLovedTitles?: string[];
+  };
+}
+
+

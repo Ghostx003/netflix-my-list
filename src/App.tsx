@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AppSettings, LibraryItem, NetflixRawItem, LibraryViewingStatus } from './types';
-import { DEFAULT_SETTINGS, getAllLibraryItems, getSettings, saveLibraryItems, saveSettings, clearLibrary, deleteLibraryItem, getAllDiscoveryTitles } from './services/db';
+import { DEFAULT_SETTINGS, getAllLibraryItems, getSettings, saveLibraryItems, saveSettings, clearLibrary, deleteLibraryItem, getAllDiscoveryTitles, saveDiscoveryTitles } from './services/db';
 import { enrichLibraryItem } from './services/tmdb';
 import { deduplicateAndPrepareItems } from './services/duplicateDetector';
-import { syncLibraryItemsToDiscovery, syncEnrichedDiscoveryTitlesIntoLibrary, enrichAndSyncNewLibraryItem, mergeDiscoveryTitleIntoLibraryItem, isDiscoveryTitleEnriched } from './services/discoveryService';
+import { syncLibraryItemsToDiscovery, syncEnrichedDiscoveryTitlesIntoLibrary, enrichAndSyncNewLibraryItem, mergeDiscoveryTitleIntoLibraryItem, isDiscoveryTitleEnriched, deduplicateDiscoveryTitles } from './services/discoveryService';
 import { createDuplicateKey } from './services/normalizer';
 import { Navbar } from './components/Navbar';
 import { ImportLibraryView } from './components/ImportLibraryView';
@@ -24,12 +24,13 @@ import { DiscoveryView } from './components/DiscoveryView';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { DiscoveryDetailModal } from './components/DiscoveryDetailModal';
 import { AskNettyModal } from './components/AskNettyModal';
+import { RecommendationView } from './components/recommendations/RecommendationView';
 import { SEED_NETFLIX_INDIA_TITLES } from './services/discoveryService';
 import { DiscoveryTitle } from './types';
 
-type ActiveTabType = 'import' | 'movies-series' | 'still-watching' | 'dropped' | 'tracker' | 'discovery' | 'analytics' | 'info';
+type ActiveTabType = 'import' | 'movies-series' | 'still-watching' | 'dropped' | 'tracker' | 'discovery' | 'recommendations' | 'analytics' | 'info';
 
-const VALID_TABS: ActiveTabType[] = ['import', 'movies-series', 'still-watching', 'dropped', 'tracker', 'discovery', 'analytics', 'info'];
+const VALID_TABS: ActiveTabType[] = ['import', 'movies-series', 'still-watching', 'dropped', 'tracker', 'discovery', 'recommendations', 'analytics', 'info'];
 
 function convertDiscoveryTitleToLibraryItem(discItem: DiscoveryTitle): LibraryItem {
   return {
@@ -170,8 +171,25 @@ export const App: React.FC = () => {
         // Auto-enrich library items with enriched discovery catalog data if any matching items were enriched
         try {
           const discoveryTitles = await getAllDiscoveryTitles();
-          const loadedCatalog = (discoveryTitles && discoveryTitles.length > 0) ? discoveryTitles : SEED_NETFLIX_INDIA_TITLES;
+          const loadedCatalog = deduplicateDiscoveryTitles([
+            ...SEED_NETFLIX_INDIA_TITLES,
+            ...(discoveryTitles || []),
+          ]);
           setDiscoveryCatalog(loadedCatalog);
+
+          // Auto-repair any stale placeholder posters in IndexedDB
+          const stalePosters = (discoveryTitles || []).filter(
+            (dt) => dt.posterPath && (dt.posterPath.includes('_poster.jpg') || dt.posterPath.includes('last_dance_poster'))
+          );
+          if (stalePosters.length > 0) {
+            const fixedBatch = stalePosters.map((dt) => {
+              const match = loadedCatalog.find(
+                (c) => (dt.imdbId && c.imdbId === dt.imdbId) || (dt.tmdbId && c.tmdbId === dt.tmdbId) || c.title.toLowerCase().trim() === dt.title.toLowerCase().trim()
+              );
+              return match ? { ...dt, posterPath: match.posterPath, backdropPath: match.backdropPath || dt.backdropPath } : dt;
+            });
+            saveDiscoveryTitles(fixedBatch).catch(() => {});
+          }
 
           if (discoveryTitles && discoveryTitles.length > 0) {
             const { updatedItems, upgradedCount } = syncEnrichedDiscoveryTitlesIntoLibrary(validItems, discoveryTitles);
@@ -212,6 +230,24 @@ export const App: React.FC = () => {
       }
     }
     loadData();
+  }, []);
+
+  // Keep Discovery Catalog synchronized in real time across tabs
+  useEffect(() => {
+    const handleDiscoveryUpdated = async () => {
+      try {
+        const freshTitles = await getAllDiscoveryTitles();
+        const merged = deduplicateDiscoveryTitles([
+          ...SEED_NETFLIX_INDIA_TITLES,
+          ...(freshTitles || []),
+        ]);
+        setDiscoveryCatalog(merged);
+      } catch (err) {
+        console.warn('[App] Error synchronizing updated discovery catalog:', err);
+      }
+    };
+    window.addEventListener('netflix-discovery-updated', handleDiscoveryUpdated);
+    return () => window.removeEventListener('netflix-discovery-updated', handleDiscoveryUpdated);
   }, []);
 
   // Enrich items with OMDB & TMDB
@@ -477,10 +513,12 @@ export const App: React.FC = () => {
     await handleUpdateItem(updatedItem);
   };
 
-  // Global Ctrl + Space keyboard shortcut to open/toggle search from anywhere
+  // Global Ctrl + Space and Ctrl + K keyboard shortcut to open/toggle search from anywhere
   useEffect(() => {
     const handleGlobalSearchKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && (e.code === 'Space' || e.key === ' ')) {
+      const isSpace = e.code === 'Space' || e.key === ' ';
+      const isK = e.key === 'k' || e.key === 'K';
+      if ((e.ctrlKey || e.metaKey) && (isSpace || isK)) {
         e.preventDefault();
         setIsGlobalSearchOpen((prev) => !prev);
       }
@@ -532,6 +570,7 @@ export const App: React.FC = () => {
         onOpenBackup={() => setIsBackupOpen(true)}
         onRescan={() => triggerBackgroundScan(items, settings)}
         isRescanning={isRescanning}
+        onOpenGlobalSearch={() => setIsGlobalSearchOpen(true)}
       />
 
       {/* Main View Container */}
@@ -585,9 +624,12 @@ export const App: React.FC = () => {
         {activeTab === 'still-watching' && (
           <StillWatchingView
             items={items}
+            catalog={discoveryCatalog}
             onUpdateItem={handleUpdateItem}
+            onAddItem={handleAddNewItem}
             onOpenDropModal={(item) => setItemToDrop(item)}
             onOpenDetail={(item) => setSelectedDetailItem(item)}
+            onOpenItemDetail={handleOpenSearchItemDetail}
           />
         )}
 
@@ -825,7 +867,59 @@ export const App: React.FC = () => {
           />
         )}
 
+        {activeTab === 'recommendations' && (
+          <RecommendationView
+            catalog={discoveryCatalog}
+            libraryItems={items}
+            settings={settings}
+            onOpenDetail={(discItem) => {
+              setDiscoveryTitleStack([discItem]);
+            }}
+            onAddToLibrary={async (discItem) => {
+              const newLibItem = convertDiscoveryTitleToLibraryItem(discItem);
+              await handleAddNewItem(newLibItem);
+              setSyncToast({
+                message: `Added "${discItem.title}" to your library!`,
+                type: 'success',
+              });
+              setTimeout(() => setSyncToast(null), 3000);
+            }}
+            onStartWatching={async (discItem) => {
+              const existing = items.find(
+                (i) =>
+                  (discItem.imdbId && i.imdbId === discItem.imdbId) ||
+                  (discItem.tmdbId && i.externalId === discItem.tmdbId) ||
+                  i.originalTitle.toLowerCase().trim() === discItem.title.toLowerCase().trim()
+              );
+
+              if (existing) {
+                const updated: LibraryItem = {
+                  ...existing,
+                  viewingStatus: 'still_watching',
+                  isCompleted: false,
+                  droppedReason: undefined,
+                  droppedAt: undefined,
+                  progress: existing.progress || { percentage: 10, watchedMinutes: 30 },
+                  updatedAt: new Date().toISOString(),
+                };
+                await handleUpdateItem(updated);
+              } else {
+                const newLibItem = convertDiscoveryTitleToLibraryItem(discItem);
+                newLibItem.viewingStatus = 'still_watching';
+                newLibItem.progress = { percentage: 10, watchedMinutes: 30 };
+                await handleAddNewItem(newLibItem);
+              }
+              setSyncToast({
+                message: `Added "${discItem.title}" to Watching list!`,
+                type: 'success',
+              });
+              setTimeout(() => setSyncToast(null), 3000);
+            }}
+          />
+        )}
+
         {activeTab === 'analytics' && (
+
           <AnalyticsView
             items={items}
             settings={settings}
