@@ -21,6 +21,11 @@ export interface AISearchAnalysis {
   vibe?: string;
   similarTitles: string[];
   semanticThemes: string[];
+  storyPace?: string;
+  endingType?: string;
+  settingEnvironment?: string;
+  timePeriod?: string;
+  salientParameters?: string[];
 }
 
 export interface SimilarRecommendationResult {
@@ -64,7 +69,7 @@ export async function analyzeSearchQueryWithQwen(rawQuery: string): Promise<AISe
     const benchmark = BENCHMARK_REFERENCE_PROFILES[key];
 
     try {
-      const prompt = `You are a film and television discovery engine with deep knowledge of streaming and Netflix catalogs.
+      const prompt = `You are Qwen 28B, a film and television discovery intelligence engine with deep knowledge of Netflix catalogs and narrative dimensions.
 Analyze this user search query: "${clean}".
 1. Spell-check: If misspelled or a typo of an actor, movie, or series (e.g. "tenett" -> "Tenet", "stanger thing" -> "Stranger Things"), provide correctedQuery and set isTypo=true.
 2. If the query refers to a specific movie or show, identify:
@@ -72,6 +77,13 @@ Analyze this user search query: "${clean}".
    - "vibe": 4-8 words describing its cinematic style, mood, or concepts (e.g. "Mind-bending temporal espionage & high-stakes action")
    - "similarTitles": 4-6 widely known titles with the exact same vibe, DNA, or premise
    - "semanticThemes": 3-4 key themes
+3. Infer narrative dimensions from our 100-parameter schema if relevant or implied:
+   - "storyPace": "slow-burn" | "moderate" | "fast-paced" | "relentless" | null
+   - "endingType": "happy" | "bittersweet" | "tragic" | "twist/shocking" | "ambiguous" | null
+   - "settingEnvironment": string or null (e.g. "Space", "Small Town", "Courtroom", "Cyberpunk")
+   - "timePeriod": string or null (e.g. "1980s", "Modern", "Victorian", "Future")
+   - "salientParameters": array of top parameter names (e.g. ["plot_twist_surprise", "darkness_bleakness", "mind_bending", "adrenaline_rush", "revenge", "survival", "heartwarming"])
+
 Respond ONLY with a valid JSON object matching this schema:
 {
   "correctedQuery": "...",
@@ -80,16 +92,21 @@ Respond ONLY with a valid JSON object matching this schema:
   "similarReferenceTitle": "...",
   "vibe": "...",
   "similarTitles": ["...", "..."],
-  "semanticThemes": ["...", "..."]
+  "semanticThemes": ["...", "..."],
+  "storyPace": "...",
+  "endingType": "...",
+  "settingEnvironment": "...",
+  "timePeriod": "...",
+  "salientParameters": ["..."]
 }`;
 
       const raw = await groqService.chatCompletion(
         [
-          { role: 'system', content: 'You are a movie search intelligence and spell-checking assistant. Always respond in pure JSON.' },
+          { role: 'system', content: 'You are Qwen 28B, a movie search intelligence and spell-checking assistant. Always respond in pure JSON.' },
           { role: 'user', content: prompt }
         ],
         0.1,
-        350
+        450
       );
 
       if (raw) {
@@ -106,6 +123,11 @@ Respond ONLY with a valid JSON object matching this schema:
           vibe: parsed.vibe || benchmark?.vibe,
           similarTitles: Array.isArray(parsed.similarTitles) ? parsed.similarTitles : [],
           semanticThemes: Array.isArray(parsed.semanticThemes) ? parsed.semanticThemes : (benchmark?.themes || []),
+          storyPace: parsed.storyPace || undefined,
+          endingType: parsed.endingType || undefined,
+          settingEnvironment: parsed.settingEnvironment || undefined,
+          timePeriod: parsed.timePeriod || undefined,
+          salientParameters: Array.isArray(parsed.salientParameters) ? parsed.salientParameters : undefined,
         };
 
         aiAnalysisCache.set(key, result);
@@ -210,13 +232,20 @@ export function findSimilarCatalogTitles(
     }
   }
 
-  // 2. Semantic intelligence scan across catalog using themes & vibe keywords
-  if (results.length < 8 && (analysis.semanticThemes.length > 0 || analysis.vibe)) {
+  // 2. Semantic intelligence scan across catalog using themes, vibe keywords, and enriched parameters
+  if (results.length < 8 && (analysis.semanticThemes.length > 0 || analysis.vibe || analysis.storyPace || analysis.endingType || analysis.salientParameters)) {
     const semanticQuery = [
       ...analysis.semanticThemes,
       analysis.vibe || '',
-      `like ${analysis.similarReferenceTitle || analysis.query}`
-    ].join(' ');
+      analysis.storyPace ? `${analysis.storyPace} pace` : '',
+      analysis.endingType ? `${analysis.endingType} ending` : '',
+      analysis.settingEnvironment || '',
+      analysis.timePeriod || '',
+      ...(analysis.salientParameters || []).map((p) => p.replace(/_/g, ' ')),
+      `like ${analysis.similarReferenceTitle || analysis.query}`,
+    ]
+      .filter(Boolean)
+      .join(' ');
 
     try {
       const scoredCandidates = queryCatalogIntelligence(combinedCatalog, semanticQuery);
@@ -232,11 +261,22 @@ export function findSimilarCatalogTitles(
           continue;
         }
 
+        let boost = 0;
+        let matchNote = scored.explanation || `Thematic match: ${analysis.vibe || 'Related narrative'}`;
+        if (analysis.storyPace && scored.item.storyPace === analysis.storyPace) {
+          boost += 5;
+          matchNote += ` • Matching ${scored.item.storyPace} pace`;
+        }
+        if (analysis.endingType && scored.item.endingType === analysis.endingType) {
+          boost += 5;
+          matchNote += ` • Matching ${scored.item.endingType} ending`;
+        }
+
         results.push({
           title: scored.item,
-          matchReason: scored.explanation || `Thematic match: ${analysis.vibe || 'Related narrative'}`,
-          vibeBadge: scored.badges[0] || analysis.semanticThemes[0] || 'Recommended',
-          similarityScore: Math.round(scored.score * 100),
+          matchReason: matchNote,
+          vibeBadge: scored.badges[0] || (scored.item.storyPace ? `${scored.item.storyPace} pace` : analysis.semanticThemes[0]) || 'Recommended',
+          similarityScore: Math.min(99, Math.round(scored.score * 100) + boost),
         });
         addedTitleKeys.add(scored.item.id);
       }

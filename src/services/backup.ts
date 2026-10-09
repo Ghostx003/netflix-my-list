@@ -16,12 +16,14 @@ import {
   setDiscoveryCatalogMeta,
 } from './db';
 import { createDuplicateKey } from './normalizer';
+import { convertEnrichedRecordToDiscoveryTitle } from './discoveryService';
 
 export interface ExportBackupResult {
   filename: string;
   itemCount: number;
   discoveryCount: number;
   metadataCacheCount: number;
+  sqliteKnowledgeBaseCount?: number;
 }
 
 export interface ExportBackupProgress {
@@ -198,6 +200,57 @@ export async function exportBackup(
     console.warn('Could not read discovery meta for backup:', err);
   }
 
+  // 7. SQLite Knowledge Base (all 4,800+ enriched titles with 100 continuous parameters & narrative attributes)
+  report('streaming', 'Exporting SQLite Knowledge Base & 100 continuous parameters...', 85);
+  await yieldToMain();
+
+  let sqliteKnowledgeBaseCount = 0;
+  try {
+    let enrichedKbRecords: any[] = [];
+    const res = await fetch('/netflix_enriched_kb.json');
+    if (res.ok) {
+      enrichedKbRecords = await res.json();
+    }
+
+    if (enrichedKbRecords && enrichedKbRecords.length > 0) {
+      sqliteKnowledgeBaseCount = enrichedKbRecords.length;
+      chunks.push(encoder.encode(',"sqliteKnowledgeBase":['));
+      for (let i = 0; i < enrichedKbRecords.length; i++) {
+        const r = enrichedKbRecords[i];
+        // Clean compact record with all 100 parameters and narrative attributes
+        const cleanRec = {
+          id: r.id,
+          title: r.title,
+          release_year: r.release_year,
+          media_type: r.media_type,
+          primary_genre: r.primary_genre,
+          secondary_genres: r.secondary_genres,
+          minor_genres: r.minor_genres,
+          moods: r.moods,
+          themes: r.themes,
+          narrative_archetypes: r.narrative_archetypes,
+          story_pace: r.story_pace,
+          ending_type: r.ending_type,
+          time_period: r.time_period,
+          setting_environment: r.setting_environment,
+          audience_vibe: r.audience_vibe,
+          confidence_score: r.confidence_score,
+          synopsis: r.synopsis,
+          parameters_100: r.parameters_100 || r.raw_profile?.parameters_100 || {},
+        };
+        const recStr = (i > 0 ? ',' : '') + JSON.stringify(cleanRec);
+        chunks.push(encoder.encode(recStr));
+        if (i % 100 === 0) {
+          report('streaming', `Exporting SQLite Knowledge Base (${i}/${enrichedKbRecords.length})...`, 85 + Math.round((i / enrichedKbRecords.length) * 12));
+          await yieldToMain();
+        }
+      }
+      chunks.push(encoder.encode(']'));
+    }
+  } catch (err) {
+    console.warn('Could not read SQLite knowledge base for backup:', err);
+  }
+
   chunks.push(encoder.encode('}'));
 
   report('finalizing', 'Generating download package...', 98);
@@ -227,6 +280,7 @@ export async function exportBackup(
     itemCount: safeItems.length,
     discoveryCount,
     metadataCacheCount,
+    sqliteKnowledgeBaseCount,
   };
 }
 
@@ -256,6 +310,7 @@ export function validateBackup(parsed: any): { valid: boolean; error?: string; d
       cachedThumbnails: parsed.cachedThumbnails,
       discoveryCatalog: Array.isArray(parsed.discoveryCatalog) ? parsed.discoveryCatalog : undefined,
       discoveryMeta: parsed.discoveryMeta,
+      sqliteKnowledgeBase: Array.isArray(parsed.sqliteKnowledgeBase) ? parsed.sqliteKnowledgeBase : undefined,
     },
   };
 }
@@ -275,15 +330,24 @@ export async function importBackupReplace(backup: BackupData): Promise<{ count: 
   if (backup.cachedThumbnails && typeof backup.cachedThumbnails === 'object') {
     await restoreCachedThumbnails(backup.cachedThumbnails);
   }
-  if (backup.discoveryCatalog && Array.isArray(backup.discoveryCatalog)) {
+
+  let restoredDiscoveryCount = backup.discoveryCatalog?.length || 0;
+  if (backup.sqliteKnowledgeBase && Array.isArray(backup.sqliteKnowledgeBase) && backup.sqliteKnowledgeBase.length > 0) {
+    const converted = backup.sqliteKnowledgeBase.map((r: any) => convertEnrichedRecordToDiscoveryTitle(r));
+    await saveDiscoveryTitles(converted);
+    restoredDiscoveryCount = Math.max(restoredDiscoveryCount, converted.length);
+  } else if (backup.discoveryCatalog && Array.isArray(backup.discoveryCatalog)) {
     await saveDiscoveryTitles(backup.discoveryCatalog);
   }
   if (backup.discoveryMeta) {
     await setDiscoveryCatalogMeta(backup.discoveryMeta);
   }
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('netflix-discovery-updated'));
+  }
   return {
     count: backup.items.length,
-    discoveryCount: backup.discoveryCatalog?.length,
+    discoveryCount: restoredDiscoveryCount,
   };
 }
 
@@ -372,17 +436,26 @@ export async function importBackupMerge(backup: BackupData): Promise<{
   if (backup.cachedThumbnails && typeof backup.cachedThumbnails === 'object') {
     await restoreCachedThumbnails(backup.cachedThumbnails);
   }
-  if (backup.discoveryCatalog && Array.isArray(backup.discoveryCatalog)) {
+
+  let restoredDiscoveryCount = backup.discoveryCatalog?.length || 0;
+  if (backup.sqliteKnowledgeBase && Array.isArray(backup.sqliteKnowledgeBase) && backup.sqliteKnowledgeBase.length > 0) {
+    const converted = backup.sqliteKnowledgeBase.map((r: any) => convertEnrichedRecordToDiscoveryTitle(r));
+    await saveDiscoveryTitles(converted);
+    restoredDiscoveryCount = Math.max(restoredDiscoveryCount, converted.length);
+  } else if (backup.discoveryCatalog && Array.isArray(backup.discoveryCatalog)) {
     await saveDiscoveryTitles(backup.discoveryCatalog);
   }
   if (backup.discoveryMeta) {
     await setDiscoveryCatalogMeta(backup.discoveryMeta);
+  }
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('netflix-discovery-updated'));
   }
 
   return {
     addedCount,
     updatedCount,
     totalCount: mergedList.length,
-    discoveryCount: backup.discoveryCatalog?.length,
+    discoveryCount: restoredDiscoveryCount,
   };
 }

@@ -224,6 +224,12 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
               <span>{langBadge.badge}</span>
             </div>
           )}
+
+          {(item.availabilityState === 'no_longer_available' || item.netflixIndiaAvailable === false || item.isNetflixIndiaVerified === false) && (
+            <div className="bg-rose-950/90 text-rose-300 border border-rose-500/60 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-black shadow-md tracking-wider">
+              NOT ON NETFLIX
+            </div>
+          )}
         </div>
 
         {/* Bottom-Left of Thumbnail: Runtime Capsule */}

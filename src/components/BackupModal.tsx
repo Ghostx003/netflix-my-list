@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { X, Save, Upload, Download, AlertTriangle, Check, RefreshCw } from 'lucide-react';
-import { LibraryItem, AppSettings, BackupData } from '../types';
+import { X, Upload, Download, AlertTriangle, Check, RefreshCw, Database, FileJson, Film, ArrowRight } from 'lucide-react';
+import { LibraryItem, AppSettings } from '../types';
 import { exportBackup } from '../services/backup';
 import {
   readBackupFileStreaming,
@@ -23,10 +23,18 @@ export const BackupModal: React.FC<BackupModalProps> = ({
   onClose,
   onRefreshLibrary,
 }) => {
+  const [activeTab, setActiveTab] = useState<'export' | 'restore'>('export');
+
+  // Checklist options for 1-click export
+  const [includeSqlite, setIncludeSqlite] = useState(true);
+  const [includeEnrichedJson, setIncludeEnrichedJson] = useState(true);
+  const [includeWatchlist, setIncludeWatchlist] = useState(true);
+
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState<{ message: string; percent: number } | null>(null);
   const [exportSuccess, setExportSuccess] = useState<string | null>(null);
 
+  // Restore state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [pendingSummary, setPendingSummary] = useState<StreamBackupSummary | null>(null);
   const [isReadingFile, setIsReadingFile] = useState(false);
@@ -37,27 +45,81 @@ export const BackupModal: React.FC<BackupModalProps> = ({
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState<{ message: string; percent: number } | null>(null);
 
-  const [includeThumbnails, setIncludeThumbnails] = useState(false);
-
   if (!isOpen) return null;
 
-  const handleExport = async () => {
+  const selectedCount = (includeSqlite ? 1 : 0) + (includeEnrichedJson ? 1 : 0) + (includeWatchlist ? 1 : 0);
+
+  // Fast, seamless non-blocking export
+  const handleExportSelected = async () => {
+    if (selectedCount === 0) {
+      setErrorMessage('Please select at least one item to export.');
+      return;
+    }
+
     setIsExporting(true);
-    setExportProgress({ message: 'Preparing database snapshot...', percent: 0 });
-    setExportSuccess(null);
     setErrorMessage(null);
+    setExportSuccess(null);
+    setExportProgress({ message: 'Preparing downloads...', percent: 10 });
+
     try {
-      const res = await exportBackup(items, settings, includeThumbnails, (p) => {
-        setExportProgress({ message: p.message, percent: p.percent });
-      });
-      const parts = [`${res.itemCount} library items`];
-      if (res.discoveryCount > 0) parts.push(`${res.discoveryCount} Discovery titles (with all TMDB/Watchmode metadata, ratings, cast, themes, genres, synopsis, seasons & episodes)`);
-      if (res.metadataCacheCount > 0) parts.push(`${res.metadataCacheCount} cached API items`);
-      if (includeThumbnails) parts.push('offline thumbnails included');
-      setExportSuccess(`Exported successfully as ${res.filename} (${parts.join(', ')})`);
+      const tasks: Array<{ name: string; run: () => Promise<void> }> = [];
+
+      // 1. Raw SQLite DB (.sqlite)
+      if (includeSqlite) {
+        tasks.push({
+          name: 'SQLite Database (.sqlite)',
+          run: async () => {
+            const a = document.createElement('a');
+            a.href = '/netflix_knowledge_base.sqlite';
+            a.download = 'netflix_knowledge_base.sqlite';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+          },
+        });
+      }
+
+      // 2. Enriched Movie & Plot Dataset (.json)
+      if (includeEnrichedJson) {
+        tasks.push({
+          name: 'Enriched Movie Plots & Data (.json)',
+          run: async () => {
+            const a = document.createElement('a');
+            a.href = '/netflix_enriched_kb.json';
+            a.download = 'netflix_enriched_movies_database.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+          },
+        });
+      }
+
+      // 3. Full System & Watchlist Backup (.json) with SQLite Knowledge Base embedded
+      if (includeWatchlist) {
+        tasks.push({
+          name: 'Universal Full Backup (.json)',
+          run: async () => {
+            await exportBackup(items, settings, false, (p) => {
+              setExportProgress({ message: p.message, percent: p.percent });
+            });
+          },
+        });
+      }
+
+      // Execute sequentially with 350ms buffer so browser handles all downloads cleanly without lag
+      for (let i = 0; i < tasks.length; i++) {
+        const pct = Math.round(((i + 1) / tasks.length) * 100);
+        setExportProgress({ message: `Exporting ${tasks[i].name}...`, percent: pct });
+        await tasks[i].run();
+        if (i < tasks.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 350));
+        }
+      }
+
+      setExportSuccess(`Exported ${tasks.length} file(s) successfully! Check your browser Downloads.`);
     } catch (err: any) {
-      console.error('Export backup error:', err);
-      setErrorMessage(`Failed to generate backup file: ${err?.message || 'Unknown error'}`);
+      console.error('Export error:', err);
+      setErrorMessage(`Export failed: ${err?.message || 'Unknown error'}`);
     } finally {
       setIsExporting(false);
       setExportProgress(null);
@@ -121,7 +183,7 @@ export const BackupModal: React.FC<BackupModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-fade-in">
-      <div className="relative w-full max-w-2xl bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-6">
+      <div className="relative w-full max-w-2xl bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
         <button
           onClick={onClose}
           className="absolute top-4 right-4 p-1.5 rounded-full text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
@@ -129,78 +191,250 @@ export const BackupModal: React.FC<BackupModalProps> = ({
           <X className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center gap-3 mb-2">
-          <div className="p-3 rounded-xl bg-blue-600/20 text-blue-400 border border-blue-500/20">
-            <Save className="w-6 h-6" />
-          </div>
-          <div>
-            <h3 className="text-lg font-bold text-white">Backup & Restore Database</h3>
-            <p className="text-xs text-zinc-400">
-              Save or restore your entire library, reasons, statuses, progress, cache, and settings.
-            </p>
-          </div>
+        {/* Header Tabs */}
+        <div className="flex items-center gap-3 border-b border-white/10 pb-4">
+          <button
+            type="button"
+            onClick={() => setActiveTab('export')}
+            className={`flex items-center gap-2 pb-1 font-bold text-base transition-colors cursor-pointer ${
+              activeTab === 'export'
+                ? 'text-emerald-400 border-b-2 border-emerald-400'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Download className="w-5 h-5" />
+            <span>Export Data</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('restore')}
+            className={`flex items-center gap-2 pb-1 font-bold text-base transition-colors cursor-pointer ml-3 ${
+              activeTab === 'restore'
+                ? 'text-blue-400 border-b-2 border-blue-400'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Upload className="w-5 h-5" />
+            <span>Restore Backup</span>
+          </button>
         </div>
 
-        <div className="space-y-4">
-          {/* Export Card */}
-          <div className="p-4 rounded-xl bg-black/40 border border-zinc-800 space-y-3">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div>
-                <h4 className="text-sm font-bold text-white">Export Full Backup</h4>
-                <p className="text-xs text-zinc-400 mt-0.5">
-                  Downloads a complete JSON snapshot with all {items.length} watchlist items, full Discovery catalog (TMDB + Watchmode enriched metadata: ratings, cast, synopsis, themes, episodes, genres, tagline), API caches, and settings.
-                </p>
-              </div>
-              <button
-                onClick={handleExport}
-                disabled={isExporting}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800/60 text-white shadow-lg transition-all whitespace-nowrap"
+        {/* 1. EXPORT TAB (Default) */}
+        {activeTab === 'export' && (
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold text-zinc-200">
+                Choose what you want to export:
+              </h3>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Keep all selected or uncheck anything you don't need. Export starts immediately without freezing the website.
+              </p>
+            </div>
+
+            {/* Checklist Options */}
+            <div className="space-y-3">
+              {/* Option 1: SQLite DB */}
+              <div
+                onClick={() => setIncludeSqlite(!includeSqlite)}
+                className={`p-4 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-4 ${
+                  includeSqlite
+                    ? 'bg-emerald-950/40 border-emerald-500/50 text-white shadow-md shadow-emerald-950/20'
+                    : 'bg-zinc-950/40 border-white/5 text-zinc-400 hover:border-white/20'
+                }`}
               >
-                {isExporting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                <span>{isExporting ? `${exportProgress?.percent || 0}% Exporting...` : 'Export Backup'}</span>
+                <div className="flex items-center gap-3.5">
+                  <div
+                    className={`p-2.5 rounded-xl border ${
+                      includeSqlite
+                        ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/40'
+                        : 'bg-zinc-800 text-zinc-500 border-transparent'
+                    }`}
+                  >
+                    <Database className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-bold text-white">
+                        Enriched SQLite Database (.sqlite)
+                      </span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono font-semibold border border-emerald-500/30">
+                        24.7 MB • 4,806 Titles
+                      </span>
+                    </div>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      Raw SQLite database with all 4,806 titles, verified plot synopses, and all 100 continuous parameters.
+                    </p>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={includeSqlite}
+                  onChange={(e) => setIncludeSqlite(e.target.checked)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="w-5 h-5 rounded accent-emerald-500 cursor-pointer shrink-0"
+                />
+              </div>
+
+              {/* Option 2: Enriched JSON */}
+              <div
+                onClick={() => setIncludeEnrichedJson(!includeEnrichedJson)}
+                className={`p-4 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-4 ${
+                  includeEnrichedJson
+                    ? 'bg-blue-950/40 border-blue-500/50 text-white shadow-md shadow-blue-950/20'
+                    : 'bg-zinc-950/40 border-white/5 text-zinc-400 hover:border-white/20'
+                }`}
+              >
+                <div className="flex items-center gap-3.5">
+                  <div
+                    className={`p-2.5 rounded-xl border ${
+                      includeEnrichedJson
+                        ? 'bg-blue-600/20 text-blue-400 border-blue-500/40'
+                        : 'bg-zinc-800 text-zinc-500 border-transparent'
+                    }`}
+                  >
+                    <FileJson className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-bold text-white">
+                        Enriched Movie Plots & Data (.json)
+                      </span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-mono font-semibold border border-blue-500/30">
+                        32.1 MB • All Plots & Pacing
+                      </span>
+                    </div>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      Full JSON dataset with verified plots, synopses, story pacing, ending types, audience vibes, and themes.
+                    </p>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={includeEnrichedJson}
+                  onChange={(e) => setIncludeEnrichedJson(e.target.checked)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="w-5 h-5 rounded accent-blue-500 cursor-pointer shrink-0"
+                />
+              </div>
+
+              {/* Option 3: Personal Watchlist & Settings */}
+              <div
+                onClick={() => setIncludeWatchlist(!includeWatchlist)}
+                className={`p-4 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-4 ${
+                  includeWatchlist
+                    ? 'bg-purple-950/40 border-purple-500/50 text-white shadow-md shadow-purple-950/20'
+                    : 'bg-zinc-950/40 border-white/5 text-zinc-400 hover:border-white/20'
+                }`}
+              >
+                <div className="flex items-center gap-3.5">
+                  <div
+                    className={`p-2.5 rounded-xl border ${
+                      includeWatchlist
+                        ? 'bg-purple-600/20 text-purple-400 border-purple-500/40'
+                        : 'bg-zinc-800 text-zinc-500 border-transparent'
+                    }`}
+                  >
+                    <Film className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-bold text-white">
+                        Full System & Watchlist Backup (.json)
+                      </span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-mono font-semibold border border-purple-500/30">
+                        {items.length} Items • Full 4,806 KB Embedded
+                      </span>
+                    </div>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      Portable backup with your watchlist, settings, and all 4,806 enriched movie plots & 100 parameters. Restores directly to IndexedDB on any new device for Qwen 28B.
+                    </p>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={includeWatchlist}
+                  onChange={(e) => setIncludeWatchlist(e.target.checked)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="w-5 h-5 rounded accent-purple-500 cursor-pointer shrink-0"
+                />
+              </div>
+            </div>
+
+            {/* Quick Toggle & Counter */}
+            <div className="flex items-center justify-between text-xs px-1">
+              <span className="text-zinc-400 font-medium">
+                {selectedCount} of 3 items selected
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  const allOn = includeSqlite && includeEnrichedJson && includeWatchlist;
+                  setIncludeSqlite(!allOn);
+                  setIncludeEnrichedJson(!allOn);
+                  setIncludeWatchlist(!allOn);
+                }}
+                className="text-emerald-400 hover:text-emerald-300 font-semibold cursor-pointer underline text-xs"
+              >
+                {includeSqlite && includeEnrichedJson && includeWatchlist ? 'Deselect All' : 'Select All'}
               </button>
             </div>
 
-            {/* Live Progress Indicator */}
+            {/* 1 Big Export Button */}
+            <button
+              type="button"
+              onClick={handleExportSelected}
+              disabled={isExporting || selectedCount === 0}
+              className="w-full py-3.5 px-6 rounded-xl font-bold text-sm bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-400 text-white shadow-xl shadow-emerald-950/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2.5 cursor-pointer transform active:scale-[0.99]"
+            >
+              {isExporting ? (
+                <>
+                  <RefreshCw className="w-5 h-5 animate-spin" />
+                  <span>{exportProgress?.message || 'Exporting...'}</span>
+                </>
+              ) : (
+                <>
+                  <Download className="w-5 h-5" />
+                  <span>Export Selected ({selectedCount} item{selectedCount === 1 ? '' : 's'})</span>
+                </>
+              )}
+            </button>
+
+            {/* Live Progress Bar */}
             {isExporting && exportProgress && (
               <div className="space-y-1.5 py-1">
                 <div className="flex justify-between text-[11px] text-zinc-400">
                   <span>{exportProgress.message}</span>
-                  <span className="font-mono text-blue-400 font-semibold">{exportProgress.percent}%</span>
+                  <span className="font-mono text-emerald-400 font-semibold">{exportProgress.percent}%</span>
                 </div>
                 <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-blue-500 rounded-full transition-all duration-200"
+                    className="h-full bg-emerald-500 rounded-full transition-all duration-200"
                     style={{ width: `${exportProgress.percent}%` }}
                   />
                 </div>
               </div>
             )}
 
-            {/* Thumbnail Cache Option Toggle */}
-            <div className="pt-2 border-t border-white/5 flex items-center justify-between">
-              <div>
-                <label className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={includeThumbnails}
-                    onChange={(e) => setIncludeThumbnails(e.target.checked)}
-                    className="rounded accent-blue-500 cursor-pointer"
-                  />
-                  <span>Include cached thumbnails in backup</span>
-                </label>
-                <p className="text-[11px] text-zinc-500 ml-5">
-                  Embeds offline image thumbnails into the JSON (increases file size, enables 100% offline poster loading).
-                </p>
+            {exportSuccess && (
+              <div className="p-3.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2.5">
+                <Check className="w-5 h-5 shrink-0 text-emerald-400" />
+                <span>{exportSuccess}</span>
               </div>
-              <span className="text-[10px] font-mono text-zinc-400">
-                {includeThumbnails ? 'Offline Images Included' : 'Compact (Fast)'}
-              </span>
-            </div>
-          </div>
+            )}
 
-          {/* Import Card */}
-          <div className="p-4 rounded-xl bg-black/40 border border-zinc-800 space-y-4">
+            {errorMessage && (
+              <div className="p-3.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300 text-xs flex items-center gap-2.5">
+                <AlertTriangle className="w-5 h-5 shrink-0 text-red-400" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 2. RESTORE TAB */}
+        {activeTab === 'restore' && (
+          <div className="space-y-4">
             <div>
               <h4 className="text-sm font-bold text-white">Restore from Backup</h4>
               <p className="text-xs text-zinc-400 mt-0.5">
@@ -220,7 +454,6 @@ export const BackupModal: React.FC<BackupModalProps> = ({
               />
             </label>
 
-            {/* Reading / Parsing File Indicator */}
             {isReadingFile && fileReadProgress && (
               <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 space-y-1.5">
                 <div className="flex justify-between text-xs text-blue-300">
@@ -239,7 +472,6 @@ export const BackupModal: React.FC<BackupModalProps> = ({
               </div>
             )}
 
-            {/* Import Progress Indicator */}
             {isImporting && importProgress && (
               <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 space-y-1.5">
                 <div className="flex justify-between text-xs text-purple-300">
@@ -267,9 +499,11 @@ export const BackupModal: React.FC<BackupModalProps> = ({
                 <div className="text-xs text-zinc-300 space-y-1">
                   <p>
                     Detected <span className="font-semibold text-white">{pendingSummary.items.length} watchlist items</span>
-                    {pendingSummary.discoveryCatalogCount > 0 ? (
+                    {pendingSummary.sqliteKnowledgeBaseCount > 0 ? (
+                      <span> and <span className="font-semibold text-emerald-400">{pendingSummary.sqliteKnowledgeBaseCount} SQLite Knowledge Base titles (100 parameters)</span></span>
+                    ) : (pendingSummary.discoveryCatalogCount > 0 ? (
                       <span> and <span className="font-semibold text-emerald-400">{pendingSummary.discoveryCatalogCount} enriched Discovery titles</span></span>
-                    ) : null}
+                    ) : null)}
                     {pendingSummary.metadataCacheCount > 0 ? (
                       <span> with <span className="font-semibold text-blue-400">{pendingSummary.metadataCacheCount} cached API items</span></span>
                     ) : null}
@@ -298,33 +532,41 @@ export const BackupModal: React.FC<BackupModalProps> = ({
               </div>
             )}
 
-            {exportSuccess && (
-              <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs flex items-center gap-2">
-                <Check className="w-4 h-4 shrink-0" />
-                <span>{exportSuccess}</span>
-              </div>
-            )}
-
             {importSuccess && (
-              <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs flex items-center gap-2">
-                <Check className="w-4 h-4 shrink-0" />
+              <div className="p-3.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2.5">
+                <Check className="w-5 h-5 shrink-0 text-emerald-400" />
                 <span>{importSuccess}</span>
               </div>
             )}
 
             {errorMessage && (
-              <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
+              <div className="p-3.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300 text-xs flex items-center gap-2.5">
+                <AlertTriangle className="w-5 h-5 shrink-0 text-red-400" />
                 <span>{errorMessage}</span>
               </div>
             )}
           </div>
-        </div>
+        )}
 
-        <div className="flex justify-end pt-2">
+        <div className="flex justify-between items-center pt-3 border-t border-white/5">
+          <button
+            type="button"
+            onClick={() => setActiveTab(activeTab === 'export' ? 'restore' : 'export')}
+            className="text-xs text-zinc-400 hover:text-zinc-200 flex items-center gap-1 cursor-pointer"
+          >
+            {activeTab === 'export' ? (
+              <>
+                <span>Want to restore a backup instead?</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </>
+            ) : (
+              <span>Back to Export</span>
+            )}
+          </button>
+
           <button
             onClick={onClose}
-            className="px-5 py-2 text-xs font-medium text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-xl transition-colors"
+            className="px-5 py-2 text-xs font-medium text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-xl transition-colors cursor-pointer"
           >
             Close
           </button>

@@ -1,4 +1,5 @@
 import { DiscoveryTitle, LibraryItem } from '../types';
+import { isNetflixIndiaAvailable } from './normalizer';
 
 /**
  * Enhanced title similarity score calculation between two Discovery titles.
@@ -192,17 +193,29 @@ function isTitleExcluded(
  *   - Dropped
  *   - In watching list (still_watching)
  *   - Ignored (hidden by user)
+import { isNetflixIndiaAvailable } from './normalizer';
+
+/**
+ * Finds the top N similar titles from the Netflix India catalog for a given title.
+ * 
+ * Strict constraints:
+ * - ONLY recommends titles available on Netflix India
+ * - EXCLUDES titles that are:
+ *   - Watched (completed)
+ *   - Dropped
+ *   - In watching list (still_watching)
+ *   - Ignored (hidden by user)
  * - Uses themes, ratings, and genres for optimal similarity scoring
  */
 export function findLocalSimilarTitles(
   target: DiscoveryTitle,
   allCatalogTitles: DiscoveryTitle[],
-  optionsOrLimit: FindSimilarTitlesOptions | number = 6
+  optionsOrLimit: FindSimilarTitlesOptions | number = 36
 ): SimilarTitleResult[] {
   const options: FindSimilarTitlesOptions =
     typeof optionsOrLimit === 'number' ? { limit: optionsOrLimit } : optionsOrLimit;
 
-  const limit = options.limit || 6;
+  const limit = options.limit || 36;
   const libraryItems = options.libraryItems || [];
 
   // 1. Gather ignored IDs (from options + localStorage fallback)
@@ -229,8 +242,7 @@ export function findLocalSimilarTitles(
     if (cand.netflixId && target.netflixId && cand.netflixId === target.netflixId) return false;
 
     // Must be available on Netflix India
-    if (cand.availabilityState === 'no_longer_available') return false;
-    if (cand.isNetflixIndiaVerified === false) return false;
+    if (!isNetflixIndiaAvailable(cand)) return false;
 
     // Filter out watched, dropped, watching, or ignored
     if (isTitleExcluded(cand, excludedKeys, ignoredIdSet)) {

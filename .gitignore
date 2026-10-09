@@ -38,5 +38,16 @@ public/embeddings.bin
 __pycache__/
 *.pyc
 
+# Enriched SQLite Knowledge Base & Large Associated Datasets
+scripts/enrichment/*.sqlite*
+scripts/enrichment/netflix_enriched_kb.json
+scripts/enrichment/netflix_knowledge_base.xlsx
+public/netflix_enriched_kb.json
+netflix_discovery_local.db
+
+# Backup Archives & Snapshots
+*backup*.json
+netflix-watchlist-backup-*.json
+
 # Scratch
 scratch/

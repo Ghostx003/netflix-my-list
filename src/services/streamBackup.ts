@@ -11,6 +11,7 @@ import {
   getAllLibraryItems,
 } from './db';
 import { createDuplicateKey } from './normalizer';
+import { convertEnrichedRecordToDiscoveryTitle } from './discoveryService';
 
 export interface StreamImportProgress {
   phase: 'reading' | 'restoring' | 'completed';
@@ -26,6 +27,7 @@ export interface StreamBackupSummary {
   metadataCacheCount: number;
   cachedThumbnailsCount: number;
   discoveryCatalogCount: number;
+  sqliteKnowledgeBaseCount: number;
   discoveryMeta: any;
   fileSize: number;
   // If small file, holds parsed full data
@@ -53,6 +55,7 @@ export async function readBackupFileStreaming(
       throw new Error('Backup does not contain a valid items list.');
     }
     const safeItems = parsed.items.map(normalizeLibraryItem);
+    const sqliteKnowledgeBaseCount = Array.isArray(parsed.sqliteKnowledgeBase) ? parsed.sqliteKnowledgeBase.length : 0;
     return {
       version: parsed.version || 2,
       exportedAt: parsed.exportedAt || new Date().toISOString(),
@@ -61,6 +64,7 @@ export async function readBackupFileStreaming(
       metadataCacheCount: Array.isArray(parsed.metadataCache) ? parsed.metadataCache.length : 0,
       cachedThumbnailsCount: parsed.cachedThumbnails ? Object.keys(parsed.cachedThumbnails).length : 0,
       discoveryCatalogCount: Array.isArray(parsed.discoveryCatalog) ? parsed.discoveryCatalog.length : 0,
+      sqliteKnowledgeBaseCount,
       discoveryMeta: parsed.discoveryMeta || null,
       fileSize,
       fullBackupData: {
@@ -72,6 +76,7 @@ export async function readBackupFileStreaming(
         cachedThumbnails: parsed.cachedThumbnails,
         discoveryCatalog: parsed.discoveryCatalog,
         discoveryMeta: parsed.discoveryMeta,
+        sqliteKnowledgeBase: parsed.sqliteKnowledgeBase,
       },
     };
   }
@@ -97,6 +102,7 @@ export async function readBackupFileStreaming(
   let metadataCacheCount = 0;
   let cachedThumbnailsCount = 0;
   let discoveryCatalogCount = 0;
+  let sqliteKnowledgeBaseCount = 0;
   let discoveryMeta: any = null;
 
   let lastReportedPct = 0;
@@ -165,6 +171,8 @@ export async function readBackupFileStreaming(
               metadataCacheCount++;
             } else if (arrayKey === 'discoveryCatalog') {
               discoveryCatalogCount++;
+            } else if (arrayKey === 'sqliteKnowledgeBase') {
+              sqliteKnowledgeBaseCount++;
             }
           } catch {}
           buffer = '';
@@ -214,6 +222,7 @@ export async function readBackupFileStreaming(
     metadataCacheCount,
     cachedThumbnailsCount,
     discoveryCatalogCount,
+    sqliteKnowledgeBaseCount,
     discoveryMeta,
     fileSize,
   };
@@ -233,17 +242,28 @@ export async function executeStreamImport(
 
   // If small file with full data already parsed, use standard restore
   if (summary.fullBackupData) {
+    let restoredDiscovery = summary.fullBackupData.discoveryCatalog?.length || 0;
+    if (summary.fullBackupData.sqliteKnowledgeBase && Array.isArray(summary.fullBackupData.sqliteKnowledgeBase) && summary.fullBackupData.sqliteKnowledgeBase.length > 0) {
+      const converted = summary.fullBackupData.sqliteKnowledgeBase.map((r: any) => convertEnrichedRecordToDiscoveryTitle(r));
+      await saveDiscoveryTitles(converted);
+      restoredDiscovery = Math.max(restoredDiscovery, converted.length);
+    } else if (summary.fullBackupData.discoveryCatalog) {
+      await saveDiscoveryTitles(summary.fullBackupData.discoveryCatalog);
+    }
+
     if (mode === 'replace') {
       await clearLibrary();
       await saveLibraryItems(summary.fullBackupData.items);
       if (summary.fullBackupData.settings) await saveSettings(summary.fullBackupData.settings);
       if (summary.fullBackupData.metadataCache) await restoreCachedMetadata(summary.fullBackupData.metadataCache);
       if (summary.fullBackupData.cachedThumbnails) await restoreCachedThumbnails(summary.fullBackupData.cachedThumbnails);
-      if (summary.fullBackupData.discoveryCatalog) await saveDiscoveryTitles(summary.fullBackupData.discoveryCatalog);
       if (summary.fullBackupData.discoveryMeta) await setDiscoveryCatalogMeta(summary.fullBackupData.discoveryMeta);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('netflix-discovery-updated'));
+      }
       return {
         count: summary.fullBackupData.items.length,
-        discoveryCount: summary.fullBackupData.discoveryCatalog?.length || 0,
+        discoveryCount: restoredDiscovery,
       };
     } else {
       // Merge mode
@@ -287,11 +307,13 @@ export async function executeStreamImport(
       await saveLibraryItems(merged);
       if (summary.fullBackupData.metadataCache) await restoreCachedMetadata(summary.fullBackupData.metadataCache);
       if (summary.fullBackupData.cachedThumbnails) await restoreCachedThumbnails(summary.fullBackupData.cachedThumbnails);
-      if (summary.fullBackupData.discoveryCatalog) await saveDiscoveryTitles(summary.fullBackupData.discoveryCatalog);
       if (summary.fullBackupData.discoveryMeta) await setDiscoveryCatalogMeta(summary.fullBackupData.discoveryMeta);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('netflix-discovery-updated'));
+      }
       return {
         count: merged.length,
-        discoveryCount: summary.fullBackupData.discoveryCatalog?.length || 0,
+        discoveryCount: restoredDiscovery,
       };
     }
   }
@@ -431,6 +453,14 @@ export async function executeStreamImport(
                 discoveryBatch = [];
                 await yieldTick();
               }
+            } else if (arrayKey === 'sqliteKnowledgeBase') {
+              discoveryBatch.push(convertEnrichedRecordToDiscoveryTitle(elem));
+              totalDiscoveryRestored++;
+              if (discoveryBatch.length >= 100) {
+                await saveDiscoveryTitles(discoveryBatch);
+                discoveryBatch = [];
+                await yieldTick();
+              }
             }
           } catch {}
           buffer = '';
@@ -448,7 +478,7 @@ export async function executeStreamImport(
           if (arrayKey === 'metadataCache' && metadataBatch.length > 0) {
             await restoreCachedMetadata(metadataBatch);
             metadataBatch = [];
-          } else if (arrayKey === 'discoveryCatalog' && discoveryBatch.length > 0) {
+          } else if ((arrayKey === 'discoveryCatalog' || arrayKey === 'sqliteKnowledgeBase') && discoveryBatch.length > 0) {
             await saveDiscoveryTitles(discoveryBatch);
             discoveryBatch = [];
           }
@@ -474,10 +504,14 @@ export async function executeStreamImport(
     await saveDiscoveryTitles(discoveryBatch);
   }
 
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('netflix-discovery-updated'));
+  }
+
   onProgress?.({ phase: 'completed', percent: 100, message: 'Restore completed successfully!' });
 
   return {
     count: finalItemCount,
-    discoveryCount: totalDiscoveryRestored || summary.discoveryCatalogCount,
+    discoveryCount: totalDiscoveryRestored || summary.sqliteKnowledgeBaseCount || summary.discoveryCatalogCount,
   };
 }

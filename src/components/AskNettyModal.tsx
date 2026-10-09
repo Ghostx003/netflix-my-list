@@ -20,6 +20,7 @@ import {
 import { DiscoveryTitle, LibraryItem } from '../types';
 import {
   getAllDiscoveryTitles,
+  saveDiscoveryTitles,
   getNettyConversations,
   saveNettyConversations,
   deleteNettyConversation,
@@ -326,7 +327,11 @@ export const AskNettyModal: React.FC<AskNettyProps> = ({ libraryItems, onOpenMov
       }
 
       if (isMounted) {
-        setAllCatalogTitles(Array.from(mergedMap.values()));
+        const fullCatalog = Array.from(mergedMap.values());
+        setAllCatalogTitles(fullCatalog);
+        if (fullCatalog.length > 500) {
+          saveDiscoveryTitles(fullCatalog).catch(() => {});
+        }
       }
     }
 
@@ -460,11 +465,11 @@ export const AskNettyModal: React.FC<AskNettyProps> = ({ libraryItems, onOpenMov
               r.item.timePeriod ? `Period: ${r.item.timePeriod}` : null,
             ].filter(Boolean).join(' | ');
 
-            return `${i + 1}. **${r.item.title}** (${r.item.releaseYear || 'N/A'}, ${r.item.mediaType === 'tv' ? 'Series' : 'Movie'}, IMDb: ${r.item.imdbRating || r.item.rating || 'N/A'})\n   Genres: ${(r.item.genres || []).join(', ')}\n   Qwen 2B Local SQLite Analysis: ${qwenDimensions || 'Catalog title'}\n   Dominant Continuous Vectors: ${top100Params || (r.item.themes || []).join(', ') || 'Drama'}\n   Synopsis: ${(r.item.synopsis || '').slice(0, 160)}...`;
+            return `${i + 1}. **${r.item.title}** (${r.item.releaseYear || 'N/A'}, ${r.item.mediaType === 'tv' ? 'Series' : 'Movie'}, IMDb: ${r.item.imdbRating || r.item.rating || 'N/A'})\n   Genres: ${(r.item.genres || []).join(', ')}\n   Qwen 28B Narrative Analysis: ${qwenDimensions || 'Catalog title'}\n   Dominant Continuous Vectors: ${top100Params || (r.item.themes || []).join(', ') || 'Drama'}\n   Synopsis: ${(r.item.synopsis || '').slice(0, 160)}...`;
           }).join('\n\n');
 
-          const systemPrompt = `You are Netty, Netflix India's ultimate AI film & series curator.
-You are powered by our Local Qwen 2B SQLite Knowledge Base containing 2,300+ titles enriched across 100 continuous emotional, thematic, and narrative parameters (pacing, ending types, setting, intensity).
+          const systemPrompt = `You are Netty, Netflix India's ultimate AI film & series curator powered by Qwen 28B.
+You are powered by our Local SQLite Knowledge Base containing 4,800+ titles enriched across 100 continuous emotional, thematic, and narrative parameters (pacing, ending types, setting, intensity).
 You are warm, intelligent, enthusiastic, and talk like a passionate cinephile friend.
 
 The user just sent: "${query}".
@@ -590,8 +595,8 @@ Instructions:
 
   return (
     <>
-      {/* Floating Ask Netty Button */}
-      <div className="fixed bottom-6 left-6 z-40">
+      {/* Floating Ask Netty Button - lifted on mobile/tablet to avoid being hidden under bottom bar */}
+      <div className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] xl:bottom-6 left-4 sm:left-6 z-40">
         <button
           onClick={() => setIsOpen(true)}
           className="group relative flex items-center gap-2.5 px-4 py-3 bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-medium rounded-full shadow-2xl hover:shadow-red-600/40 transition-all duration-300 hover:scale-105 active:scale-95 border border-white/20 backdrop-blur-md"
@@ -608,9 +613,9 @@ Instructions:
         </button>
       </div>
 
-      {/* Netty Interactive Modal - Minimized Clean Dialog Mode */}
+      {/* Netty Interactive Modal - High z-index to overlay bottom dock completely on tablets & phones */}
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 md:p-6 bg-black/80 backdrop-blur-md animate-fade-in">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 md:p-6 bg-black/85 backdrop-blur-md animate-fade-in">
           <div
             className="relative w-full max-w-5xl h-[88vh] max-h-[850px] bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl flex overflow-hidden text-zinc-100 transition-all duration-300"
           >

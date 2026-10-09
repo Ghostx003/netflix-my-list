@@ -1,7 +1,7 @@
 import { DiscoveryTitle, EpisodeInfo, TrailerInfo, LibraryItem } from '../types';
 import { DEFAULT_PUBLIC_TMDB_KEY, fetchOMDBMetadata, selectBestTrailer } from './tmdb';
-import { getCachedMetadata, setCachedMetadata, saveDiscoveryTitles, getAllDiscoveryTitles, getDiscoveryCatalogMeta, setDiscoveryCatalogMeta } from './db';
-import { normalizeCountriesList, normalizeTitle, createDuplicateKey, NETFLIX_HINDI_DUBBED_TITLES } from './normalizer';
+import { getCachedMetadata, setCachedMetadata, saveDiscoveryTitles, replaceDiscoveryCatalog, saveRemovedDiscoveryTitles, getAllDiscoveryTitles, getDiscoveryCatalogMeta, setDiscoveryCatalogMeta } from './db';
+import { normalizeCountriesList, normalizeTitle, createDuplicateKey, NETFLIX_HINDI_DUBBED_TITLES, isNetflixIndiaAvailable } from './normalizer';
 import { extractThemesFromKeywords, generateFallbackTagline } from './themeMapper';
 import { enrichDiscoveryTitleWithTMDBDetails } from './tmdbEnrichmentService';
 import { EXPANDED_NETFLIX_CATALOG_TITLES } from './seedCatalogData';
@@ -697,84 +697,87 @@ export const SEED_NETFLIX_INDIA_TITLES: DiscoveryTitle[] = [
   },
   {
     id: 'seed-hw-3',
-    tmdbId: 46648,
-    imdbId: 'tt1586680',
+    tmdbId: 87739,
+    imdbId: 'tt10048342',
     netflixId: '80234304',
-    title: 'True Detective',
-    originalTitle: 'True Detective',
+    title: "The Queen's Gambit",
+    originalTitle: "The Queen's Gambit",
     mediaType: 'tv',
-    releaseYear: 2014,
-    releaseDate: '2014-01-12',
-    netflixAddedDate: '2022-01-01',
-    posterPath: 'https://image.tmdb.org/t/p/w500/cuV2O53rxg8zgfEu3.jpg',
-    rating: 8.3,
-    imdbRating: 8.9,
-    rottenTomatoesRating: 78,
-    synopsis: 'An anthology series in which police investigations unearth the personal and professional secrets of those involved, both within and outside the law.',
-    genres: ['Drama', 'Crime', 'Mystery', 'Thriller'],
+    releaseYear: 2020,
+    releaseDate: '2020-10-23',
+    netflixAddedDate: '2020-10-23',
+    posterPath: 'https://image.tmdb.org/t/p/w500/zU0htwkhNvBQdVSIKB9s6hgVeFK.jpg',
+    backdropPath: 'https://image.tmdb.org/t/p/w1280/34OGjFEbHj0E3lE2w0iTuvq04x9.jpg',
+    rating: 8.5,
+    imdbRating: 8.5,
+    rottenTomatoesRating: 96,
+    synopsis: 'Orphaned at the tender age of nine, prodigious introvert Beth Harmon discovers and masters the game of chess in 1960s USA. But child stardom comes at a price.',
+    genres: ['Drama'],
     countries: ['United States'],
     originalLanguage: 'en',
-    audioLanguages: ['en'],
-    subtitleLanguages: ['en'],
-    totalSeasons: 4,
-    totalEpisodes: 30,
-    averageEpisodeMinutes: 58,
-    cast: ['Matthew McConaughey', 'Woody Harrelson', 'Colin Farrell'],
+    audioLanguages: ['en', 'hi'],
+    subtitleLanguages: ['en', 'hi'],
+    totalSeasons: 1,
+    totalEpisodes: 7,
+    averageEpisodeMinutes: 60,
+    cast: ['Anya Taylor-Joy', 'Bill Camp', 'Marielle Heller'],
+    director: 'Scott Frank',
     isNetflixIndiaVerified: true,
     availabilitySource: 'Netflix India',
   },
   {
     id: 'seed-hw-4',
-    tmdbId: 157336,
-    imdbId: 'tt0816692',
-    netflixId: '70305903',
-    title: 'Interstellar',
-    originalTitle: 'Interstellar',
+    tmdbId: 661374,
+    imdbId: 'tt11564570',
+    netflixId: '81458416',
+    title: 'Glass Onion: A Knives Out Mystery',
+    originalTitle: 'Glass Onion: A Knives Out Mystery',
     mediaType: 'movie',
-    releaseYear: 2014,
-    releaseDate: '2014-11-05',
-    netflixAddedDate: '2021-04-01',
-    posterPath: 'https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg',
-    backdropPath: 'https://image.tmdb.org/t/p/w1280/xJHokMbljvjADYdit5fK5VQsXEG.jpg',
-    rating: 8.4,
-    imdbRating: 8.7,
-    rottenTomatoesRating: 73,
-    synopsis: 'The adventures of a group of explorers who make use of a newly discovered wormhole to surpass the limitations on human space travel and conquer the vast distances involved in an interstellar voyage.',
-    genres: ['Adventure', 'Drama', 'Sci-Fi'],
-    countries: ['United States', 'United Kingdom'],
+    releaseYear: 2022,
+    releaseDate: '2022-11-23',
+    netflixAddedDate: '2022-12-23',
+    posterPath: 'https://image.tmdb.org/t/p/w500/vDGr1YdrlfbU9wxTOdpf3zChmv9.jpg',
+    backdropPath: 'https://image.tmdb.org/t/p/w1280/dKQA850uvbNSCaQCV4Im1XlzEtQ.jpg',
+    rating: 7.1,
+    imdbRating: 7.1,
+    rottenTomatoesRating: 91,
+    synopsis: 'World-famous detective Benoit Blanc heads to Greece to peel back the layers of a mystery involving a tech billionaire and an eclectic crew of friends.',
+    genres: ['Comedy', 'Crime', 'Mystery'],
+    countries: ['United States'],
     originalLanguage: 'en',
     audioLanguages: ['en', 'hi'],
     subtitleLanguages: ['en', 'hi'],
-    runtimeMinutes: 169,
-    cast: ['Matthew McConaughey', 'Anne Hathaway', 'Jessica Chastain'],
-    director: 'Christopher Nolan',
+    runtimeMinutes: 139,
+    cast: ['Daniel Craig', 'Edward Norton', 'Janelle Monáe', 'Kathryn Hahn'],
+    director: 'Rian Johnson',
     isNetflixIndiaVerified: true,
     availabilitySource: 'Netflix India',
   },
   {
     id: 'seed-hw-5',
-    tmdbId: 546554,
-    imdbId: 'tt7975244',
-    netflixId: '80990668',
-    title: 'Knives Out',
-    originalTitle: 'Knives Out',
+    tmdbId: 849583,
+    imdbId: 'tt12724064',
+    netflixId: '81588654',
+    title: 'Leave the World Behind',
+    originalTitle: 'Leave the World Behind',
     mediaType: 'movie',
-    releaseYear: 2019,
-    releaseDate: '2019-11-27',
-    netflixAddedDate: '2021-12-01',
-    posterPath: 'https://image.tmdb.org/t/p/w500/pThyQovXQrw2m0s9x82twj48Jq4.jpg',
-    rating: 7.9,
-    imdbRating: 7.9,
-    rottenTomatoesRating: 97,
-    synopsis: 'When renowned crime novelist Harlan Thrombey is found dead at his estate just after his 85th birthday, the inquisitive and debonair Detective Benoit Blanc is mysteriously enlisted to investigate.',
-    genres: ['Comedy', 'Crime', 'Mystery', 'Thriller'],
+    releaseYear: 2023,
+    releaseDate: '2023-11-22',
+    netflixAddedDate: '2023-12-08',
+    posterPath: 'https://image.tmdb.org/t/p/w500/29rhl1xopxAvisNzvt2xUVgf35x.jpg',
+    backdropPath: 'https://image.tmdb.org/t/p/w1280/gg40HgAMXGzlm63LD5y6g8UGUkk.jpg',
+    rating: 6.5,
+    imdbRating: 6.5,
+    rottenTomatoesRating: 75,
+    synopsis: 'A family\'s quiet getaway is upended when two strangers arrive at night, seeking refuge from a cyberattack that grows more terrifying by the minute.',
+    genres: ['Drama', 'Mystery', 'Sci-Fi', 'Thriller'],
     countries: ['United States'],
     originalLanguage: 'en',
     audioLanguages: ['en', 'hi'],
     subtitleLanguages: ['en', 'hi'],
-    runtimeMinutes: 130,
-    cast: ['Daniel Craig', 'Ana de Armas', 'Chris Evans'],
-    director: 'Rian Johnson',
+    runtimeMinutes: 141,
+    cast: ['Julia Roberts', 'Mahershala Ali', 'Ethan Hawke', 'Myha\'la'],
+    director: 'Sam Esmail',
     isNetflixIndiaVerified: true,
     availabilitySource: 'Netflix India',
   },
@@ -1588,21 +1591,49 @@ function normalizeTmdbToDiscovery(item: any, mediaType: 'movie' | 'tv'): Discove
  * 3. TMDB ID
  * 4. Title + Release Year
  */
+/**
+ * Deduplicates an array of DiscoveryTitle objects using a strict identity hierarchy:
+ * 1. Watchmode ID
+ * 2. IMDb ID
+ * 3. TMDB ID + MediaType
+ * 4. Verified Netflix ID
+ * 5. Title + Release Year (fallback, preserving genuinely different titles)
+ *
+ * Merges duplicate records preserving the richest, highest-quality metadata
+ * and ensures only valid Netflix India content remains.
+ */
 export function deduplicateDiscoveryTitles(titles: DiscoveryTitle[]): DiscoveryTitle[] {
-  const map = new Map<string, DiscoveryTitle>();
+  const masterList: DiscoveryTitle[] = [];
+  const keyToMasterIndex = new Map<string, number>();
+
+  const isCleanImage = (u?: string) =>
+    Boolean(
+      u &&
+      !u.includes('_poster.jpg') &&
+      !u.includes('placeholder') &&
+      !u.includes('last_dance_poster') &&
+      u.length > 10
+    );
+
+  const getKeysForItem = (item: DiscoveryTitle): string[] => {
+    const keys: string[] = [];
+    if (item.watchmodeId) keys.push(`wm_${item.watchmodeId}`);
+    if (item.imdbId && item.imdbId.startsWith('tt')) keys.push(`imdb_${item.imdbId}`);
+    if (item.tmdbId) keys.push(`tmdb_${item.mediaType || 'any'}_${item.tmdbId}`);
+    if (item.netflixId && /^\d+$/.test(item.netflixId.trim())) keys.push(`netflix_${item.netflixId.trim()}`);
+    if (item.title) {
+      const normTitle = createDuplicateKey(item.title);
+      if (normTitle) {
+        if (item.releaseYear) {
+          keys.push(`title_${normTitle}_${item.releaseYear}`);
+        }
+      }
+    }
+    return keys;
+  };
 
   for (const item of titles) {
-    // Generate primary lookup key following the identity hierarchy
-    let key = '';
-    if (item.imdbId && item.imdbId.startsWith('tt')) {
-      key = `imdb_${item.imdbId}`;
-    } else if (item.tmdbId) {
-      key = `tmdb_${item.mediaType}_${item.tmdbId}`;
-    } else if (item.netflixId) {
-      key = `netflix_${item.netflixId}`;
-    } else {
-      key = `title_${createDuplicateKey(item.title)}_${item.releaseYear || '0'}`;
-    }
+    if (!item.title) continue;
 
     const sanitizedPoster = sanitizeImageUrl(item.posterPath, item.title);
     const sanitizedBackdrop = sanitizeImageUrl(item.backdropPath, item.title);
@@ -1612,53 +1643,112 @@ export function deduplicateDiscoveryTitles(titles: DiscoveryTitle[]): DiscoveryT
       backdropPath: sanitizedBackdrop || item.backdropPath,
     };
 
-    if (!map.has(key)) {
-      map.set(key, { ...normalizedItem });
+    // Find if this title matches any existing master record using strongest identifiers
+    let matchIndex: number | undefined = undefined;
+
+    if (item.watchmodeId && keyToMasterIndex.has(`wm_${item.watchmodeId}`)) {
+      matchIndex = keyToMasterIndex.get(`wm_${item.watchmodeId}`);
+    } else if (item.imdbId && item.imdbId.startsWith('tt') && keyToMasterIndex.has(`imdb_${item.imdbId}`)) {
+      matchIndex = keyToMasterIndex.get(`imdb_${item.imdbId}`);
+    } else if (item.tmdbId && keyToMasterIndex.has(`tmdb_${item.mediaType || 'any'}_${item.tmdbId}`)) {
+      matchIndex = keyToMasterIndex.get(`tmdb_${item.mediaType || 'any'}_${item.tmdbId}`);
+    } else if (item.netflixId && /^\d+$/.test(item.netflixId.trim()) && keyToMasterIndex.has(`netflix_${item.netflixId.trim()}`)) {
+      matchIndex = keyToMasterIndex.get(`netflix_${item.netflixId.trim()}`);
+    } else if (item.title && item.releaseYear) {
+      const normTitle = createDuplicateKey(item.title);
+      const titleYearKey = `title_${normTitle}_${item.releaseYear}`;
+      if (keyToMasterIndex.has(titleYearKey)) {
+        matchIndex = keyToMasterIndex.get(titleYearKey);
+      }
+    }
+
+    if (matchIndex === undefined) {
+      // New master record
+      const newIdx = masterList.length;
+      masterList.push({ ...normalizedItem });
+      for (const k of getKeysForItem(normalizedItem)) {
+        keyToMasterIndex.set(k, newIdx);
+      }
     } else {
-      // Merge records - keep best metadata
-      const existing = map.get(key)!;
-      existing.imdbRating = existing.imdbRating || item.imdbRating;
-      existing.rottenTomatoesRating = existing.rottenTomatoesRating || item.rottenTomatoesRating;
+      // Merge into existing master record - keep richest and highest quality metadata
+      const existing = masterList[matchIndex];
 
-      const isClean = (u?: string) =>
-        Boolean(u && !u.includes('_poster.jpg') && !u.includes('placeholder') && !u.includes('last_dance_poster') && u.length > 10);
+      if (!existing.watchmodeId && normalizedItem.watchmodeId) existing.watchmodeId = normalizedItem.watchmodeId;
+      if (!existing.imdbId && normalizedItem.imdbId) existing.imdbId = normalizedItem.imdbId;
+      if (!existing.tmdbId && normalizedItem.tmdbId) existing.tmdbId = normalizedItem.tmdbId;
+      if (!existing.netflixId && normalizedItem.netflixId) existing.netflixId = normalizedItem.netflixId;
 
-      if (!isClean(existing.posterPath) && isClean(normalizedItem.posterPath)) {
+      existing.imdbRating = existing.imdbRating || normalizedItem.imdbRating;
+      existing.rottenTomatoesRating = existing.rottenTomatoesRating || normalizedItem.rottenTomatoesRating;
+      existing.rating = existing.rating || normalizedItem.rating;
+
+      if (!isCleanImage(existing.posterPath) && isCleanImage(normalizedItem.posterPath)) {
         existing.posterPath = normalizedItem.posterPath;
       } else if (!existing.posterPath && normalizedItem.posterPath) {
         existing.posterPath = normalizedItem.posterPath;
       }
 
-      if (!isClean(existing.backdropPath) && isClean(normalizedItem.backdropPath)) {
+      if (!isCleanImage(existing.backdropPath) && isCleanImage(normalizedItem.backdropPath)) {
         existing.backdropPath = normalizedItem.backdropPath;
       } else if (!existing.backdropPath && normalizedItem.backdropPath) {
         existing.backdropPath = normalizedItem.backdropPath;
       }
-      existing.synopsis = existing.synopsis || item.synopsis;
-      existing.runtimeMinutes = existing.runtimeMinutes || item.runtimeMinutes;
-      existing.totalSeasons = existing.totalSeasons || item.totalSeasons;
-      existing.totalEpisodes = existing.totalEpisodes || item.totalEpisodes;
-      existing.cast = existing.cast || item.cast;
-      existing.director = existing.director || item.director;
-      existing.trailer = existing.trailer || item.trailer;
-      existing.episodes = existing.episodes || item.episodes;
-      existing.netflixId = existing.netflixId || item.netflixId;
+
+      if ((!existing.synopsis || existing.synopsis.length < (normalizedItem.synopsis?.length || 0)) && normalizedItem.synopsis) {
+        existing.synopsis = normalizedItem.synopsis;
+      }
+      existing.runtimeMinutes = existing.runtimeMinutes || normalizedItem.runtimeMinutes;
+      existing.totalSeasons = existing.totalSeasons || normalizedItem.totalSeasons;
+      existing.totalEpisodes = existing.totalEpisodes || normalizedItem.totalEpisodes;
+      existing.cast = existing.cast || normalizedItem.cast;
+      existing.director = existing.director || normalizedItem.director;
+      existing.creator = existing.creator || normalizedItem.creator;
+      existing.tagline = existing.tagline || normalizedItem.tagline;
+      existing.trailer = existing.trailer || normalizedItem.trailer;
+      existing.episodes = existing.episodes || normalizedItem.episodes;
 
       // Merge genres without duplicates
-      const genreSet = new Set([...(existing.genres || []), ...(item.genres || [])]);
+      const genreSet = new Set([...(existing.genres || []), ...(normalizedItem.genres || [])]);
       existing.genres = Array.from(genreSet);
 
+      // Merge themes without duplicates
+      const themeSet = new Set([...(existing.themes || []), ...(normalizedItem.themes || [])]);
+      existing.themes = Array.from(themeSet);
+
       // Merge countries without duplicates
-      const countrySet = new Set([...(existing.countries || []), ...(item.countries || [])]);
+      const countrySet = new Set([...(existing.countries || []), ...(normalizedItem.countries || [])]);
       existing.countries = Array.from(countrySet);
 
       // Merge audio languages
-      const audioSet = new Set([...(existing.audioLanguages || []), ...(item.audioLanguages || [])]);
+      const audioSet = new Set([...(existing.audioLanguages || []), ...(normalizedItem.audioLanguages || [])]);
       existing.audioLanguages = Array.from(audioSet);
+
+      // Verification states
+      if (normalizedItem.isNetflixIndiaVerified) existing.isNetflixIndiaVerified = true;
+      if (normalizedItem.netflixIndiaAvailable) existing.netflixIndiaAvailable = true;
+      if (normalizedItem.availabilityState === 'available') existing.availabilityState = 'available';
+      if (!existing.availabilitySource && normalizedItem.availabilitySource) {
+        existing.availabilitySource = normalizedItem.availabilitySource;
+      }
+
+      // Re-index all keys from both items to this master index
+      for (const k of getKeysForItem(normalizedItem)) {
+        keyToMasterIndex.set(k, matchIndex);
+      }
+      for (const k of getKeysForItem(existing)) {
+        keyToMasterIndex.set(k, matchIndex);
+      }
     }
   }
 
-  return Array.from(map.values());
+  // Track and save any non-Netflix India titles that are removed
+  const nonNetflix = masterList.filter((item) => !isNetflixIndiaAvailable(item));
+  if (nonNetflix.length > 0) {
+    saveRemovedDiscoveryTitles(nonNetflix).catch(() => {});
+  }
+
+  // Filter against Netflix India availability
+  return masterList.filter((item) => isNetflixIndiaAvailable(item));
 }
 
 export const WATCHMODE_BASE_URL = 'https://api.watchmode.com/v1';
@@ -2008,6 +2098,75 @@ export function normalizeWatchmodeToDiscovery(item: any): DiscoveryTitle {
     netflixIndiaAvailable: true,
     availabilityState: 'available',
     availabilitySource: 'Watchmode (Netflix India)',
+    catalogUpdatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Converts a raw SQLite knowledge base / JSON record into a typed DiscoveryTitle model,
+ * preserving all 100 continuous parameters and narrative dimensions.
+ */
+export function convertEnrichedRecordToDiscoveryTitle(r: any, existing?: DiscoveryTitle): DiscoveryTitle {
+  const key = (r.title || '').toLowerCase().trim();
+  const sec = typeof r.secondary_genres === 'string'
+    ? (() => { try { return JSON.parse(r.secondary_genres || '[]'); } catch { return []; } })()
+    : (Array.isArray(r.secondary_genres) ? r.secondary_genres : []);
+  const allGenres = Array.from(new Set([r.primary_genre, ...sec].filter(Boolean)));
+  const moods = typeof r.moods === 'string'
+    ? (() => { try { return JSON.parse(r.moods || '[]'); } catch { return []; } })()
+    : (Array.isArray(r.moods) ? r.moods : []);
+  const themes = typeof r.themes === 'string'
+    ? (() => { try { return JSON.parse(r.themes || '[]'); } catch { return []; } })()
+    : (Array.isArray(r.themes) ? r.themes : []);
+
+  const params100: Record<string, number> = r.parameters_100 || (r.raw_profile?.parameters_100 ? { ...r.raw_profile.parameters_100 } : {});
+  for (const [col, val] of Object.entries(r)) {
+    if (col.startsWith('param_') && typeof val === 'number') {
+      params100[col.replace('param_', '')] = val;
+    }
+  }
+
+  const detectedMediaType: 'movie' | 'tv' = (r.media_type === 'tv' || r.media_type === 'tv_series')
+    ? 'tv'
+    : (r.media_type === 'movie' ? 'movie' : (existing?.mediaType || 'movie'));
+
+  let narrativeArchetypes: string[] = [];
+  if (typeof r.narrative_archetypes === 'string') {
+    try {
+      narrativeArchetypes = r.narrative_archetypes.startsWith('[')
+        ? JSON.parse(r.narrative_archetypes || '[]')
+        : [r.narrative_archetypes];
+    } catch {
+      narrativeArchetypes = [r.narrative_archetypes];
+    }
+  } else if (Array.isArray(r.narrative_archetypes)) {
+    narrativeArchetypes = r.narrative_archetypes;
+  }
+
+  return {
+    id: existing?.id || String(r.id || `kb_${key}`),
+    title: r.title,
+    originalTitle: r.title,
+    mediaType: detectedMediaType,
+    releaseYear: r.release_year || existing?.releaseYear,
+    genres: allGenres.length > 0 ? allGenres : (existing?.genres || ['Drama']),
+    themes: themes.length > 0 ? themes : (existing?.themes || []),
+    moods: moods.length > 0 ? moods : (existing?.moods || []),
+    synopsis: r.synopsis || existing?.synopsis || '',
+    rating: existing?.rating || 7.5,
+    imdbRating: existing?.imdbRating || 7.5,
+    isNetflixIndiaVerified: true,
+    countries: existing?.countries || ['India'],
+    posterPath: existing?.posterPath || r.posterPath || r.poster_path,
+    backdropPath: existing?.backdropPath || r.backdropPath || r.backdrop_path,
+    parameters_100: params100,
+    storyPace: r.story_pace || existing?.storyPace || undefined,
+    endingType: r.ending_type || existing?.endingType || undefined,
+    timePeriod: r.time_period || existing?.timePeriod || undefined,
+    settingEnvironment: r.setting_environment || existing?.settingEnvironment || undefined,
+    audienceVibe: r.audience_vibe || existing?.audienceVibe || undefined,
+    narrativeArchetypes: narrativeArchetypes.length > 0 ? narrativeArchetypes : existing?.narrativeArchetypes,
+    qwenConfidence: typeof r.confidence_score === 'number' ? r.confidence_score : existing?.qwenConfidence,
     catalogUpdatedAt: new Date().toISOString(),
   };
 }
@@ -3843,17 +4002,24 @@ export async function syncWithNetflixUnified(
 
   const tmdbKey = tmdbApiKey || DEFAULT_PUBLIC_TMDB_KEY;
   const wmKey = watchmodeApiKey || DEFAULT_WATCHMODE_KEY;
-  const monthsToSync = Math.max(1, Math.min(120, months));
+  const isSyncAll = months === -1 || months === 0;
+  const monthsToSync = isSyncAll ? 120 : Math.max(1, Math.min(120, months));
 
   // Compute cutoff date from slider months
   const cutoffDate = new Date();
-  cutoffDate.setMonth(cutoffDate.getMonth() - monthsToSync);
+  if (!isSyncAll) {
+    cutoffDate.setMonth(cutoffDate.getMonth() - monthsToSync);
+  } else {
+    cutoffDate.setFullYear(1960);
+  }
   const cutoffIso = cutoffDate.toISOString().slice(0, 10);
   const cutoffYear = cutoffDate.getFullYear();
 
   onProgress({
     phase: 'init',
-    message: `Starting unified Netflix sync for the last ${monthsToSync} month(s) (since ${cutoffIso})...`,
+    message: isSyncAll
+      ? 'Starting complete Netflix India library sync (All-Time)...'
+      : `Starting unified Netflix sync for the last ${monthsToSync} month(s) (since ${cutoffIso})...`,
     percentage: 2,
     totalToProcess: 0,
     processedCount: 0,
@@ -3868,7 +4034,9 @@ export async function syncWithNetflixUnified(
   // 1. DISCOVER FROM TMDB (Movies and TV Shows in Netflix India region)
   onProgress({
     phase: 'tmdb_discover',
-    message: `Discovering Netflix India movies & series from TMDB (released since ${cutoffIso})...`,
+    message: isSyncAll
+      ? 'Discovering complete Netflix India catalog from TMDB...'
+      : `Discovering Netflix India movies & series from TMDB (released since ${cutoffIso})...`,
     percentage: 8,
     totalToProcess: 0,
     processedCount: 0,
@@ -3880,55 +4048,82 @@ export async function syncWithNetflixUnified(
 
   try {
     const tmdbUrls: Array<{ url: string; type: 'movie' | 'tv' }> = [];
-    const pagesPerCategory = monthsToSync > 12 ? 4 : 3;
+    const moviePages = isSyncAll ? 30 : (monthsToSync > 12 ? 8 : 4);
+    const tvPages = isSyncAll ? 30 : (monthsToSync > 12 ? 8 : 4);
+    const releaseParam = isSyncAll ? '' : `&primary_release_date.gte=${cutoffIso}`;
+    const firstAirParam = isSyncAll ? '' : `&first_air_date.gte=${cutoffIso}`;
 
-    for (let p = 1; p <= pagesPerCategory; p++) {
-      // Recent movies
+    // Movie discovery endpoints (popular, recent, top-rated)
+    for (let p = 1; p <= moviePages; p++) {
       tmdbUrls.push({
-        url: `${TMDB_BASE_URL}/discover/movie?api_key=${tmdbKey}&watch_region=IN&with_watch_providers=8&primary_release_date.gte=${cutoffIso}&sort_by=primary_release_date.desc&page=${p}`,
+        url: `${TMDB_BASE_URL}/discover/movie?api_key=${tmdbKey}&watch_region=IN&with_watch_providers=8${releaseParam}&sort_by=popularity.desc&page=${p}`,
         type: 'movie',
       });
-      // Popular movies
-      tmdbUrls.push({
-        url: `${TMDB_BASE_URL}/discover/movie?api_key=${tmdbKey}&watch_region=IN&with_watch_providers=8&primary_release_date.gte=${cutoffIso}&sort_by=popularity.desc&page=${p}`,
-        type: 'movie',
-      });
-      // Recent TV series
-      tmdbUrls.push({
-        url: `${TMDB_BASE_URL}/discover/tv?api_key=${tmdbKey}&watch_region=IN&with_watch_providers=8&first_air_date.gte=${cutoffIso}&sort_by=first_air_date.desc&page=${p}`,
-        type: 'tv',
-      });
-      // Popular TV series
-      tmdbUrls.push({
-        url: `${TMDB_BASE_URL}/discover/tv?api_key=${tmdbKey}&watch_region=IN&with_watch_providers=8&first_air_date.gte=${cutoffIso}&sort_by=popularity.desc&page=${p}`,
-        type: 'tv',
-      });
+      if (isSyncAll && p <= 20) {
+        tmdbUrls.push({
+          url: `${TMDB_BASE_URL}/discover/movie?api_key=${tmdbKey}&watch_region=IN&with_watch_providers=8&sort_by=primary_release_date.desc&page=${p}`,
+          type: 'movie',
+        });
+        tmdbUrls.push({
+          url: `${TMDB_BASE_URL}/discover/movie?api_key=${tmdbKey}&watch_region=IN&with_watch_providers=8&sort_by=vote_count.desc&page=${p}`,
+          type: 'movie',
+        });
+      }
     }
 
-    const tmdbResponses = await Promise.all(
-      tmdbUrls.map(async (u) => {
-        try {
-          const res = await fetch(u.url);
-          if (!res.ok) return [];
-          const data = await res.json();
-          if (!Array.isArray(data?.results)) return [];
-          return data.results.map((r: any) => {
-            const norm = normalizeTmdbToDiscovery(r, u.type);
-            norm.netflixIndiaAvailable = true;
-            norm.isNetflixIndiaVerified = true;
-            norm.availabilityState = 'available';
-            norm.availabilitySource = 'Netflix India';
-            return norm;
-          });
-        } catch {
-          return [];
-        }
-      })
-    );
+    // TV discovery endpoints (popular, recent, top-rated)
+    for (let p = 1; p <= tvPages; p++) {
+      tmdbUrls.push({
+        url: `${TMDB_BASE_URL}/discover/tv?api_key=${tmdbKey}&watch_region=IN&with_watch_providers=8${firstAirParam}&sort_by=popularity.desc&page=${p}`,
+        type: 'tv',
+      });
+      if (isSyncAll && p <= 20) {
+        tmdbUrls.push({
+          url: `${TMDB_BASE_URL}/discover/tv?api_key=${tmdbKey}&watch_region=IN&with_watch_providers=8&sort_by=first_air_date.desc&page=${p}`,
+          type: 'tv',
+        });
+        tmdbUrls.push({
+          url: `${TMDB_BASE_URL}/discover/tv?api_key=${tmdbKey}&watch_region=IN&with_watch_providers=8&sort_by=vote_count.desc&page=${p}`,
+          type: 'tv',
+        });
+      }
+    }
 
-    tmdbResponses.forEach((list) => {
-      discoveredRawTitles.push(...list);
-    });
+    // Process TMDB URLs in concurrent chunks of 8 to prevent network flooding
+    const CHUNK_SIZE = 8;
+    for (let i = 0; i < tmdbUrls.length; i += CHUNK_SIZE) {
+      if (shouldCancel && shouldCancel()) break;
+      const chunk = tmdbUrls.slice(i, i + CHUNK_SIZE);
+      const chunkResponses = await Promise.all(
+        chunk.map(async (u) => {
+          try {
+            const res = await fetch(u.url);
+            if (!res.ok) return [];
+            const data = await res.json();
+            if (!Array.isArray(data?.results)) return [];
+            return data.results.map((r: any) => {
+              const norm = normalizeTmdbToDiscovery(r, u.type);
+              norm.netflixIndiaAvailable = true;
+              norm.isNetflixIndiaVerified = true;
+              norm.availabilityState = 'available';
+              norm.availabilitySource = 'Netflix India';
+              return norm;
+            });
+          } catch {
+            return [];
+          }
+        })
+      );
+
+      chunkResponses.forEach((list) => {
+        for (const t of list) {
+          if (isNetflixIndiaAvailable(t)) {
+            discoveredRawTitles.push(t);
+          }
+        }
+      });
+      await sleep(50);
+    }
   } catch (err) {
     console.warn('[syncWithNetflixUnified] TMDB discover encountered a minor issue:', err);
   }
@@ -3937,7 +4132,9 @@ export async function syncWithNetflixUnified(
   if (wmKey) {
     onProgress({
       phase: 'watchmode_discover',
-      message: `Fetching Netflix India titles from Watchmode (year >= ${cutoffYear})...`,
+      message: isSyncAll
+        ? 'Fetching entire Netflix India library from Watchmode with parallel batching...'
+        : `Fetching Netflix India titles from Watchmode (year >= ${cutoffYear})...`,
       percentage: 20,
       totalToProcess: 0,
       processedCount: 0,
@@ -3948,40 +4145,79 @@ export async function syncWithNetflixUnified(
     });
 
     try {
-      const wmPagesToScan = monthsToSync > 24 ? 4 : 2;
-      for (let p = 1; p <= wmPagesToScan; p++) {
-        if (shouldCancel && shouldCancel()) break;
-        const pageData = await fetchWatchmodePage(p, 250, wmKey);
-        if (!Array.isArray(pageData?.titles) || pageData.titles.length === 0) break;
+      if (isSyncAll) {
+        // Fast parallel batch fetching: fetch pages in concurrent batches of 3
+        const BATCH_PAGES = 3;
+        let currentPage = 1;
+        let hasMore = true;
+        while (hasMore && currentPage <= 30) {
+          if (shouldCancel && shouldCancel()) break;
+          const pageBatch = Array.from({ length: BATCH_PAGES }, (_, idx) => currentPage + idx);
+          const pageResults = await Promise.all(
+            pageBatch.map((p) => fetchWatchmodePage(p, 250, wmKey))
+          );
 
-        let passedCutoffCount = 0;
-        for (const raw of pageData.titles) {
-          // Filter by year if available
-          if (!raw.year || raw.year >= cutoffYear) {
-            const norm = normalizeWatchmodeToDiscovery(raw);
-            norm.netflixIndiaAvailable = true;
-            norm.isNetflixIndiaVerified = true;
-            norm.availabilityState = 'available';
-            norm.availabilitySource = 'Watchmode (Netflix India)';
-            discoveredRawTitles.push(norm);
-            passedCutoffCount++;
+          let batchFoundCount = 0;
+          for (const pageData of pageResults) {
+            if (Array.isArray(pageData?.titles) && pageData.titles.length > 0) {
+              for (const raw of pageData.titles) {
+                const norm = normalizeWatchmodeToDiscovery(raw);
+                norm.netflixIndiaAvailable = true;
+                norm.isNetflixIndiaVerified = true;
+                norm.availabilityState = 'available';
+                norm.availabilitySource = 'Watchmode (Netflix India)';
+                if (isNetflixIndiaAvailable(norm)) {
+                  discoveredRawTitles.push(norm);
+                  batchFoundCount++;
+                }
+              }
+            } else {
+              hasMore = false;
+            }
           }
-        }
 
-        // If very few titles on this page are recent, we can stop scanning older pages
-        if (passedCutoffCount === 0 && p > 1) break;
-        await sleep(150);
+          if (batchFoundCount === 0) break;
+          currentPage += BATCH_PAGES;
+          await sleep(100);
+        }
+      } else {
+        const wmPagesToScan = monthsToSync > 24 ? 4 : 2;
+        for (let p = 1; p <= wmPagesToScan; p++) {
+          if (shouldCancel && shouldCancel()) break;
+          const pageData = await fetchWatchmodePage(p, 250, wmKey);
+          if (!Array.isArray(pageData?.titles) || pageData.titles.length === 0) break;
+
+          let passedCutoffCount = 0;
+          for (const raw of pageData.titles) {
+            // Filter by year if available
+            if (!raw.year || raw.year >= cutoffYear) {
+              const norm = normalizeWatchmodeToDiscovery(raw);
+              norm.netflixIndiaAvailable = true;
+              norm.isNetflixIndiaVerified = true;
+              norm.availabilityState = 'available';
+              norm.availabilitySource = 'Watchmode (Netflix India)';
+              if (isNetflixIndiaAvailable(norm)) {
+                discoveredRawTitles.push(norm);
+                passedCutoffCount++;
+              }
+            }
+          }
+
+          // If very few titles on this page are recent, we can stop scanning older pages
+          if (passedCutoffCount === 0 && p > 1) break;
+          await sleep(150);
+        }
       }
     } catch (err) {
       console.warn('[syncWithNetflixUnified] Watchmode discover encountered a minor issue:', err);
     }
   }
 
-  // Also include any user library items that might not yet be in discovery catalogue
+  // Also include any user library items that might not yet be in discovery catalogue (Netflix India verified only)
   if (libraryItems && libraryItems.length > 0) {
     for (const lib of libraryItems) {
       if (lib.originalTitle || lib.externalTitle) {
-        discoveredRawTitles.push({
+        const candidate: DiscoveryTitle = {
           id: `lib_${lib.id}`,
           title: lib.externalTitle || lib.originalTitle,
           originalTitle: lib.originalTitle,
@@ -4008,7 +4244,10 @@ export async function syncWithNetflixUnified(
           netflixIndiaAvailable: true,
           availabilityState: 'available',
           availabilitySource: 'User Library (Netflix)',
-        });
+        };
+        if (isNetflixIndiaAvailable(candidate)) {
+          discoveredRawTitles.push(candidate);
+        }
       }
     }
   }
@@ -4284,9 +4523,17 @@ export async function syncWithNetflixUnified(
     }
   }
 
-  // 6. SAVE COMPLETE CATALOG & WRITE NEW SYNC TIMESTAMP
-  const allFinalTitles = Array.from(dbTitlesMap.values());
-  await saveDiscoveryTitles(allFinalTitles);
+  // 6. POST-SYNC DEDUPLICATION PASS & NETFLIX INDIA VERIFICATION
+  const allMasterTitles = Array.from(dbTitlesMap.values());
+  const removedTitles = allMasterTitles.filter((item) => !isNetflixIndiaAvailable(item));
+  if (removedTitles.length > 0) {
+    await saveRemovedDiscoveryTitles(removedTitles);
+  }
+
+  const allFinalTitles = deduplicateDiscoveryTitles(allMasterTitles).filter(
+    (item) => isNetflixIndiaAvailable(item)
+  );
+  await replaceDiscoveryCatalog(allFinalTitles);
 
   const syncIso = new Date().toISOString();
   const syncIsoFormatted = new Date().toLocaleString('en-IN', {

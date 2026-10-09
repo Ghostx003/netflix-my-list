@@ -9,6 +9,7 @@ import {
 import { parseCustomPreference, StructuredIntent } from './intentParser';
 import { rankAndExplainWithQwen } from './recommendationRanker';
 import { sanitizeImageUrl } from '../imageResolver';
+import { isNetflixIndiaAvailable } from '../normalizer';
 
 export interface RecommendationEngineParams {
   catalog: DiscoveryTitle[];
@@ -127,12 +128,46 @@ function scoreTitleCandidate(
         }
       }
 
-      // Semantic concept in synopsis / title
+      // Semantic concept in synopsis / title / enriched narrative dimensions
       for (const concept of intent.semantic_concepts) {
         const cLower = concept.toLowerCase();
         if (itemSynopsis.includes(cLower) || itemTitle.includes(cLower)) {
           intentHits += 0.4;
           matchedConcepts.push(concept);
+        }
+
+        // Match against SQLite enriched knowledge base narrative dimensions
+        if (item.storyPace && item.storyPace.toLowerCase().includes(cLower)) {
+          intentHits += 0.5;
+          matchedConcepts.push(`${item.storyPace} pace`);
+        }
+        if (item.endingType && item.endingType.toLowerCase().includes(cLower)) {
+          intentHits += 0.5;
+          matchedConcepts.push(`${item.endingType} ending`);
+        }
+        if (item.settingEnvironment && item.settingEnvironment.toLowerCase().includes(cLower)) {
+          intentHits += 0.45;
+          matchedConcepts.push(item.settingEnvironment);
+        }
+        if (item.audienceVibe && item.audienceVibe.toLowerCase().includes(cLower)) {
+          intentHits += 0.45;
+          matchedConcepts.push(item.audienceVibe);
+        }
+        if (item.narrativeArchetypes && item.narrativeArchetypes.some((na) => na.toLowerCase().includes(cLower))) {
+          intentHits += 0.5;
+          matchedConcepts.push(concept);
+        }
+
+        // Match against 100 continuous parameters
+        if (item.parameters_100) {
+          const normKey = cLower.replace(/[-\s]/g, '_');
+          for (const [pKey, pVal] of Object.entries(item.parameters_100)) {
+            if ((pKey.includes(normKey) || normKey.includes(pKey)) && pVal >= 0.55) {
+              intentHits += 0.5 * pVal;
+              matchedConcepts.push(`${pKey.replace(/_/g, ' ')} (${Math.round(pVal * 100)}%)`);
+              break;
+            }
+          }
         }
       }
 
@@ -258,11 +293,11 @@ const CURATED_ANCHOR_PROFILES: Record<string, AnchorTasteProfile> = {
     directors: ['christopher nolan'],
     subtitle: 'Breathtaking cosmic voyages, time dilation, and profound human bonds',
   },
-  'severance': {
-    genres: ['sci-fi', 'thriller', 'mystery', 'drama'],
-    themes: ['corporate dystopia', 'divided consciousness', 'workplace paranoia', 'surveillance', 'identity trap', 'mind-bending', 'dystopian'],
-    keywords: ['lumon', 'innies', 'outies', 'brain chip', 'cubicle', 'conspiracy', 'break room', 'corporate', 'mystery', 'identity', 'surveillance'],
-    subtitle: 'Chilling workplace dystopias, psychological traps, and fractured identity',
+  'the queen\'s gambit': {
+    genres: ['drama'],
+    themes: ['chess prodigy', 'obsession', 'addiction', 'genius', 'cold war era', 'psychological depth', 'mastery'],
+    keywords: ['chess', 'grandmaster', 'beth', 'pills', 'board', 'tournament', 'prodigy', 'moscow', 'genius'],
+    subtitle: 'Obsessive genius, high-stakes intellectual battles, and personal redemption',
   },
   'stranger things': {
     genres: ['sci-fi', 'horror', 'mystery', 'adventure'],
@@ -303,12 +338,41 @@ const CURATED_ANCHOR_PROFILES: Record<string, AnchorTasteProfile> = {
     directors: ['martin scorsese'],
     subtitle: 'Paranoid psychological illusions, isolated nightmares, and shocking twists',
   },
-  'fight club': {
-    genres: ['drama', 'thriller'],
-    themes: ['unreliable narrator', 'anti-consumerism', 'split personality', 'underground rebellion', 'nihilism', 'anarchy'],
-    keywords: ['soap', 'project mayhem', 'insomnia', 'narrator', 'fight', 'hallucination', 'revolution', 'fincher', 'tyler'],
-    directors: ['david fincher'],
-    subtitle: 'Counter-culture chaos, fractured psyches, and razor-sharp nihilistic wit',
+  'the railway men': {
+    genres: ['drama', 'thriller', 'history'],
+    themes: ['bhopal gas leak', 'heroic sacrifice', 'unsung heroes', 'survival', 'disaster', 'human courage'],
+    keywords: ['railway', 'station', 'gas leak', 'bhopal', 'train', 'locomotive', 'heroism', 'rescue', 'disaster'],
+    subtitle: 'Gripping historical heroism, catastrophic stakes, and unsung courage',
+  },
+  'kohrra': {
+    genres: ['crime', 'drama', 'mystery', 'thriller'],
+    themes: ['punjab noir', 'murder mystery', 'police procedural', 'family secrets', 'dark investigation', 'raw realism'],
+    keywords: ['police', 'punjab', 'murder', 'nri', 'investigation', 'balbir', 'garundi', 'secrets', 'fog'],
+    subtitle: 'Bleak countryside noir, tangled family secrets, and relentless police realism',
+  },
+  'lupin': {
+    genres: ['crime', 'action', 'drama', 'mystery'],
+    themes: ['gentleman thief', 'heist', 'revenge', 'mastermind', 'disguise', 'cat and mouse', 'justice'],
+    keywords: ['assane', 'thief', 'lupin', 'paris', 'necklace', 'revenge', 'disguise', 'mastermind', 'heist'],
+    subtitle: 'Slick Parisian heists, brilliant disguises, and charismatic vengeance',
+  },
+  'jaane jaan': {
+    genres: ['crime', 'drama', 'mystery', 'thriller'],
+    themes: ['mathematical alibi', 'murder coverup', 'devotion', 'cat and mouse', 'investigation', 'suspense'],
+    keywords: ['math', 'teacher', 'alibi', 'investigation', 'kareena', 'murder', 'police', 'mystery', 'kalimpong'],
+    subtitle: 'Immaculate mathematical alibis, quiet obsession, and razor-sharp suspense',
+  },
+  'andhadhun': {
+    genres: ['thriller', 'crime', 'comedy', 'mystery'],
+    themes: ['blind pianist', 'dark comedy', 'twisted murder', 'unreliable witness', 'morally gray', 'cat and mouse'],
+    keywords: ['piano', 'blind', 'murder', 'organ', 'simi', 'akash', 'twist', 'dark comedy'],
+    subtitle: 'Twisted dark comedy, shocking deceptions, and breathless suspense',
+  },
+  'wednesday': {
+    genres: ['comedy', 'fantasy', 'mystery'],
+    themes: ['gothic mystery', 'supernatural school', 'outcasts', 'investigation', 'monster', 'dark humor'],
+    keywords: ['nevermore', 'addams', 'thing', 'monster', 'outcast', 'enid', 'murder', 'gothic', 'powers'],
+    subtitle: 'Sharp gothic wit, supernatural high school mysteries, and monster hunts',
   },
   'peaky blinders': {
     genres: ['crime', 'drama', 'history'],
@@ -604,6 +668,7 @@ export async function generateRecommendations(
     })
     .filter((c) => {
       if (!c.title || !c.posterPath) return false;
+      if (!isNetflixIndiaAvailable(c)) return false;
       const key = normalizeKey(c.title);
       if (alreadyWatchedKeys.has(key)) return false;
       if (excludeItemIds.has(String(c.id)) || (c.netflixId && excludeItemIds.has(c.netflixId))) return false;
@@ -716,7 +781,7 @@ export async function generateRecommendations(
   // Helper to draw items for a row while preventing cross-row duplicate clutter
   const drawRowItems = (
     predicate: (c: RecommendationCandidate) => boolean,
-    limit: number = 12,
+    limit: number = 36,
     prioritySort?: (a: RecommendationCandidate, b: RecommendationCandidate) => number
   ): RecommendationCandidate[] => {
     let pool = scoredCatalog.filter(
@@ -772,32 +837,44 @@ export async function generateRecommendations(
   );
 
   // High-taste fallback seeds to guarantee at least 5 distinct high-caliber anchors if user has rated < 5 titles
+  // Strictly verified Netflix India catalog titles only!
   const fallbackLovedSeeds = [
     'Dark',
     'Breaking Bad',
     'Inception',
     'Interstellar',
-    'Severance',
     'Stranger Things',
     'Mindhunter',
     'Tenet',
     'Black Mirror',
     'Better Call Saul',
     'Shutter Island',
-    'Fight Club',
     'Peaky Blinders',
     'Sacred Games',
     'Money Heist',
     'Narcos',
     'Ozark',
     'Squid Game',
-    'Chernobyl',
-    'True Detective',
+    'The Railway Men',
+    'Delhi Crime',
+    'Kohrra',
+    "The Queen's Gambit",
+    'Lupin',
+    'Jaane Jaan',
+    'Andhadhun',
+    'Wednesday',
   ];
+
+  // Strictly verify that any fallback seed actually exists in the current Netflix India catalog
+  const catalogTitleKeys = new Set(catalog.map((c) => normalizeKey(c.title)));
 
   for (const seed of fallbackLovedSeeds) {
     const seedKey = normalizeKey(seed);
-    if (!dislikedOrSkippedKeys.has(seedKey) && !availableLovedTitles.some((t) => normalizeKey(t) === seedKey)) {
+    if (
+      catalogTitleKeys.has(seedKey) &&
+      !dislikedOrSkippedKeys.has(seedKey) &&
+      !availableLovedTitles.some((t) => normalizeKey(t) === seedKey)
+    ) {
       availableLovedTitles.push(seed);
     }
   }
@@ -864,7 +941,7 @@ export async function generateRecommendations(
           !usedLovedMovieIds.has(String(e.candidate.item.id))
       )
       .map((e) => e.candidate)
-      .slice(0, 15);
+      .slice(0, 36);
 
     // Fallback if needed to guarantee robust row
     const finalMovies =
@@ -873,7 +950,7 @@ export async function generateRecommendations(
         : scoredForAnchor
             .filter((e) => e.candidate.item.mediaType === 'movie')
             .map((e) => e.candidate)
-            .slice(0, 15);
+            .slice(0, 36);
 
     // Mark these movie IDs as used across both Section A rows and Section B rows
     finalMovies.forEach((m) => {
@@ -889,7 +966,7 @@ export async function generateRecommendations(
           !usedLovedTvIds.has(String(e.candidate.item.id))
       )
       .map((e) => e.candidate)
-      .slice(0, 15);
+      .slice(0, 36);
 
     // If candidate TV count is low, backfill with remaining scored TV series
     const finalSeries =
@@ -901,7 +978,7 @@ export async function generateRecommendations(
               .filter((e) => e.candidate.item.mediaType === 'tv')
               .map((e) => e.candidate)
               .filter((c) => !distinctTv.some((s) => s.item.id === c.item.id)),
-          ].slice(0, 15);
+          ].slice(0, 36);
 
     // Mark TV IDs as used across rows
     finalSeries.forEach((s) => {
@@ -937,7 +1014,7 @@ export async function generateRecommendations(
       c.item.mediaType === 'tv' &&
       (c.item.imdbRating || c.item.rating || 0) >= 7.8 &&
       c.score >= 0.42,
-    12,
+    36,
     (a, b) => ((b.item.imdbRating || 0) + b.score) - ((a.item.imdbRating || 0) + a.score)
   );
   if (hookedTvItems.length >= 3) {
@@ -974,7 +1051,7 @@ export async function generateRecommendations(
         text.includes('cross-examination')
       ) && c.score >= 0.42;
     },
-    12
+    36
   );
   if (courtroomItems.length >= 3) {
     rows.push({
@@ -1007,7 +1084,7 @@ export async function generateRecommendations(
         (text.includes('action') && text.includes('thriller'));
       return isFast && c.score >= 0.45;
     },
-    12
+    36
   );
   if (fastPacedItems.length >= 3) {
     rows.push({
@@ -1039,7 +1116,7 @@ export async function generateRecommendations(
         text.includes('docuseries');
       return isDocVibe && (c.item.imdbRating || c.item.rating || 0) >= 7.0;
     },
-    12
+    36
   );
   if (documentaryItems.length >= 3) {
     rows.push({
@@ -1072,7 +1149,7 @@ export async function generateRecommendations(
         text.includes('amnesia')
       ) && c.score >= 0.48;
     },
-    12
+    36
   );
   if (unreliableNarratorItems.length >= 3) {
     rows.push({
@@ -1105,7 +1182,7 @@ export async function generateRecommendations(
         text.includes('syndicate')
       ) && c.score >= 0.45;
     },
-    12
+    36
   );
   if (heistItems.length >= 3) {
     rows.push({
@@ -1138,7 +1215,7 @@ export async function generateRecommendations(
         (text.includes('mystery') && text.includes('thriller'))
       ) && c.score >= 0.48;
     },
-    12
+    36
   );
   if (timeTravelItems.length >= 3) {
     rows.push({
@@ -1171,7 +1248,7 @@ export async function generateRecommendations(
         text.includes('post-apocalyptic')
       ) && c.score >= 0.46;
     },
-    12
+    36
   );
   if (dystopianItems.length >= 3) {
     rows.push({
@@ -1190,7 +1267,7 @@ export async function generateRecommendations(
         (c.item.countries || []).some((co) => /korea/i.test(co)) ||
         (c.item.genres || []).some((g) => /korean|k-drama/i.test(g))) &&
       c.score >= 0.40,
-    12
+    36
   );
   if (kdramaItems.length >= 3) {
     rows.push({
@@ -1208,7 +1285,7 @@ export async function generateRecommendations(
       ((c.item.genres || []).some((g) => /anime/i.test(g)) ||
         (c.item.originalLanguage === 'ja' && (c.item.genres || []).some((g) => /animat/i.test(g)))) &&
       c.score >= 0.40,
-    12
+    36
   );
   if (animeItems.length >= 3) {
     rows.push({
@@ -1223,7 +1300,7 @@ export async function generateRecommendations(
   // Row 16: Action You Actually Like
   const actionItems = drawRowItems(
     (c) => (c.item.genres || []).some((g) => /action/i.test(g)) && c.score >= 0.48,
-    12
+    36
   );
   if (actionItems.length >= 3) {
     rows.push({
@@ -1238,7 +1315,7 @@ export async function generateRecommendations(
   // Row 17: Your Next Big Adventure
   const adventureItems = drawRowItems(
     (c) => (c.item.genres || []).some((g) => /adventure/i.test(g)) && c.score >= 0.48,
-    12
+    36
   );
   if (adventureItems.length >= 3) {
     rows.push({
@@ -1253,7 +1330,7 @@ export async function generateRecommendations(
   // Row 18: Comedy to Lighten the Mood (strictly no cheesy romance comedy)
   const comedyItems = drawRowItems(
     (c) => (c.item.genres || []).some((g) => /comedy/i.test(g)) && !isRomanceCandidate(c) && c.score >= 0.40,
-    12
+    36
   );
   if (comedyItems.length >= 3) {
     rows.push({
@@ -1272,7 +1349,7 @@ export async function generateRecommendations(
       const votes = c.item.voteCount || 500;
       return imdb >= 7.2 && votes <= 85000 && c.score >= 0.46;
     },
-    12,
+    36,
     (a, b) => ((b.item.imdbRating || 0) + b.score) - ((a.item.imdbRating || 0) + a.score)
   );
   if (gemItems.length >= 3) {
@@ -1305,7 +1382,7 @@ export async function generateRecommendations(
         (c.item.voteCount || 0) <= 65000 && (c.item.imdbRating || c.item.rating || 0) >= 7.0;
       return (isIndie || isLowVoteHighRating) && c.score >= 0.45;
     },
-    12
+    36
   );
   if (indieItems.length >= 3) {
     rows.push({
@@ -1323,7 +1400,7 @@ export async function generateRecommendations(
       const hasCoreGenre = c.item.genres.some((g) => userProfile.topGenres.slice(0, 2).includes(g));
       return !hasCoreGenre && (c.item.imdbRating || c.item.rating || 0) >= 7.3;
     },
-    12
+    36
   );
   if (exploreItems.length >= 3) {
     rows.push({

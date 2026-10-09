@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AppSettings, LibraryItem, NetflixRawItem, LibraryViewingStatus } from './types';
-import { DEFAULT_SETTINGS, getAllLibraryItems, getSettings, saveLibraryItems, saveSettings, clearLibrary, deleteLibraryItem, getAllDiscoveryTitles, saveDiscoveryTitles } from './services/db';
+import { DEFAULT_SETTINGS, getAllLibraryItems, getSettings, saveLibraryItems, saveSettings, clearLibrary, deleteLibraryItem, getAllDiscoveryTitles, saveDiscoveryTitles, replaceDiscoveryCatalog } from './services/db';
 import { enrichLibraryItem } from './services/tmdb';
 import { deduplicateAndPrepareItems } from './services/duplicateDetector';
 import { syncLibraryItemsToDiscovery, syncEnrichedDiscoveryTitlesIntoLibrary, enrichAndSyncNewLibraryItem, mergeDiscoveryTitleIntoLibraryItem, isDiscoveryTitleEnriched, deduplicateDiscoveryTitles } from './services/discoveryService';
-import { createDuplicateKey } from './services/normalizer';
+import { createDuplicateKey, isNetflixIndiaAvailable } from './services/normalizer';
 import { Navbar } from './components/Navbar';
 import { ImportLibraryView } from './components/ImportLibraryView';
 import { MoviesSeriesView } from './components/MoviesSeriesView';
@@ -74,7 +74,7 @@ export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTabType>(() => {
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get('tab') as ActiveTabType;
-    return VALID_TABS.includes(tabParam) ? tabParam : 'movies-series';
+    return VALID_TABS.includes(tabParam) ? tabParam : 'recommendations';
   });
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -85,7 +85,7 @@ export const App: React.FC = () => {
   const handleTabChange = (newTab: ActiveTabType) => {
     setActiveTab(newTab);
     const params = new URLSearchParams(window.location.search);
-    if (newTab === 'movies-series') {
+    if (newTab === 'recommendations') {
       params.delete('tab');
     } else {
       params.set('tab', newTab);
@@ -103,7 +103,7 @@ export const App: React.FC = () => {
       if (VALID_TABS.includes(tabParam)) {
         setActiveTab(tabParam);
       } else {
-        setActiveTab('movies-series');
+        setActiveTab('recommendations');
       }
     };
     window.addEventListener('popstate', handlePopState);
@@ -174,7 +174,10 @@ export const App: React.FC = () => {
           const loadedCatalog = deduplicateDiscoveryTitles([
             ...SEED_NETFLIX_INDIA_TITLES,
             ...(discoveryTitles || []),
-          ]);
+          ]).filter((t) => isNetflixIndiaAvailable(t));
+          if (discoveryTitles && discoveryTitles.length !== loadedCatalog.length) {
+            replaceDiscoveryCatalog(loadedCatalog).catch(() => {});
+          }
           setDiscoveryCatalog(loadedCatalog);
 
           // Auto-repair any stale placeholder posters in IndexedDB
@@ -216,12 +219,6 @@ export const App: React.FC = () => {
           if (needsEnrichment) {
             triggerBackgroundScan(validItems, savedSettings || DEFAULT_SETTINGS);
           }
-        } else {
-          // If no items and tab wasn't explicitly set in url, switch to import
-          const params = new URLSearchParams(window.location.search);
-          if (!params.has('tab')) {
-            handleTabChange('import');
-          }
         }
       } catch (err) {
         console.error('Failed initializing app state:', err);
@@ -240,7 +237,7 @@ export const App: React.FC = () => {
         const merged = deduplicateDiscoveryTitles([
           ...SEED_NETFLIX_INDIA_TITLES,
           ...(freshTitles || []),
-        ]);
+        ]).filter((t) => isNetflixIndiaAvailable(t));
         setDiscoveryCatalog(merged);
       } catch (err) {
         console.warn('[App] Error synchronizing updated discovery catalog:', err);
@@ -664,6 +661,9 @@ export const App: React.FC = () => {
           <DiscoveryView
             settings={settings}
             libraryItems={items}
+            catalog={discoveryCatalog}
+            onCatalogUpdate={setDiscoveryCatalog}
+            onOpenBackup={() => setIsBackupOpen(true)}
             onAddToLibrary={async (discItem) => {
               const newLibItem: LibraryItem = {
                 id: 'item_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
@@ -1132,6 +1132,10 @@ export const App: React.FC = () => {
             setDiscoveryTitleStack([]);
             handleTabChange('movies-series');
           }}
+          onGoToDiscovery={() => {
+            setDiscoveryTitleStack([]);
+            handleTabChange('discovery');
+          }}
           isInLibrary={(discItem) =>
             items.some(
               (i) =>
@@ -1155,7 +1159,7 @@ export const App: React.FC = () => {
 
       {/* Sync Notification Toast */}
       {syncToast && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 bg-zinc-900 border border-emerald-500/40 text-white px-5 py-3.5 rounded-xl shadow-2xl animate-fade-in backdrop-blur-md">
+        <div className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] xl:bottom-6 right-4 sm:right-6 z-50 flex items-center gap-3 bg-zinc-900 border border-emerald-500/40 text-white px-5 py-3.5 rounded-xl shadow-2xl animate-fade-in backdrop-blur-md">
           <div className={`w-2.5 h-2.5 rounded-full ${syncToast.type === 'success' ? 'bg-emerald-400 animate-ping' : 'bg-blue-400'}`} />
           <div className="text-sm font-medium">{syncToast.message}</div>
           <button

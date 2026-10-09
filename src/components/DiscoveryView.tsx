@@ -25,6 +25,9 @@ import {
   EyeOff,
   PlusCircle,
   Shuffle,
+  Trash2,
+  Database,
+  Download,
 } from 'lucide-react';
 import { AppSettings, DiscoveryTitle, LibraryItem } from '../types';
 import {
@@ -39,6 +42,7 @@ import {
   deduplicateDiscoveryTitles,
   ensureTvThrillerGenres,
   SEED_NETFLIX_INDIA_TITLES,
+  convertEnrichedRecordToDiscoveryTitle,
   SyncProgressCallback,
   WatchmodeStatusResponse,
   UnfetchedSyncProgress,
@@ -47,11 +51,15 @@ import {
 import {
   getAllDiscoveryTitles,
   saveDiscoveryTitles,
+  replaceDiscoveryCatalog,
+  getRemovedDiscoveryTitles,
+  saveRemovedDiscoveryTitles,
+  clearRemovedDiscoveryTitles,
   getDiscoveryCatalogMeta,
   setDiscoveryCatalogMeta,
 } from '../services/db';
-import { normalizeCountryName, calculateSearchRelevance } from '../services/normalizer';
-import { MovieSearchEngine } from '../services/searchEngine';
+import { normalizeCountryName, calculateSearchRelevance, isNetflixIndiaAvailable } from '../services/normalizer';
+import { MovieSearchEngine, collapseTitle } from '../services/searchEngine';
 import { DiscoveryCard } from './DiscoveryCard';
 import { DiscoveryDetailModal } from './DiscoveryDetailModal';
 import { TagExploreModal } from './TagExploreModal';
@@ -74,6 +82,9 @@ interface DiscoveryViewProps {
   onOpenDetail: (item: LibraryItem) => void;
   onOpenSurpriseMeModal?: (filteredPool?: LibraryItem[]) => void;
   onNavigateToCatalog?: (item?: DiscoveryTitle) => void;
+  catalog?: DiscoveryTitle[];
+  onCatalogUpdate?: (catalog: DiscoveryTitle[]) => void;
+  onOpenBackup?: () => void;
 }
 
 type ContentType = 'all' | 'movie' | 'tv';
@@ -88,7 +99,8 @@ type PresetType =
   | 'asian'
   | 'hindi_dubbed'
   | 'highly_rated'
-  | 'recently_added';
+  | 'recently_added'
+  | 'removed';
 
 const EUROPEAN_COUNTRIES = new Set([
   'United Kingdom',
@@ -152,9 +164,35 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   onOpenDetail,
   onOpenSurpriseMeModal,
   onNavigateToCatalog,
+  catalog: externalCatalog,
+  onCatalogUpdate,
+  onOpenBackup,
 }) => {
-  // Discovery catalog data - persistent from local IndexedDB
-  const [catalog, setCatalog] = useState<DiscoveryTitle[]>([]);
+  // Discovery catalog data - persistent from local IndexedDB and unified across tabs
+  const [internalCatalog, setInternalCatalog] = useState<DiscoveryTitle[]>(() =>
+    externalCatalog && externalCatalog.length > 0 ? externalCatalog : []
+  );
+
+  // Synchronize internal catalog if external catalog loads/updates from App.tsx
+  useEffect(() => {
+    if (externalCatalog && externalCatalog.length > 0) {
+      setInternalCatalog(externalCatalog);
+    }
+  }, [externalCatalog]);
+
+  const catalog = internalCatalog;
+
+  const setCatalog = useCallback(
+    (action: DiscoveryTitle[] | ((prev: DiscoveryTitle[]) => DiscoveryTitle[])) => {
+      setInternalCatalog((prev) => {
+        const next = typeof action === 'function' ? action(prev) : action;
+        onCatalogUpdate?.(next);
+        return next;
+      });
+    },
+    [onCatalogUpdate]
+  );
+  const [removedTitles, setRemovedTitles] = useState<DiscoveryTitle[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [quotaInfo, setQuotaInfo] = useState<WatchmodeStatusResponse | null>({ quota: 1000000, quotaUsed: 0 });
@@ -269,6 +307,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   });
 
   const formatSyncMonthsLabel = (m: number) => {
+    if (m === -1 || m === 0) return 'All (Full Library)';
     if (m === 1) return '1 Month';
     if (m < 12) return `${m} Months`;
     const yrs = Math.floor(m / 12);
@@ -278,6 +317,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   };
 
   const getCutoffDisplayDate = (m: number) => {
+    if (m === -1 || m === 0) return 'Entire Library (All-Time)';
     const d = new Date();
     d.setMonth(d.getMonth() - m);
     return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
@@ -433,12 +473,17 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     async function loadInitialCatalog() {
       setLoading(true);
       try {
-        const [localTitles, meta] = await Promise.all([
+        const [localTitles, meta, initialRemoved] = await Promise.all([
           getAllDiscoveryTitles(),
           getDiscoveryCatalogMeta(),
+          getRemovedDiscoveryTitles(),
         ]);
 
         if (isMounted) {
+          if (initialRemoved && initialRemoved.length > 0) {
+            setRemovedTitles(initialRemoved);
+          }
+
           if (meta) {
             if (meta.lastSync) setLastSyncTime(meta.lastSync);
             setQuotaInfo({
@@ -448,26 +493,50 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
           }
 
           if (localTitles && localTitles.length > 0) {
+            const nonNetflixOnDisk = localTitles.filter((t) => !isNetflixIndiaAvailable(t));
+            if (nonNetflixOnDisk.length > 0) {
+              saveRemovedDiscoveryTitles(nonNetflixOnDisk).then(getRemovedDiscoveryTitles).then((r) => {
+                if (isMounted) setRemovedTitles(r);
+              }).catch(() => {});
+            }
+
             const mergedWithSeeds = deduplicateDiscoveryTitles([
               ...localTitles,
               ...SEED_NETFLIX_INDIA_TITLES,
-            ]);
+            ]).filter((t) => isNetflixIndiaAvailable(t));
             const enhanced = ensureTvThrillerGenres(mergedWithSeeds);
             setCatalog(enhanced);
-            saveDiscoveryTitles(enhanced).catch(() => {});
+            if (enhanced.length !== localTitles.length) {
+              replaceDiscoveryCatalog(enhanced).catch(() => {});
+            } else {
+              saveDiscoveryTitles(enhanced).catch(() => {});
+            }
           } else {
-            // First time: fetch on-demand live Watchmode Page 1 enriched with TMDB posters,
-            // with fallback to TMDB discover and verified seed titles so Discovery is NEVER empty.
+            // First time: Try loading from local Enriched Knowledge Base JSON first (all 4,800+ titles)
             let initialTitles: DiscoveryTitle[] = [];
 
             try {
-              initialTitles = await fetchInitialWatchmodeDiscovery({
-                watchmodeApiKey: settings.watchmodeApiKey,
-                tmdbApiKey: settings.tmdbApiKey,
-                limit: 250,
-              });
-            } catch (e) {
-              console.warn('Initial Watchmode discovery fetch failed:', e);
+              const res = await fetch('/netflix_enriched_kb.json');
+              if (res.ok) {
+                const rawEnriched = await res.json();
+                if (Array.isArray(rawEnriched) && rawEnriched.length > 0) {
+                  initialTitles = rawEnriched.map((r: any) => convertEnrichedRecordToDiscoveryTitle(r));
+                }
+              }
+            } catch (err) {
+              console.info('Enriched KB not found at /netflix_enriched_kb.json, falling back to Watchmode/TMDB:', err);
+            }
+
+            if (!initialTitles || initialTitles.length === 0) {
+              try {
+                initialTitles = await fetchInitialWatchmodeDiscovery({
+                  watchmodeApiKey: settings.watchmodeApiKey,
+                  tmdbApiKey: settings.tmdbApiKey,
+                  limit: 250,
+                });
+              } catch (e) {
+                console.warn('Initial Watchmode discovery fetch failed:', e);
+              }
             }
 
             if (!initialTitles || initialTitles.length === 0) {
@@ -548,6 +617,40 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     }
   };
 
+  // Dedicated Sync Content Window Preset Click Handler
+  const handleSelectSyncWindowPreset = async (val: number) => {
+    setSyncMonths(val);
+    if (val === -1) {
+      // Remove any movies/shows not in Netflix India catalogue from current catalog and database
+      const nonNetflix = catalog.filter((t) => !isNetflixIndiaAvailable(t));
+      const purgedCatalog = catalog.filter((t) => isNetflixIndiaAvailable(t));
+      const removedCount = nonNetflix.length;
+      if (removedCount > 0) {
+        await saveRemovedDiscoveryTitles(nonNetflix);
+        const refreshedRemoved = await getRemovedDiscoveryTitles();
+        setRemovedTitles(refreshedRemoved);
+        setCatalog(purgedCatalog);
+        await replaceDiscoveryCatalog(purgedCatalog);
+        window.dispatchEvent(new CustomEvent('netflix-discovery-updated', { detail: { catalog: purgedCatalog } }));
+        const moviesCount = nonNetflix.filter((t) => t.mediaType === 'movie').length;
+        const seriesCount = nonNetflix.filter((t) => t.mediaType === 'tv').length;
+        setRefreshNotification(
+          `✓ Cleaned catalogue: removed ${removedCount} title(s) not in Netflix India catalogue (${moviesCount} Movies, ${seriesCount} Series moved to Removed category).`
+        );
+        setTimeout(() => setRefreshNotification(null), 5500);
+      } else {
+        const refreshedRemoved = await getRemovedDiscoveryTitles();
+        setRemovedTitles(refreshedRemoved);
+        const moviesCount = refreshedRemoved.filter((t) => t.mediaType === 'movie').length;
+        const seriesCount = refreshedRemoved.filter((t) => t.mediaType === 'tv').length;
+        setRefreshNotification(
+          `✓ All active titles are verified in Netflix India catalogue. (Removed category contains ${refreshedRemoved.length} titles: ${moviesCount} Movies, ${seriesCount} Series).`
+        );
+        setTimeout(() => setRefreshNotification(null), 4500);
+      }
+    }
+  };
+
   // Dedicated Unified "Sync with Netflix" Handler:
   // Fetches movies & series from TMDB + Watchmode India, deduplicates, and fills every card completely.
   const handleStartUnifiedNetflixSync = async () => {
@@ -574,6 +677,9 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
       });
 
       setCatalog(res.allTitles);
+      const refreshedRemoved = await getRemovedDiscoveryTitles();
+      setRemovedTitles(refreshedRemoved);
+
       const syncFormatted = new Date().toLocaleString('en-IN', {
         dateStyle: 'medium',
         timeStyle: 'short',
@@ -589,11 +695,13 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
         try {
           confetti({ particleCount: 55, spread: 75, origin: { y: 0.6 } });
         } catch {}
+        const remNotice = refreshedRemoved.length > 0 ? ` (${refreshedRemoved.length} in Removed category)` : '';
         setRefreshNotification(
-          `✨ Done! Synced ${res.newTitlesAdded} new title(s) and fully enriched ${res.incompleteEnriched} card(s).`
+          `✨ Done! Synced ${res.newTitlesAdded} new title(s) and fully enriched ${res.incompleteEnriched} card(s).${remNotice}`
         );
       } else {
-        setRefreshNotification('✨ Done! All titles for this timeframe are already synced and fully enriched.');
+        const remNotice = refreshedRemoved.length > 0 ? ` (${refreshedRemoved.length} in Removed category)` : '';
+        setRefreshNotification(`✨ Done! All titles for this timeframe are already synced.${remNotice}`);
       }
 
       setTimeout(() => {
@@ -698,13 +806,28 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     setActivePreset(preset);
     setCurrentPage(1);
 
-    if (preset === 'all') {
+    if (preset === 'removed') {
       setContentType('all');
       setSelectedCountries([]);
       setSelectedGenres([]);
       setAudioFilter('all');
       setMinRating(0);
       setSortBy('netflix_newest');
+    } else if (preset === 'all') {
+      setContentType('all');
+      setSelectedCountries([]);
+      setSelectedGenres([]);
+      setAudioFilter('all');
+      setMinRating(0);
+      setSortBy('netflix_newest');
+
+      // Remove any titles not in Netflix India catalogue
+      const purged = catalog.filter((t) => isNetflixIndiaAvailable(t));
+      if (purged.length !== catalog.length) {
+        setCatalog(purged);
+        replaceDiscoveryCatalog(purged).catch(() => {});
+        window.dispatchEvent(new CustomEvent('netflix-discovery-updated', { detail: { catalog: purged } }));
+      }
     } else if (preset === 'hollywood') {
       setContentType('all');
       setSelectedCountries(['United States']);
@@ -865,7 +988,21 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
 
   // Filter & Sort Logic
   const filteredCatalog = useMemo(() => {
-    let result = catalog;
+    // If viewing the "Removed" category, show titles confirmed not in Netflix India
+    if (activePreset === 'removed') {
+      let result = removedTitles;
+      if (contentType !== 'all') {
+        result = result.filter((x) => x.mediaType === contentType);
+      }
+      if (debouncedQuery && debouncedQuery.trim()) {
+        const q = debouncedQuery.toLowerCase().trim();
+        result = result.filter((x) => x.title.toLowerCase().includes(q) || x.originalTitle?.toLowerCase().includes(q));
+      }
+      return result;
+    }
+
+    // Strictly display titles verified as available on Netflix India
+    let result = catalog.filter((x) => isNetflixIndiaAvailable(x));
 
     // Filter out user-ignored / hidden titles
     if (ignoredTitleIds.length > 0) {
@@ -879,37 +1016,49 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
     }
 
     // 1b. Status Filter:
-    // 'all' = Active Catalog (all titles)
-    // 'not_in_library' = Not in Library
-    // 'not_in_library_unwatched' = Not in Library & Unwatched
-    // 'in_library' = In Library
-    // 'unwatched' = Unwatched (not completed)
-    if (statusFilter === 'in_library') {
-      result = result.filter((x) => isInLibrary(x));
-    } else if (statusFilter === 'not_in_library') {
-      result = result.filter((x) => !isInLibrary(x));
-    } else if (statusFilter === 'not_in_library_unwatched') {
-      result = result.filter((x) => !isInLibrary(x) && !isWatchedInLibrary(x));
-    } else if (statusFilter === 'unwatched') {
-      result = result.filter((x) => !isWatchedInLibrary(x));
+    // When actively searching a title, do not prune by status filter so the user can easily find their searched title
+    const isSearching = Boolean(debouncedQuery && debouncedQuery.trim());
+    if (!isSearching) {
+      if (statusFilter === 'in_library') {
+        result = result.filter((x) => isInLibrary(x));
+      } else if (statusFilter === 'not_in_library') {
+        result = result.filter((x) => !isInLibrary(x));
+      } else if (statusFilter === 'not_in_library_unwatched') {
+        result = result.filter((x) => !isInLibrary(x) && !isWatchedInLibrary(x));
+      } else if (statusFilter === 'unwatched') {
+        result = result.filter((x) => !isWatchedInLibrary(x));
+      }
     }
 
-    // 2. Search query with intelligent relevance scoring, fuzzy typo-tolerance, and year parsing
+    // 2. Search query with intelligent relevance scoring, fuzzy typo-tolerance, and multi-key matching
     let searchRelevanceMap: Map<string, number> | null = null;
-    if (debouncedQuery && debouncedQuery.trim()) {
+    if (isSearching) {
       if (searchEngineResponse && searchEngineResponse.results.length > 0) {
         searchRelevanceMap = new Map();
         for (const r of searchEngineResponse.results) {
           searchRelevanceMap.set(r.item.id, r.score);
-          if (r.item.netflixId) {
-            searchRelevanceMap.set(r.item.netflixId, r.score);
-          }
+          if (r.item.netflixId) searchRelevanceMap.set(`net_${r.item.netflixId}`, r.score);
+          if (r.item.tmdbId) searchRelevanceMap.set(`tmdb_${r.item.tmdbId}`, r.score);
+          if (r.item.imdbId) searchRelevanceMap.set(`imdb_${r.item.imdbId}`, r.score);
+          const c = collapseTitle(r.item.title);
+          if (c) searchRelevanceMap.set(`title_${c}`, r.score);
         }
         result = result.filter((item) => {
-          return searchRelevanceMap!.has(item.id) || (item.netflixId && searchRelevanceMap!.has(item.netflixId));
+          if (searchRelevanceMap!.has(item.id)) return true;
+          if (item.netflixId && searchRelevanceMap!.has(`net_${item.netflixId}`)) return true;
+          if (item.tmdbId && searchRelevanceMap!.has(`tmdb_${item.tmdbId}`)) return true;
+          if (item.imdbId && searchRelevanceMap!.has(`imdb_${item.imdbId}`)) return true;
+          const c = collapseTitle(item.title);
+          if (c && searchRelevanceMap!.has(`title_${c}`)) return true;
+          return false;
         });
       } else {
-        result = [];
+        // Direct title fallback if search engine index is still compiling
+        const q = debouncedQuery.toLowerCase().trim();
+        result = result.filter((item) =>
+          item.title.toLowerCase().includes(q) ||
+          (item.originalTitle && item.originalTitle.toLowerCase().includes(q))
+        );
       }
     }
 
@@ -1343,6 +1492,18 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
 
         {/* API, Analytics, Surprise Me & Filter Action Buttons */}
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+          {/* 1-Click Export Button */}
+          {onOpenBackup && (
+            <button
+              onClick={onOpenBackup}
+              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-950/40 border border-emerald-400/30 transition-all transform hover:scale-105 active:scale-95 cursor-pointer whitespace-nowrap"
+              title="Export Database & Library"
+            >
+              <Download className="w-3.5 h-3.5 text-emerald-200" />
+              <span>Export</span>
+            </button>
+          )}
+
           {/* Single Consolidated API & Sync Button */}
           <button
             onClick={() => setShowApiModal(true)}
@@ -1723,12 +1884,13 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                       { label: '2 Yrs', val: 24 },
                       { label: '5 Yrs', val: 60 },
                       { label: '10 Yrs', val: 120 },
+                      { label: 'All', val: -1 },
                     ].map((preset) => (
                       <button
                         key={preset.val}
                         type="button"
                         disabled={isSyncingNetflix}
-                        onClick={() => setSyncMonths(preset.val)}
+                        onClick={() => handleSelectSyncWindowPreset(preset.val)}
                         className={`text-[10px] px-2 py-1 rounded font-semibold transition-all ${
                           syncMonths === preset.val
                             ? 'bg-[#E50914] text-white shadow-sm'
@@ -1741,7 +1903,13 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                   </div>
 
                   <div className="text-[11px] text-zinc-400 pt-1 flex items-center justify-between">
-                    <span>🗓️ Fetching content from <strong className="text-white">{getCutoffDisplayDate(syncMonths)}</strong> to today</span>
+                    <span>
+                      {syncMonths === -1 || syncMonths === 0 ? (
+                        <>🗓️ Fetching content: <strong className="text-white">Entire Netflix India Library (All-Time)</strong></>
+                      ) : (
+                        <>🗓️ Fetching content from <strong className="text-white">{getCutoffDisplayDate(syncMonths)}</strong> to today</>
+                      )}
+                    </span>
                     {lastSyncTime && (
                       <span className="text-[10px] text-zinc-500 font-mono">Last: {lastSyncTime}</span>
                     )}
@@ -2003,6 +2171,23 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                 {preset.label}
               </button>
             ))}
+
+            {/* Dedicated Removed Category Button */}
+            <button
+              type="button"
+              onClick={() => handleApplyPreset('removed')}
+              className={`px-3 py-1 rounded-xl text-xs font-bold transition-all whitespace-nowrap border flex items-center gap-1.5 ${
+                activePreset === 'removed'
+                  ? 'bg-rose-700 text-white border-rose-500 shadow-md shadow-rose-900/40 ring-1 ring-rose-400/50'
+                  : 'bg-zinc-900/80 hover:bg-zinc-800 text-rose-400 hover:text-rose-300 border-white/5 hover:border-rose-500/30'
+              }`}
+              title="View movies and series removed or excluded because they are not on Netflix India"
+            >
+              <span>🚫 Removed</span>
+              <span className="text-[10px] bg-rose-950/80 text-rose-300 px-1.5 py-0.2 rounded-full border border-rose-500/30 font-mono">
+                {removedTitles.length}
+              </span>
+            </button>
 
             {/* Toggleable Ignore Anime Filter - Selectable with ANY filter (Asian, Hollywood, etc.) */}
             <button
@@ -2389,6 +2574,43 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Removed Category Summary Banner */}
+      {activePreset === 'removed' && (
+        <div className="bg-gradient-to-r from-rose-950/70 via-zinc-900/90 to-rose-950/70 border border-rose-500/40 rounded-2xl p-4 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in mb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-rose-600/20 text-rose-400 border border-rose-500/30">
+              <Trash2 className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <span>Excluded / Removed from Netflix India</span>
+                <span className="text-xs font-mono font-bold text-rose-300 bg-rose-900/60 px-2.5 py-0.5 rounded-full border border-rose-500/30">
+                  {removedTitles.length} Total
+                </span>
+              </h3>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                <strong className="text-rose-200">{removedTitles.filter((t) => t.mediaType === 'movie').length} Movies</strong> •{' '}
+                <strong className="text-rose-200">{removedTitles.filter((t) => t.mediaType === 'tv').length} TV Series</strong> confirmed not available on Netflix India.
+              </p>
+            </div>
+          </div>
+          {removedTitles.length > 0 && (
+            <button
+              type="button"
+              onClick={async () => {
+                await clearRemovedDiscoveryTitles();
+                setRemovedTitles([]);
+                setRefreshNotification('✓ Cleared removed catalogue history.');
+                setTimeout(() => setRefreshNotification(null), 3000);
+              }}
+              className="px-3 py-1.5 text-xs font-semibold text-rose-300 hover:text-white bg-rose-900/40 hover:bg-rose-900/80 border border-rose-700/50 rounded-lg transition-colors cursor-pointer self-start sm:self-auto shrink-0"
+            >
+              Clear Removed List
+            </button>
+          )}
+        </div>
+      )}
 
       {/* 3. Main Title Card Grid using DiscoveryCard */}
       {loading && catalog.length === 0 ? (

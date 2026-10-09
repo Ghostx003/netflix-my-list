@@ -30,7 +30,16 @@ export function getNetflixUrl(item: {
   originalTitle?: string;
   externalTitle?: string;
   title?: string;
+  sourceUrl?: string;
 }): string {
+  // If item has a valid Netflix sourceUrl
+  if (item.sourceUrl && /netflix\.com/i.test(item.sourceUrl)) {
+    const urlMatch = item.sourceUrl.match(/netflix\.com\/(?:title|watch)\/([a-zA-Z0-9_-]+)/i);
+    if (urlMatch) {
+      return `https://www.netflix.com/title/${urlMatch[1]}`;
+    }
+  }
+
   const rawId = item.netflixId || item.videoId;
   if (rawId) {
     let cleanId = rawId.toString().trim();
@@ -63,6 +72,130 @@ export function getNetflixUrl(item: {
 
   return 'https://www.netflix.com';
 }
+
+/**
+ * Normalized titles of well-known exclusive titles belonging to other streaming platforms
+ * in the Indian market (Amazon Prime, Disney+ Hotstar, SonyLIV, JioCinema/HBO, etc.)
+ * that are NOT available on Netflix India.
+ */
+export const KNOWN_NON_NETFLIX_TITLES: Set<string> = new Set([
+  'mirzapur',
+  'paatallok',
+  'thefamilyman',
+  'panchayat',
+  'farzi',
+  'madeinheaven',
+  'jubilee',
+  'breathe',
+  'breatheintotheshadows',
+  'jaibhim',
+  'tumbbad',
+  '12thfail',
+  'scam1992',
+  'scam1992theharshadmehtastory',
+  'scam2003',
+  'rocketboys',
+  'gullak',
+  'chernobyl',
+  'truedetective',
+  'theoffice',
+  'theofficeus',
+  'bleach',
+  'chainsawman',
+  'succession',
+  'gameofthrones',
+  'houseofthedragon',
+  'thewire',
+  'thesopranos',
+  'bandofbrothers',
+  'theboys',
+  'invincible',
+  'lordoftheringsthewingsofpower',
+  'reacher',
+  'jackryan',
+  'fleabag',
+  'tedlasso',
+  'severance',
+  'themorningprogram',
+  'themorningshow',
+  'loki',
+  'wandavision',
+  'themandalorian',
+  'andor',
+]);
+
+/**
+ * Global Netflix India Availability Verification
+ * «If a title cannot be verified as currently available on Netflix India, it must not be displayed as a Netflix India title.»
+ */
+export function isNetflixIndiaAvailable(item: {
+  title?: string;
+  originalTitle?: string;
+  isNetflixIndiaVerified?: boolean;
+  netflixIndiaAvailable?: boolean;
+  availabilityState?: 'available' | 'no_longer_available' | 'unknown' | string;
+  availabilitySource?: string;
+  sourceUrl?: string;
+  netflixId?: string;
+  videoId?: string;
+}): boolean {
+  if (!item) return false;
+
+  // 1. Explicitly marked as no longer available or not available
+  if (item.availabilityState === 'no_longer_available') return false;
+  if (item.netflixIndiaAvailable === false) return false;
+  if (item.isNetflixIndiaVerified === false) return false;
+
+  // 2. Filter against known other-provider exclusive titles
+  const norm1 = createDuplicateKey(item.title || '');
+  const norm2 = createDuplicateKey(item.originalTitle || '');
+  if (KNOWN_NON_NETFLIX_TITLES.has(norm1) || KNOWN_NON_NETFLIX_TITLES.has(norm2)) {
+    return false;
+  }
+
+  // 3. Provider/source checks: If provider source is exclusively another service
+  if (item.availabilitySource) {
+    const src = item.availabilitySource.toLowerCase();
+    const otherProviders = ['prime', 'amazon', 'disney', 'hotstar', 'hulu', 'apple tv', 'sonyliv', 'zee5', 'jiocinema'];
+    const isOther = otherProviders.some((p) => src.includes(p));
+    const isNetflix = src.includes('netflix');
+    if (isOther && !isNetflix) return false;
+  }
+
+  // 4. Source URL checks: If it explicitly points to another provider without netflix
+  if (item.sourceUrl) {
+    const sUrl = item.sourceUrl.toLowerCase();
+    if (
+      (sUrl.includes('primevideo.com') ||
+        sUrl.includes('hotstar.com') ||
+        sUrl.includes('apple.com') ||
+        sUrl.includes('hulu.com')) &&
+      !sUrl.includes('netflix.com')
+    ) {
+      return false;
+    }
+  }
+
+  // 5. Positive Netflix India verification evidence
+  const hasVerifiedFlag = item.isNetflixIndiaVerified === true;
+  const hasNetflixSource = Boolean(item.availabilitySource && item.availabilitySource.toLowerCase().includes('netflix'));
+  const hasNumericNetflixId = Boolean(
+    (item.netflixId && /^\d+$/.test(item.netflixId.trim())) ||
+    (item.videoId && /^\d+$/.test(item.videoId.trim()))
+  );
+  const hasNetflixUrl = Boolean(item.sourceUrl && /netflix\.com/i.test(item.sourceUrl));
+
+  if (hasVerifiedFlag || hasNetflixSource || hasNumericNetflixId || hasNetflixUrl) {
+    return true;
+  }
+
+  if (item.netflixIndiaAvailable === true) {
+    return true;
+  }
+
+  return false;
+}
+
 
 /**
  * Reliably opens a Netflix URL in a brand new tab/window,

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Play, Plus, Check, Star, Info, Sparkles } from 'lucide-react';
 import { DiscoveryTitle, RecommendationCandidate } from '../../types';
 import { CachedImage } from '../CachedImage';
+import { getNetflixUrl, openNetflixInNewTab } from '../../services/normalizer';
 
 interface RecommendationCardProps {
   candidate: RecommendationCandidate;
@@ -20,6 +21,7 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
 }) => {
   const item = candidate.item;
   const rating = item.imdbRating || item.rating;
+  const netflixUrl = getNetflixUrl(item);
 
   return (
     <div
@@ -80,17 +82,19 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
         {/* Quick Action Icons on Hover */}
         <div className="mt-2.5 flex items-center justify-between gap-1.5 pt-2 border-t border-white/10 opacity-0 group-hover:opacity-100 transition-opacity">
           <div className="flex items-center gap-1.5">
-            <button
+            <a
+              href={netflixUrl}
+              target="_blank"
+              rel="noopener noreferrer"
               onClick={(e) => {
-                e.stopPropagation();
+                openNetflixInNewTab(netflixUrl, e);
                 if (onStartWatching) onStartWatching(item);
-                else onClick();
               }}
-              className="w-7 h-7 rounded-full bg-white text-black flex items-center justify-center hover:bg-zinc-200 transition-transform active:scale-90 shadow"
-              title="Play / Watch"
+              className="w-7 h-7 rounded-full bg-white text-black flex items-center justify-center hover:bg-zinc-200 transition-transform active:scale-90 shadow cursor-pointer"
+              title={`Watch "${item.title}" on Netflix India`}
             >
               <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
-            </button>
+            </a>
 
             <button
               onClick={(e) => {

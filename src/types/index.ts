@@ -279,6 +279,7 @@ export interface BackupData {
   cachedThumbnails?: Record<string, string>; // base64 or cached image URLs
   discoveryCatalog?: DiscoveryTitle[]; // Enriched Netflix India Discovery catalogue
   discoveryMeta?: any; // Discovery last sync and catalog metadata
+  sqliteKnowledgeBase?: any[]; // Full SQLite enriched titles database table records (100 parameters + narrative intelligence)
 }
 
 export interface AnalyticsStats {

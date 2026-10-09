@@ -14,6 +14,71 @@ export interface SearchTrailerOptions {
   skipCache?: boolean;
   excludeVideoIds?: string[];
   alternativeOffset?: number;
+  regionalLanguage?: string;
+}
+
+/**
+ * Explicit disallowed patterns for official trailers.
+ * NEVER play reviews, critic reviews, reaction videos, explanations, fan edits, clips, or unrelated videos as trailers.
+ */
+export const NEGATIVE_TRAILER_PATTERNS = [
+  /\breviews?\b/i,
+  /\bcritics?\b/i,
+  /\breactions?\b/i,
+  /\bexplained\b/i,
+  /\bexplanation\b/i,
+  /\bending\s+explained\b/i,
+  /\bbreakdown\b/i,
+  /\beaster\s+eggs\b/i,
+  /\bscenes?\b/i,
+  /\bclips?\b/i,
+  /\ball\s+scenes\b/i,
+  /\bbest\s+scenes\b/i,
+  /\bfan\s*made\b/i,
+  /\bfan\s*edit\b/i,
+  /\bconcept\b/i,
+  /\bconcept\s+trailer\b/i,
+  /\bbehind\s+the\s+scenes\b/i,
+  /\bbts\b/i,
+  /\bblooper\b/i,
+  /\binterview\b/i,
+  /\broast\b/i,
+  /\bspoilers?\b/i,
+  /\bfull\s+movie\b/i,
+  /\bfull\s+episode\b/i,
+  /\bsongs?\b/i,
+  /\bjukebox\b/i,
+  /\baudio\s+track\b/i,
+  /\bost\b/i,
+  /\brecap\b/i,
+  /\bstory\s+recap\b/i,
+  /\bparody\b/i,
+  /\bbox\s+office\b/i,
+  /\bpublic\s+reaction\b/i,
+  /\baudience\s+reaction\b/i,
+  /\bfirst\s+look\s+review\b/i,
+  /\bhonest\s+review\b/i,
+  /\bmovie\s+talk\b/i,
+  /\bdiscussion\b/i,
+  /\bpodcast\b/i,
+  /\bteaser\s+breakdown\b/i,
+  /\btrailer\s+breakdown\b/i,
+  /\btrailer\s+reaction\b/i,
+];
+
+export function isDisallowedTrailerTitle(title: string): boolean {
+  if (!title) return true;
+  return NEGATIVE_TRAILER_PATTERNS.some((p) => p.test(title));
+}
+
+export function isValidOfficialTrailerCandidate(item: { title: string; uploaderName?: string }): boolean {
+  if (!item.title) return false;
+  // Disqualify any review, breakdown, clip, reaction, fan-edit, etc.
+  if (isDisallowedTrailerTitle(item.title)) return false;
+  // Must be an actual trailer or teaser
+  const hasTrailerMarker = /\b(trailer|teaser)\b/i.test(item.title);
+  if (!hasTrailerMarker) return false;
+  return true;
 }
 
 function isHindiMatch(title: string, desc?: string, channel?: string): boolean {
@@ -27,10 +92,19 @@ function isHindiMatch(title: string, desc?: string, channel?: string): boolean {
   );
 }
 
+function isRegionalMatch(title: string, langName: string, desc?: string, channel?: string): boolean {
+  const combined = `${title} ${desc || ''} ${channel || ''}`.toLowerCase();
+  return combined.includes(langName.toLowerCase());
+}
+
 /**
- * Search YouTube trailer with format:
- * [title] + hindi + [year] trailer
- * If no Hindi trailer is found, falls back to English/available trailer and marks isHindiFallback: true
+ * Search YouTube trailer adhering to strict selection priority:
+ * 1. Official trailer
+ * 2. Officially dubbed trailer, preferably Hindi when available
+ * 3. English official trailer
+ * 4. Official trailer in the appropriate regional language
+ *
+ * NEVER plays reviews, reaction videos, or clips.
  */
 export async function searchYouTubeTrailer(
   title: string,
@@ -44,97 +118,115 @@ export async function searchYouTubeTrailer(
   const excludeSet = new Set(options?.excludeVideoIds || []);
 
   // Check local cache if not skipping
-  if (!options?.skipCache) {
+  if (!options?.skipCache && excludeSet.size === 0) {
     const cached = (await getCachedMetadata(cacheKey)) as TrailerInfo | null;
-    if (cached && !excludeSet.has(cached.key)) {
+    if (cached && !excludeSet.has(cached.key) && !isDisallowedTrailerTitle(cached.name || '')) {
       return cached;
     }
   }
 
+  // Helper to test list of candidates against strict criteria
+  const findValidCandidate = (
+    candidates: RawCandidate[],
+    validator?: (item: RawCandidate) => boolean
+  ): RawCandidate | null => {
+    for (const item of candidates) {
+      if (excludeSet.has(item.videoId)) continue;
+      if (!isValidOfficialTrailerCandidate(item)) continue;
+      if (validator && !validator(item)) continue;
+      return item;
+    }
+    return null;
+  };
+
+  // 1. PRIORITY 1 & 2: Hindi official or officially dubbed trailer (if preferred)
   if (preferredLanguage === 'hi') {
-    // 1. Primary requested query: [movie/series name] + hindi + [year] + trailer
     const hindiQueries = [
-      `${cleanTitle} hindi ${year || ''} trailer`.replace(/\s+/g, ' ').trim(),
-      `${cleanTitle} hindi trailer`.replace(/\s+/g, ' ').trim(),
       `${cleanTitle} official hindi trailer`.replace(/\s+/g, ' ').trim(),
-      `${cleanTitle} netflix hindi trailer`.replace(/\s+/g, ' ').trim(),
+      `${cleanTitle} hindi trailer ${year || ''}`.replace(/\s+/g, ' ').trim(),
+      `${cleanTitle} hindi dubbed official trailer`.replace(/\s+/g, ' ').trim(),
+      `${cleanTitle} netflix india trailer`.replace(/\s+/g, ' ').trim(),
+      `${cleanTitle} hindi trailer`.replace(/\s+/g, ' ').trim(),
     ];
 
     for (const q of hindiQueries) {
       const candidates = await fetchSearchCandidates(q, excludeSet);
-      // Look for a verified Hindi candidate
-      for (const item of candidates) {
-        if (isHindiMatch(item.title, item.shortDescription, item.uploaderName)) {
-          const trailer: TrailerInfo = {
-            id: item.videoId,
-            key: item.videoId,
-            name: item.title || `${cleanTitle} Hindi Trailer`,
-            site: 'YouTube',
-            type: 'Trailer',
-            language: 'hi',
-            isOfficial: true,
-            isHindiFallback: false,
-          };
-          await setCachedMetadata(cacheKey, trailer);
-          return trailer;
-        }
-      }
-    }
-
-    // 2. If NO Hindi trailer was found, fallback to English / available trailer
-    const englishFallbackQueries = [
-      `${cleanTitle} ${year || ''} official trailer`.replace(/\s+/g, ' ').trim(),
-      `${cleanTitle} ${year || ''} trailer`.replace(/\s+/g, ' ').trim(),
-      `${cleanTitle} official trailer`.replace(/\s+/g, ' ').trim(),
-      `${cleanTitle} trailer`.replace(/\s+/g, ' ').trim(),
-    ];
-
-    for (const q of englishFallbackQueries) {
-      const candidates = await fetchSearchCandidates(q, excludeSet);
-      if (candidates.length > 0) {
-        const item = candidates[0];
+      const match = findValidCandidate(candidates, (item) =>
+        isHindiMatch(item.title, item.shortDescription, item.uploaderName)
+      );
+      if (match) {
         const trailer: TrailerInfo = {
-          id: item.videoId,
-          key: item.videoId,
-          name: item.title || `${cleanTitle} Trailer`,
+          id: match.videoId,
+          key: match.videoId,
+          name: match.title || `${cleanTitle} Hindi Trailer`,
           site: 'YouTube',
           type: 'Trailer',
-          language: 'en',
-          isOfficial: true,
-          isHindiFallback: true, // Signals UI to show 1-second "Hindi trailer not found" message
-        };
-        return trailer;
-      }
-    }
-  } else {
-    // Preferred English
-    const englishQueries = [
-      `${cleanTitle} ${year || ''} official trailer`.replace(/\s+/g, ' ').trim(),
-      `${cleanTitle} ${year || ''} trailer`.replace(/\s+/g, ' ').trim(),
-      `${cleanTitle} ${mediaType === 'tv' ? 'series' : 'movie'} official trailer`.replace(/\s+/g, ' ').trim(),
-      `${cleanTitle} official trailer`.replace(/\s+/g, ' ').trim(),
-    ];
-
-    for (const q of englishQueries) {
-      const candidates = await fetchSearchCandidates(q, excludeSet);
-      if (candidates.length > 0) {
-        const item = candidates[0];
-        const trailer: TrailerInfo = {
-          id: item.videoId,
-          key: item.videoId,
-          name: item.title || `${cleanTitle} Trailer`,
-          site: 'YouTube',
-          type: 'Trailer',
-          language: 'en',
+          language: 'hi',
           isOfficial: true,
           isHindiFallback: false,
         };
-        await setCachedMetadata(cacheKey, trailer);
+        if (excludeSet.size === 0) await setCachedMetadata(cacheKey, trailer);
         return trailer;
       }
     }
   }
 
+  // 2. PRIORITY 3: English official trailer
+  const englishQueries = [
+    `${cleanTitle} ${year || ''} official trailer`.replace(/\s+/g, ' ').trim(),
+    `${cleanTitle} official trailer`.replace(/\s+/g, ' ').trim(),
+    `${cleanTitle} netflix trailer`.replace(/\s+/g, ' ').trim(),
+    `${cleanTitle} trailer`.replace(/\s+/g, ' ').trim(),
+  ];
+
+  for (const q of englishQueries) {
+    const candidates = await fetchSearchCandidates(q, excludeSet);
+    const match = findValidCandidate(candidates);
+    if (match) {
+      const trailer: TrailerInfo = {
+        id: match.videoId,
+        key: match.videoId,
+        name: match.title || `${cleanTitle} Trailer`,
+        site: 'YouTube',
+        type: 'Trailer',
+        language: 'en',
+        isOfficial: true,
+        isHindiFallback: preferredLanguage === 'hi', // Signals UI: Hindi trailer wasn't found, falling back to English
+      };
+      if (excludeSet.size === 0 && preferredLanguage !== 'hi') {
+        await setCachedMetadata(cacheKey, trailer);
+      }
+      return trailer;
+    }
+  }
+
+  // 3. PRIORITY 4: Regional Language Official Trailer
+  const regionalLangs = options?.regionalLanguage
+    ? [options.regionalLanguage]
+    : ['tamil', 'telugu', 'malayalam', 'kannada', 'bengali', 'marathi'];
+
+  for (const regLang of regionalLangs) {
+    const regQuery = `${cleanTitle} ${regLang} official trailer`.replace(/\s+/g, ' ').trim();
+    const candidates = await fetchSearchCandidates(regQuery, excludeSet);
+    const match = findValidCandidate(candidates, (item) =>
+      isRegionalMatch(item.title, regLang, item.shortDescription, item.uploaderName)
+    );
+    if (match) {
+      const trailer: TrailerInfo = {
+        id: match.videoId,
+        key: match.videoId,
+        name: match.title || `${cleanTitle} ${regLang} Trailer`,
+        site: 'YouTube',
+        type: 'Trailer',
+        language: 'other',
+        isOfficial: true,
+        isHindiFallback: true,
+      };
+      return trailer;
+    }
+  }
+
+  // If no valid official trailer exists at all, return null gracefully (never return a review or clip)
   return null;
 }
 

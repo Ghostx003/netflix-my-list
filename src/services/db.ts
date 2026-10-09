@@ -2,7 +2,7 @@ import { openDB, IDBPDatabase } from 'idb';
 import { AppSettings, LibraryItem, DiscoveryTitle } from '../types';
 
 const DB_NAME = 'NetflixWatchlistDB';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 export const DEFAULT_SETTINGS: AppSettings = {
   tmdbApiKey: 'ec3ae1f9fde58cd94e4297c4cb3b77de',
@@ -54,6 +54,9 @@ function getDB() {
         }
         if (!db.objectStoreNames.contains('netty_conversations')) {
           db.createObjectStore('netty_conversations', { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains('removed_catalog')) {
+          db.createObjectStore('removed_catalog', { keyPath: 'id' });
         }
       },
     });
@@ -342,6 +345,40 @@ export async function saveDiscoveryTitles(titles: DiscoveryTitle[]): Promise<voi
   }
 }
 
+export async function replaceDiscoveryCatalog(titles: DiscoveryTitle[]): Promise<void> {
+  try {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains('discovery_catalog')) return;
+    const tx = db.transaction('discovery_catalog', 'readwrite');
+    await tx.store.clear();
+    for (const title of titles) {
+      if (title && title.id) {
+        await tx.store.put(title);
+      }
+    }
+    await tx.done;
+  } catch (err) {
+    console.error('Failed to replace discovery catalog in IDB:', err);
+  }
+}
+
+export async function deleteDiscoveryTitles(ids: string[]): Promise<void> {
+  if (!ids || ids.length === 0) return;
+  try {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains('discovery_catalog')) return;
+    const tx = db.transaction('discovery_catalog', 'readwrite');
+    for (const id of ids) {
+      if (id) {
+        await tx.store.delete(id);
+      }
+    }
+    await tx.done;
+  } catch (err) {
+    console.error('Failed to delete discovery titles from IDB:', err);
+  }
+}
+
 export async function updateDiscoveryTitle(title: DiscoveryTitle): Promise<void> {
   if (!title || !title.id) return;
   try {
@@ -350,6 +387,60 @@ export async function updateDiscoveryTitle(title: DiscoveryTitle): Promise<void>
     await db.put('discovery_catalog', title);
   } catch (err) {
     console.error('Failed to update discovery title in IDB:', err);
+  }
+}
+
+// Removed Discovery Titles Registry (tracks titles confirmed not on Netflix India)
+export async function getRemovedDiscoveryTitles(): Promise<DiscoveryTitle[]> {
+  try {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains('removed_catalog')) {
+      const raw = localStorage.getItem('netflix_removed_titles');
+      return raw ? JSON.parse(raw) : [];
+    }
+    const titles = await db.getAll('removed_catalog');
+    if (titles && titles.length > 0) return titles;
+    const raw = localStorage.getItem('netflix_removed_titles');
+    return raw ? JSON.parse(raw) : [];
+  } catch (err) {
+    const raw = localStorage.getItem('netflix_removed_titles');
+    return raw ? JSON.parse(raw) : [];
+  }
+}
+
+export async function saveRemovedDiscoveryTitles(titles: DiscoveryTitle[]): Promise<void> {
+  if (!titles || titles.length === 0) return;
+  try {
+    const db = await getDB();
+    if (db.objectStoreNames.contains('removed_catalog')) {
+      const tx = db.transaction('removed_catalog', 'readwrite');
+      for (const t of titles) {
+        if (t && t.id) await tx.store.put(t);
+      }
+      await tx.done;
+    }
+    // Also save in localStorage as safe fallback
+    const existing = await getRemovedDiscoveryTitles();
+    const map = new Map<string, DiscoveryTitle>();
+    existing.forEach((x) => map.set(x.id, x));
+    titles.forEach((x) => map.set(x.id, x));
+    localStorage.setItem('netflix_removed_titles', JSON.stringify(Array.from(map.values()).slice(0, 1500)));
+  } catch (err) {
+    console.warn('Failed saving removed titles:', err);
+  }
+}
+
+export async function clearRemovedDiscoveryTitles(): Promise<void> {
+  try {
+    const db = await getDB();
+    if (db.objectStoreNames.contains('removed_catalog')) {
+      const tx = db.transaction('removed_catalog', 'readwrite');
+      await tx.store.clear();
+      await tx.done;
+    }
+    localStorage.removeItem('netflix_removed_titles');
+  } catch (err) {
+    console.warn('Failed clearing removed titles:', err);
   }
 }
 

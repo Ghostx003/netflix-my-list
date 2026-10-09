@@ -34,21 +34,45 @@ export async function rankAndExplainWithQwen(
     user_top_genres: userProfile.topGenres,
     user_top_themes: userProfile.topThemes,
     custom_requests: customRequests,
-    candidate_titles: subsetToRank.map((c) => ({
-      id: String(c.item.id),
-      title: c.item.title,
-      genres: c.item.genres,
-      themes: c.item.themes,
-      synopsis: (c.item.synopsis || '').slice(0, 140),
-      current_score: c.score,
-    })),
+    candidate_titles: subsetToRank.map((c) => {
+      const salientParams = Object.entries(c.item.parameters_100 || {})
+        .filter(([_, v]) => typeof v === 'number' && v >= 0.55)
+        .sort((a, b) => (b[1] as number) - (a[1] as number))
+        .slice(0, 5)
+        .map(([k, v]) => `${k.replace(/_/g, ' ')} (${Math.round((v as number) * 100)}%)`);
+
+      return {
+        id: String(c.item.id),
+        title: c.item.title,
+        year: c.item.releaseYear,
+        media_type: c.item.mediaType,
+        genres: c.item.genres,
+        themes: c.item.themes,
+        moods: c.item.moods,
+        story_pace: c.item.storyPace,
+        ending_type: c.item.endingType,
+        setting: c.item.settingEnvironment,
+        time_period: c.item.timePeriod,
+        audience_vibe: c.item.audienceVibe,
+        narrative_archetypes: c.item.narrativeArchetypes,
+        top_narrative_dimensions: salientParams.length > 0 ? salientParams : undefined,
+        synopsis: (c.item.synopsis || '').slice(0, 180),
+        current_score: c.score,
+      };
+    }),
   };
 
   try {
-    const prompt = `SYSTEM: You are a Netflix recommendation reasoning engine.
-Your job is to evaluate and re-rank the provided candidate movies/TV shows based on the user's specific custom requests and taste profile.
-DO NOT invent titles. DO NOT invent IDs. You MUST ONLY use IDs from the candidate list.
-Prioritize narrative relevance to the user's custom requests over generic popularity.
+    const prompt = `SYSTEM: You are Qwen 28B, the Netflix India Deep Recommendation Reasoning Engine.
+You evaluate candidate movies and series enriched from our 100-parameter SQLite Knowledge Base.
+Each title contains verified narrative dimensions: story_pace, ending_type, setting, audience_vibe, narrative_archetypes, and top_narrative_dimensions.
+
+Your mission:
+1. Re-rank candidate titles to best satisfy the user's specific requests and taste profile by matching story DNA, emotional tone, and narrative dynamics (not just surface-level genre tags).
+2. DO NOT invent titles or IDs. ONLY use IDs from the candidate list.
+3. Assign a score between 0.00 and 1.00 based on deep narrative relevance.
+4. For each recommended title, generate a punchy, insightful reason (max 18 words) explaining the story alignment (e.g., "Relentless thriller pace with a twist ending matching your craving for high stakes").
+5. List key matched preference dimensions in matched_preferences.
 
 Return strictly raw JSON conforming to this schema:
 {

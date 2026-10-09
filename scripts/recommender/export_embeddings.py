@@ -52,6 +52,11 @@ def export_binary_embeddings(
             "genres": item.get("genres", []),
             "mood_tags": item.get("mood_tags") or item.get("moodTags", []),
             "themes": item.get("themes") or item.get("tags", []),
+            "story_pace": item.get("story_pace"),
+            "ending_type": item.get("ending_type"),
+            "setting": item.get("setting_environment"),
+            "time_period": item.get("time_period"),
+            "audience_vibe": item.get("audience_vibe"),
             "imdb_rating": imdb,
             "imdb_votes": votes,
             "bayesian_quality_score": round(calculate_bayesian_quality(imdb, votes), 3),
@@ -74,9 +79,10 @@ def load_catalogue_from_sqlite(db_path: str = "scripts/enrichment/netflix_knowle
     cursor = conn.cursor()
     cursor.execute("""
         SELECT id, title, release_year, media_type, primary_genre, secondary_genres,
-               moods, themes, synopsis, action_intensity, comedy_intensity,
-               romance_intensity, horror_intensity, thriller_intensity, darkness_bleakness,
-               heartwarming_level
+               moods, themes, synopsis, story_pace, ending_type, time_period,
+               setting_environment, audience_vibe, param_action, param_comedy,
+               param_romance, param_horror, param_thriller, param_darkness_bleakness,
+               param_heartwarming
         FROM enriched_titles
     """)
     rows = cursor.fetchall()
@@ -110,15 +116,20 @@ def load_catalogue_from_sqlite(db_path: str = "scripts/enrichment/netflix_knowle
             "mood_tags": moods,
             "themes": themes,
             "synopsis": r[8] or "",
+            "story_pace": r[9],
+            "ending_type": r[10],
+            "time_period": r[11],
+            "setting_environment": r[12],
+            "audience_vibe": r[13],
             "imdb_rating": 7.5,
             "imdb_votes": 50000,
-            "action_intensity": r[9],
-            "comedy_intensity": r[10],
-            "romance_intensity": r[11],
-            "horror_intensity": r[12],
-            "thriller_intensity": r[13],
-            "darkness_bleakness": r[14],
-            "heartwarming_level": r[15],
+            "action_intensity": r[14],
+            "comedy_intensity": r[15],
+            "romance_intensity": r[16],
+            "horror_intensity": r[17],
+            "thriller_intensity": r[18],
+            "darkness_bleakness": r[19],
+            "heartwarming_level": r[20],
         })
     return catalogue
 

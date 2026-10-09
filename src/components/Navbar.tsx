@@ -1,5 +1,5 @@
 import React from 'react';
-import { Film, Tv, BarChart3, UploadCloud, Settings as SettingsIcon, RefreshCw, CheckSquare, Info, Compass, Play, Sparkles, Search } from 'lucide-react';
+import { Film, Tv, BarChart3, UploadCloud, Settings as SettingsIcon, RefreshCw, CheckSquare, Info, Compass, Play, Sparkles, Search, Database, Download } from 'lucide-react';
 import { AppSettings, LibraryItem } from '../types';
 import { openNetflixInNewTab } from '../services/normalizer';
 
@@ -49,24 +49,19 @@ export const Navbar: React.FC<NavbarProps> = ({
         <header className="sticky top-0 z-40 bg-[#141414]/95 backdrop-blur-xl border-b border-white/10 transition-all">
           {/* Row 1: Brand + Action Buttons */}
           <div className="px-3 sm:px-6 lg:px-10 xl:px-14 py-2 flex items-center justify-between gap-3">
-            {/* Brand - Opens Unwatched Movies & Series */}
+            {/* Brand - Opens Recommendations */}
             <div
               onClick={() => {
                 const url = new URL(window.location.href);
-                url.searchParams.set('status', 'unwatched');
-                url.searchParams.set('dStatus', 'unwatched');
+                url.searchParams.delete('tab');
                 window.history.pushState({}, '', url.toString());
-                window.dispatchEvent(new PopStateEvent('popstate'));
-                setActiveTab('movies-series');
+                setActiveTab('recommendations');
               }}
               className="flex items-center gap-2 flex-shrink-0 cursor-pointer select-none group"
-              title="Open Unwatched Movies & Series"
+              title="Netflix Recommendations"
             >
               <span className="text-[#E50914] font-black text-xl sm:text-2xl tracking-tighter uppercase font-sans drop-shadow-sm group-hover:scale-105 transition-transform">
                 Netflix
-              </span>
-              <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider bg-white/10 group-hover:bg-white/20 px-2 py-0.5 rounded-md text-gray-300 border border-white/5 whitespace-nowrap transition-colors">
-                Watchlist
               </span>
             </div>
 
@@ -156,20 +151,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </button>
 
-            <button
-              onClick={() => setActiveTab('recommendations')}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-medium transition-all whitespace-nowrap ${
-                activeTab === 'recommendations'
-                  ? 'bg-[#E50914] text-white shadow-lg shadow-red-600/30 font-semibold'
-                  : 'text-gray-400 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5 text-[#E50914]" />
-              <span>Recommendations</span>
-              <span className="ml-0.5 text-[9px] px-1 py-0.1 bg-red-500/20 text-red-300 rounded-full font-bold">
-                AI
-              </span>
-            </button>
 
             <button
               onClick={() => setActiveTab('discovery')}
@@ -232,13 +213,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
+            {/* 1-Click Export & Backup Button */}
             <button
               onClick={onOpenBackup}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-gray-200 border border-white/10 transition-colors text-xs font-semibold whitespace-nowrap"
-              title="Backup & Restore Database"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 hover:border-emerald-400 transition-all text-xs font-bold whitespace-nowrap shadow-sm shadow-emerald-950/40 cursor-pointer"
+              title="Export database, enriched plots & library backup"
             >
-              <UploadCloud className="w-3.5 h-3.5 text-blue-400" />
-              <span className="hidden sm:inline">Backup</span>
+              <Download className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="hidden sm:inline">Export</span>
             </button>
 
             <button
@@ -255,6 +237,14 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Row 2: Scrollable nav pills on non-xl screens */}
         <div className="xl:hidden border-t border-white/5 overflow-x-auto scrollbar-none">
           <nav className="flex items-center gap-1 px-3 py-1.5 min-w-max">
+            <button
+              onClick={onOpenBackup}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-600/30 transition-all whitespace-nowrap cursor-pointer shadow-sm"
+              title="Export database & library"
+            >
+              <Download className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Export</span>
+            </button>
             <button
               type="button"
               onClick={onOpenGlobalSearch}
@@ -455,18 +445,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
         </button>
 
-        <button
-          onClick={() => setActiveTab('recommendations')}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all relative ${
-            activeTab === 'recommendations' ? 'text-[#E50914] font-bold' : 'text-zinc-400 hover:text-white'
-          }`}
-        >
-          <Sparkles className={`w-5 h-5 mb-0.5 ${activeTab === 'recommendations' ? 'stroke-[2.5]' : 'stroke-2'}`} />
-          <span className="text-[10px] tracking-tight">For You</span>
-          {activeTab === 'recommendations' && (
-            <span className="absolute -bottom-1 w-4 h-0.5 bg-[#E50914] rounded-full" />
-          )}
-        </button>
 
         <button
           onClick={() => setActiveTab('discovery')}

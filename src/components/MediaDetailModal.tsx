@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { X, Star, Clock, Calendar, Film, Tv, Play, ExternalLink, Sparkles, Layers, Video, ChevronDown, ChevronUp, Volume2, Loader2, Clapperboard, User, Globe, ChevronLeft, Bookmark, Check, RotateCcw, Search } from 'lucide-react';
 import { AppSettings, LibraryItem, EpisodeInfo, TrailerInfo, DiscoveryTitle } from '../types';
 import { formatRuntime, calculateSeriesRuntime } from '../services/analytics';
-import { getNetflixUrl, normalizeCountryName, getPriorityLanguageBadge, itemHasLanguage, openNetflixInNewTab } from '../services/normalizer';
+import { getNetflixUrl, normalizeCountryName, getPriorityLanguageBadge, itemHasLanguage, openNetflixInNewTab, isNetflixIndiaAvailable } from '../services/normalizer';
 import { searchYouTubeTrailer, searchYouTubeReview, searchYouTubeByKeywords } from '../services/youtubeTrailer';
 import { getAllDiscoveryTitles, getAllLibraryItems, saveLibraryItems } from '../services/db';
 import { convertDiscoveryTitleToLibraryItem, resolveNetflixIdForTitle } from '../services/discoveryService';
@@ -177,6 +177,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     if (!selectedCastMember) return [];
     const searchName = selectedCastMember.toLowerCase().trim();
     return discoveryCatalog.filter((t) =>
+      isNetflixIndiaAvailable(t) &&
       t.cast?.some((actor) => actor.toLowerCase().includes(searchName))
     );
   }, [selectedCastMember, discoveryCatalog]);
@@ -186,6 +187,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     if (!selectedDirector) return [];
     const searchName = selectedDirector.toLowerCase().trim();
     return discoveryCatalog.filter((t) =>
+      isNetflixIndiaAvailable(t) &&
       t.director?.toLowerCase().includes(searchName)
     );
   }, [selectedDirector, discoveryCatalog]);
@@ -195,7 +197,8 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
     if (!selectedCreator) return [];
     const searchName = selectedCreator.toLowerCase().trim();
     return discoveryCatalog.filter((t) =>
-      t.creator?.toLowerCase().includes(searchName) || t.director?.toLowerCase().includes(searchName)
+      isNetflixIndiaAvailable(t) &&
+      (t.creator?.toLowerCase().includes(searchName) || t.director?.toLowerCase().includes(searchName))
     );
   }, [selectedCreator, discoveryCatalog]);
 
@@ -349,6 +352,54 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
       });
   };
 
+  // Next trailer handler: searches next valid official trailer, skipping already used ones
+  const handleNextTrailer = () => {
+    if (!item) return;
+    if (mediaMode === 'review') {
+      handleFetchReview(true);
+      return;
+    }
+
+    const currentKey = activeTrailer?.key;
+    const updatedUsed = currentKey ? [...wrongTrailerKeys, currentKey] : wrongTrailerKeys;
+    if (currentKey) {
+      setWrongTrailerKeys(updatedUsed);
+    }
+
+    setIsSearchingTrailer(true);
+    setActiveTrailer(null);
+
+    searchYouTubeTrailer(displayTitle, item.releaseYear, item.mediaType, trailerLang, {
+      skipCache: true,
+      excludeVideoIds: updatedUsed,
+    })
+      .then((foundTrailer) => {
+        setIsSearchingTrailer(false);
+        if (foundTrailer) {
+          setActiveTrailer(foundTrailer);
+          if (trailerLang === 'hi' && foundTrailer.isHindiFallback) {
+            triggerAlert('Hindi trailer not found, playing available trailer');
+          } else {
+            triggerAlert(`Playing next trailer: ${foundTrailer.name}`, 1500);
+          }
+          if (onUpdateItem) {
+            onUpdateItem({
+              ...item,
+              trailer: foundTrailer,
+              updatedAt: new Date().toISOString(),
+            });
+          }
+        } else {
+          setActiveTrailer(item.trailer && !updatedUsed.includes(item.trailer.key) ? item.trailer : null);
+          triggerAlert('No additional valid trailer is available', 2500);
+        }
+      })
+      .catch(() => {
+        setIsSearchingTrailer(false);
+        triggerAlert('No additional valid trailer is available', 2500);
+      });
+  };
+
   // Custom keyword search handler: searches exact user keywords and plays result directly in app iframe
   const handleCustomKeywordSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -482,7 +533,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
             <div className="relative w-full h-full">
               <iframe
                 id="media-detail-trailer-iframe"
-                src={`https://www.youtube-nocookie.com/embed/${activeTrailer.key}?autoplay=1&mute=0&controls=1&rel=0&modestbranding=1&enablejsapi=1&vq=hd1080&hd=1`}
+                src={`https://www.youtube-nocookie.com/embed/${activeTrailer.key}?autoplay=1&mute=1&controls=1&rel=0&modestbranding=1&enablejsapi=1&vq=hd1080&hd=1`}
                 title={activeTrailer.name || `${displayTitle} Trailer`}
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
@@ -676,6 +727,20 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                   <RotateCcw className={`w-3 h-3 ${isSearchingTrailer ? 'animate-spin' : ''}`} />
                   <span>{mediaMode === 'review' ? 'Next review' : 'Wrong trailer?'}</span>
                 </button>
+
+                {/* Next Trailer Button */}
+                {mediaMode === 'trailer' && (
+                  <button
+                    type="button"
+                    onClick={handleNextTrailer}
+                    disabled={isSearchingTrailer}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/60 text-[10px] sm:text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+                    title="Skip to next valid official trailer for this title"
+                  >
+                    <Play className="w-3 h-3 fill-current text-amber-400" />
+                    <span>Next Trailer</span>
+                  </button>
+                )}
 
                 {/* Small search icon button to search exact keywords directly in app player */}
                 {isSearchOpen ? (

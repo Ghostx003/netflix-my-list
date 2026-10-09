@@ -19,10 +19,11 @@ import {
   ChevronUp,
   RotateCcw,
   Search,
+  Compass,
 } from 'lucide-react';
 import { AppSettings, DiscoveryTitle, EpisodeInfo, TrailerInfo, LibraryItem } from '../types';
 import { formatRuntime } from '../services/analytics';
-import { getNetflixUrl, getPriorityLanguageBadge, openNetflixInNewTab } from '../services/normalizer';
+import { getNetflixUrl, getPriorityLanguageBadge, openNetflixInNewTab, isNetflixIndiaAvailable } from '../services/normalizer';
 import { searchYouTubeTrailer, searchYouTubeReview, searchYouTubeByKeywords } from '../services/youtubeTrailer';
 import { findLocalSimilarTitles } from '../services/discoverySimilarity';
 import { CachedImage } from './CachedImage';
@@ -41,6 +42,7 @@ interface DiscoveryDetailModalProps {
   onAddToLibrary: (item: DiscoveryTitle) => void;
   onStartWatching: (item: DiscoveryTitle) => void;
   onGoToLibrary?: (item: DiscoveryTitle) => void;
+  onGoToDiscovery?: (item: DiscoveryTitle) => void;
   isInLibrary: (item: DiscoveryTitle) => boolean;
   settings: AppSettings;
   libraryItems?: LibraryItem[];
@@ -56,6 +58,7 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
   onAddToLibrary,
   onStartWatching,
   onGoToLibrary,
+  onGoToDiscovery,
   isInLibrary,
   settings,
   libraryItems,
@@ -261,6 +264,46 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
       });
   };
 
+  // Next trailer handler: searches next valid official trailer, skipping already used ones
+  const handleNextTrailer = () => {
+    if (mediaMode === 'review') {
+      handleFetchReview(true);
+      return;
+    }
+
+    const currentKey = activeTrailer?.key;
+    const updatedUsed = currentKey ? [...wrongTrailerKeys, currentKey] : wrongTrailerKeys;
+    if (currentKey) {
+      setWrongTrailerKeys(updatedUsed);
+    }
+
+    setIsSearchingTrailer(true);
+    setActiveTrailer(null);
+
+    searchYouTubeTrailer(displayTitle, currentTitle.releaseYear, currentTitle.mediaType, trailerLang, {
+      skipCache: true,
+      excludeVideoIds: updatedUsed,
+    })
+      .then((found) => {
+        setIsSearchingTrailer(false);
+        if (found) {
+          setActiveTrailer(found);
+          if (trailerLang === 'hi' && found.isHindiFallback) {
+            triggerAlert('Hindi trailer not found, playing available trailer');
+          } else {
+            triggerAlert(`Playing next trailer: ${found.name}`, 1500);
+          }
+        } else {
+          setActiveTrailer(currentTitle.trailer && !updatedUsed.includes(currentTitle.trailer.key) ? currentTitle.trailer : null);
+          triggerAlert('No additional valid trailer is available', 2500);
+        }
+      })
+      .catch(() => {
+        setIsSearchingTrailer(false);
+        triggerAlert('No additional valid trailer is available', 2500);
+      });
+  };
+
   // Custom keyword search handler: searches exact user keywords and plays result directly in app iframe
   const handleCustomKeywordSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -351,19 +394,21 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
   // Compute "Movies & TV Shows Like This" (Upgraded similarity scoring using themes, genres, ratings, excluding watched/dropped/watching/ignored)
   const localSimilarTitles = useMemo(() => {
     return findLocalSimilarTitles(currentTitle, catalog, {
-      limit: 6,
+      limit: 36,
       libraryItems,
       ignoredTitleIds,
     });
   }, [currentTitle, catalog, libraryItems, ignoredTitleIds]);
 
-  // Compute "TMDB Recommendations" (Filtered strictly against existing local catalog titles)
+  // Compute "TMDB Recommendations" (Filtered strictly against existing local catalog titles and verified on Netflix India)
   const tmdbRecommendationTitles = useMemo(() => {
     if (!currentTitle.tmdbRecommendationIds || currentTitle.tmdbRecommendationIds.length === 0) {
       return [];
     }
     const recIdSet = new Set(currentTitle.tmdbRecommendationIds);
-    return catalog.filter((t) => t.id !== currentTitle.id && t.tmdbId && recIdSet.has(t.tmdbId)).slice(0, 6);
+    return catalog
+      .filter((t) => t.id !== currentTitle.id && t.tmdbId && recIdSet.has(t.tmdbId) && isNetflixIndiaAvailable(t))
+      .slice(0, 36);
   }, [currentTitle, catalog]);
 
   // Compute other catalog titles for selected cast member
@@ -371,6 +416,7 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
     if (!selectedCastMember) return [];
     const searchName = selectedCastMember.toLowerCase().trim();
     return catalog.filter((t) =>
+      isNetflixIndiaAvailable(t) &&
       t.cast?.some((actor) => actor.toLowerCase().includes(searchName))
     );
   }, [selectedCastMember, catalog]);
@@ -380,6 +426,7 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
     if (!selectedDirector) return [];
     const searchName = selectedDirector.toLowerCase().trim();
     return catalog.filter((t) =>
+      isNetflixIndiaAvailable(t) &&
       t.director?.toLowerCase().includes(searchName)
     );
   }, [selectedDirector, catalog]);
@@ -389,7 +436,8 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
     if (!selectedCreator) return [];
     const searchName = selectedCreator.toLowerCase().trim();
     return catalog.filter((t) =>
-      t.creator?.toLowerCase().includes(searchName) || t.director?.toLowerCase().includes(searchName)
+      isNetflixIndiaAvailable(t) &&
+      (t.creator?.toLowerCase().includes(searchName) || t.director?.toLowerCase().includes(searchName))
     );
   }, [selectedCreator, catalog]);
 
@@ -459,7 +507,7 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
           {activeTrailer ? (
             <iframe
               id="discovery-detail-trailer-iframe"
-              src={`https://www.youtube-nocookie.com/embed/${activeTrailer.key}?autoplay=1&mute=0&controls=1&rel=0&modestbranding=1&enablejsapi=1&vq=hd1080&hd=1`}
+              src={`https://www.youtube-nocookie.com/embed/${activeTrailer.key}?autoplay=1&mute=1&controls=1&rel=0&modestbranding=1&enablejsapi=1&vq=hd1080&hd=1`}
               title={activeTrailer.name || `${displayTitle} Trailer`}
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen
@@ -618,6 +666,20 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                 <span>{mediaMode === 'review' ? 'Next review' : 'Wrong trailer?'}</span>
               </button>
 
+              {/* Next Trailer Button */}
+              {mediaMode === 'trailer' && (
+                <button
+                  type="button"
+                  onClick={handleNextTrailer}
+                  disabled={isSearchingTrailer}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/60 text-[10px] sm:text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+                  title="Skip to next valid official trailer for this title"
+                >
+                  <Play className="w-3 h-3 fill-current text-amber-400" />
+                  <span>Next Trailer</span>
+                </button>
+              )}
+
               {/* Small search icon button to search exact keywords directly in app player */}
               {isSearchOpen ? (
                 <form
@@ -730,6 +792,18 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
               >
                 {inLib ? '✓ In Library' : '+ Add to Library'}
               </button>
+
+              {onGoToDiscovery && (
+                <button
+                  type="button"
+                  onClick={() => onGoToDiscovery(currentTitle)}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-white/10 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-all whitespace-nowrap active:scale-95 cursor-pointer"
+                  title="View this title in Discovery Catalogue"
+                >
+                  <Compass className="w-3.5 h-3.5 text-red-500" />
+                  <span>Discovery</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -1171,7 +1245,7 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                 </h3>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              <div className="flex gap-3 overflow-x-auto pb-3 pt-1 scrollbar-thin scrollbar-thumb-zinc-700">
                 {localSimilarTitles.map(({ item: simItem, matchPercentage }) => {
                   const simIsMovie = simItem.mediaType === 'movie';
                   const simLangBadge = getPriorityLanguageBadge({
@@ -1190,7 +1264,7 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                     <div
                       key={simItem.id}
                       onClick={() => handleSelectSimilarTitle(simItem)}
-                      className="group cursor-pointer bg-zinc-900/90 hover:bg-zinc-850 rounded-xl overflow-hidden border border-white/5 hover:border-red-600/50 transition-all shadow-md hover:-translate-y-1 flex flex-col"
+                      className="w-[210px] sm:w-[230px] flex-shrink-0 group cursor-pointer bg-zinc-900/90 hover:bg-zinc-850 rounded-xl overflow-hidden border border-white/5 hover:border-red-600/50 transition-all shadow-md hover:-translate-y-1 flex flex-col"
                     >
                       {/* Thumbnail with Match %, Ratings, and Language */}
                       <div className="relative aspect-[16/10] w-full bg-zinc-800 overflow-hidden">
@@ -1310,7 +1384,7 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                 </h3>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+              <div className="flex gap-3 overflow-x-auto pb-3 pt-1 scrollbar-thin scrollbar-thumb-zinc-700">
                 {tmdbRecommendationTitles.map((recItem) => {
                   const recIsMovie = recItem.mediaType === 'movie';
                   const recDisplayRuntime = recIsMovie
@@ -1321,7 +1395,7 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                     <div
                       key={recItem.id}
                       onClick={() => handleSelectSimilarTitle(recItem)}
-                      className="group cursor-pointer bg-zinc-900 rounded-xl overflow-hidden border border-white/5 hover:border-blue-500/50 transition-all shadow-md hover:-translate-y-1 flex flex-col"
+                      className="w-[140px] sm:w-[155px] flex-shrink-0 group cursor-pointer bg-zinc-900 rounded-xl overflow-hidden border border-white/5 hover:border-blue-500/50 transition-all shadow-md hover:-translate-y-1 flex flex-col"
                     >
                       <div className="relative aspect-[2/3] w-full bg-zinc-800">
                         <CachedImage

@@ -26,54 +26,110 @@ export interface TMDBMatchCandidate {
   popularity: number;
 }
 
-// Prioritize Hindi trailer first, then English trailer, then any available trailer
-export function selectBestTrailer(videos: any[]): TrailerInfo | undefined {
+import { isDisallowedTrailerTitle } from './youtubeTrailer';
+
+// Prioritize Official Hindi trailer, then English official trailer, then regional official trailer
+export function selectBestTrailer(videos: any[], excludeKeys: string[] = []): TrailerInfo | undefined {
   if (!videos || videos.length === 0) return undefined;
+  const excludeSet = new Set(excludeKeys);
 
   const validTrailers = videos.filter(
-    (v: any) => v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser' || v.type === 'Clip' || v.type === 'Opening Credits')
+    (v: any) =>
+      v.site === 'YouTube' &&
+      (v.type === 'Trailer' || v.type === 'Teaser') &&
+      !excludeSet.has(v.key) &&
+      !isDisallowedTrailerTitle(v.name || '')
   );
   if (validTrailers.length === 0) return undefined;
 
-  // 1. Check Hindi trailer (by language code, name keyword, or title match)
-  const hindiTrailer = validTrailers.find(
+  // 1. Official Hindi trailer
+  const officialHindi = validTrailers.find(
     (v: any) =>
-      v.iso_639_1?.toLowerCase() === 'hi' ||
-      /\bhindi\b/i.test(v.name || '')
+      v.official &&
+      (v.iso_639_1?.toLowerCase() === 'hi' || /\bhindi\b/i.test(v.name || ''))
   );
-  if (hindiTrailer) {
+  if (officialHindi) {
     return {
-      id: hindiTrailer.id,
-      key: hindiTrailer.key,
-      name: hindiTrailer.name,
-      site: hindiTrailer.site,
-      type: hindiTrailer.type,
+      id: officialHindi.id,
+      key: officialHindi.key,
+      name: officialHindi.name,
+      site: officialHindi.site,
+      type: officialHindi.type,
       language: 'hi',
-      isOfficial: hindiTrailer.official,
+      isOfficial: true,
     };
   }
 
-  // 2. Check English trailer / teaser
-  const englishTrailers = validTrailers.filter(
-    (v: any) => v.iso_639_1?.toLowerCase() === 'en' || !v.iso_639_1
+  // 2. Any Hindi trailer
+  const anyHindi = validTrailers.find(
+    (v: any) =>
+      v.iso_639_1?.toLowerCase() === 'hi' || /\bhindi\b/i.test(v.name || '')
   );
-  if (englishTrailers.length > 0) {
-    const officialTrailer = englishTrailers.find((v: any) => v.official && v.type === 'Trailer');
-    const anyTrailer = englishTrailers.find((v: any) => v.type === 'Trailer');
-    const selected = officialTrailer || anyTrailer || englishTrailers[0];
+  if (anyHindi) {
     return {
-      id: selected.id,
-      key: selected.key,
-      name: selected.name,
-      site: selected.site,
-      type: selected.type,
-      language: 'en',
-      isOfficial: selected.official,
+      id: anyHindi.id,
+      key: anyHindi.key,
+      name: anyHindi.name,
+      site: anyHindi.site,
+      type: anyHindi.type,
+      language: 'hi',
+      isOfficial: anyHindi.official,
     };
   }
 
-  // 3. Fallback to any available trailer
-  const fallback = validTrailers.find((v: any) => v.official) || validTrailers[0];
+  // 3. Official English trailer
+  const officialEnglish = validTrailers.find(
+    (v: any) =>
+      v.official &&
+      v.type === 'Trailer' &&
+      (v.iso_639_1?.toLowerCase() === 'en' || !v.iso_639_1)
+  );
+  if (officialEnglish) {
+    return {
+      id: officialEnglish.id,
+      key: officialEnglish.key,
+      name: officialEnglish.name,
+      site: officialEnglish.site,
+      type: officialEnglish.type,
+      language: 'en',
+      isOfficial: true,
+    };
+  }
+
+  // 4. Any English trailer
+  const anyEnglish = validTrailers.find(
+    (v: any) =>
+      (v.iso_639_1?.toLowerCase() === 'en' || !v.iso_639_1) &&
+      v.type === 'Trailer'
+  );
+  if (anyEnglish) {
+    return {
+      id: anyEnglish.id,
+      key: anyEnglish.key,
+      name: anyEnglish.name,
+      site: anyEnglish.site,
+      type: anyEnglish.type,
+      language: 'en',
+      isOfficial: anyEnglish.official,
+    };
+  }
+
+  // 5. Official regional or other language trailer
+  const officialOther = validTrailers.find((v: any) => v.official);
+  if (officialOther) {
+    return {
+      id: officialOther.id,
+      key: officialOther.key,
+      name: officialOther.name,
+      site: officialOther.site,
+      type: officialOther.type,
+      language: officialOther.iso_639_1 || 'other',
+      isOfficial: true,
+    };
+  }
+
+  // 6. Fallback to any valid trailer
+  const fallback = validTrailers[0];
   return {
     id: fallback.id,
     key: fallback.key,
