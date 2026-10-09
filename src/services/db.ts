@@ -328,6 +328,16 @@ export async function getAllDiscoveryTitles(): Promise<DiscoveryTitle[]> {
   }
 }
 
+export async function getDiscoveryCatalogCount(): Promise<number> {
+  try {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains('discovery_catalog')) return 0;
+    return await db.count('discovery_catalog');
+  } catch {
+    return 0;
+  }
+}
+
 export async function saveDiscoveryTitles(titles: DiscoveryTitle[]): Promise<void> {
   if (!titles || titles.length === 0) return;
   try {
@@ -394,17 +404,32 @@ export async function updateDiscoveryTitle(title: DiscoveryTitle): Promise<void>
 export async function getRemovedDiscoveryTitles(): Promise<DiscoveryTitle[]> {
   try {
     const db = await getDB();
-    if (!db.objectStoreNames.contains('removed_catalog')) {
-      const raw = localStorage.getItem('netflix_removed_titles');
-      return raw ? JSON.parse(raw) : [];
+    if (db.objectStoreNames.contains('removed_catalog')) {
+      const titles = await db.getAll('removed_catalog');
+      if (titles && titles.length > 0) return titles;
     }
-    const titles = await db.getAll('removed_catalog');
-    if (titles && titles.length > 0) return titles;
-    const raw = localStorage.getItem('netflix_removed_titles');
-    return raw ? JSON.parse(raw) : [];
+    // Legacy migration: check if old bloated localStorage entry exists, migrate to IDB, and remove it
+    try {
+      const raw = localStorage.getItem('netflix_removed_titles');
+      if (raw) {
+        const parsed: DiscoveryTitle[] = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          if (db.objectStoreNames.contains('removed_catalog')) {
+            const tx = db.transaction('removed_catalog', 'readwrite');
+            for (const t of parsed) {
+              if (t && t.id) await tx.store.put(t);
+            }
+            await tx.done;
+          }
+          localStorage.removeItem('netflix_removed_titles');
+          return parsed;
+        }
+      }
+    } catch {}
+    return [];
   } catch (err) {
-    const raw = localStorage.getItem('netflix_removed_titles');
-    return raw ? JSON.parse(raw) : [];
+    console.warn('Failed to get removed titles from IDB:', err);
+    return [];
   }
 }
 
@@ -419,14 +444,12 @@ export async function saveRemovedDiscoveryTitles(titles: DiscoveryTitle[]): Prom
       }
       await tx.done;
     }
-    // Also save in localStorage as safe fallback
-    const existing = await getRemovedDiscoveryTitles();
-    const map = new Map<string, DiscoveryTitle>();
-    existing.forEach((x) => map.set(x.id, x));
-    titles.forEach((x) => map.set(x.id, x));
-    localStorage.setItem('netflix_removed_titles', JSON.stringify(Array.from(map.values()).slice(0, 1500)));
+    // Clean up bloated legacy localStorage key so browser storage quota isn't exceeded
+    try {
+      localStorage.removeItem('netflix_removed_titles');
+    } catch {}
   } catch (err) {
-    console.warn('Failed saving removed titles:', err);
+    console.warn('Failed saving removed titles to IDB:', err);
   }
 }
 
