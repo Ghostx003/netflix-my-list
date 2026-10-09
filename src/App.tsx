@@ -212,14 +212,7 @@ export const App: React.FC = () => {
         setItems(validItems);
         setSettings(savedSettings || DEFAULT_SETTINGS);
 
-        if (validItems && validItems.length > 0) {
-          const needsEnrichment = validItems.some(
-            (i) => i.status === 'pending' || (!i.posterPath && !i.externalId) || i.rottenTomatoesRating === undefined || !i.tagline || !i.themes || i.themes.length === 0
-          );
-          if (needsEnrichment) {
-            triggerBackgroundScan(validItems, savedSettings || DEFAULT_SETTINGS);
-          }
-        }
+
       } catch (err) {
         console.error('Failed initializing app state:', err);
       } finally {
@@ -536,10 +529,13 @@ export const App: React.FC = () => {
     );
 
     if (existingLibItem) {
+      setDiscoveryTitleStack([]);
       setSelectedDetailItem(existingLibItem);
     } else if ('title' in item) {
+      setSelectedDetailItem(null);
       setDiscoveryTitleStack([item as DiscoveryTitle]);
     } else {
+      setDiscoveryTitleStack([]);
       setSelectedDetailItem(item as LibraryItem);
     }
   };
@@ -880,37 +876,6 @@ export const App: React.FC = () => {
               await handleAddNewItem(newLibItem);
               setSyncToast({
                 message: `Added "${discItem.title}" to your library!`,
-                type: 'success',
-              });
-              setTimeout(() => setSyncToast(null), 3000);
-            }}
-            onStartWatching={async (discItem) => {
-              const existing = items.find(
-                (i) =>
-                  (discItem.imdbId && i.imdbId === discItem.imdbId) ||
-                  (discItem.tmdbId && i.externalId === discItem.tmdbId) ||
-                  i.originalTitle.toLowerCase().trim() === discItem.title.toLowerCase().trim()
-              );
-
-              if (existing) {
-                const updated: LibraryItem = {
-                  ...existing,
-                  viewingStatus: 'still_watching',
-                  isCompleted: false,
-                  droppedReason: undefined,
-                  droppedAt: undefined,
-                  progress: existing.progress || { percentage: 10, watchedMinutes: 30 },
-                  updatedAt: new Date().toISOString(),
-                };
-                await handleUpdateItem(updated);
-              } else {
-                const newLibItem = convertDiscoveryTitleToLibraryItem(discItem);
-                newLibItem.viewingStatus = 'still_watching';
-                newLibItem.progress = { percentage: 10, watchedMinutes: 30 };
-                await handleAddNewItem(newLibItem);
-              }
-              setSyncToast({
-                message: `Added "${discItem.title}" to Watching list!`,
                 type: 'success',
               });
               setTimeout(() => setSyncToast(null), 3000);

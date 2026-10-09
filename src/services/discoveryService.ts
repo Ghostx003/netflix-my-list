@@ -2016,7 +2016,8 @@ export async function searchWatchmodeIdByExternal(
 
 /**
  * Resolves the exact Netflix India ID for any title (DiscoveryTitle or LibraryItem)
- * by checking existing ID, Watchmode ID sources, or searching Watchmode by external ID.
+ * by prioritizing local enriched databases and IndexedDB.
+ * NEVER makes external network API calls unless allowNetwork = true is explicitly requested.
  */
 export async function resolveNetflixIdForTitle(
   item: {
@@ -2028,7 +2029,8 @@ export async function resolveNetflixIdForTitle(
     netflixId?: string;
     videoId?: string;
   },
-  apiKey?: string
+  apiKey?: string,
+  allowNetwork = false
 ): Promise<string | null> {
   // 1. If already has a clean numeric Netflix ID
   const existingId = item.netflixId || item.videoId;
@@ -2036,9 +2038,56 @@ export async function resolveNetflixIdForTitle(
     return existingId.trim();
   }
 
-  const key = apiKey || DEFAULT_WATCHMODE_KEY;
+  // 2. Check local metadata cache for watchmodeId source
+  if (item.watchmodeId) {
+    const cacheKey = `wm_netflix_src_${item.watchmodeId}`;
+    try {
+      const cached = await getCachedMetadata(cacheKey);
+      if (cached && cached.netflixId && /^\d+$/.test(String(cached.netflixId).trim())) {
+        return String(cached.netflixId).trim();
+      }
+    } catch {}
+  }
 
-  // 2. If item has watchmodeId
+  // 3. Resolve from local offline Discovery Catalog (IndexedDB)
+  try {
+    const discTitles = await getAllDiscoveryTitles();
+    const itemTitleNorm = (item.title || '').toLowerCase().trim();
+    const matched = discTitles.find((dt) => {
+      if (item.imdbId && dt.imdbId && dt.imdbId === item.imdbId) return true;
+      if (item.tmdbId && dt.tmdbId && dt.tmdbId === item.tmdbId) return true;
+      if (item.watchmodeId && dt.watchmodeId && dt.watchmodeId === item.watchmodeId) return true;
+      if (itemTitleNorm && dt.title && dt.title.toLowerCase().trim() === itemTitleNorm) return true;
+      return false;
+    });
+
+    if (matched?.netflixId && /^\d+$/.test(matched.netflixId.trim())) {
+      return matched.netflixId.trim();
+    }
+  } catch {}
+
+  // 4. Resolve from SEED_NETFLIX_INDIA_TITLES (local bundled seeds)
+  const itemTitleNorm = (item.title || '').toLowerCase().trim();
+  const seedMatched = SEED_NETFLIX_INDIA_TITLES.find((st) => {
+    if (item.imdbId && st.imdbId && st.imdbId === item.imdbId) return true;
+    if (item.tmdbId && st.tmdbId && st.tmdbId === item.tmdbId) return true;
+    if (itemTitleNorm && st.title && st.title.toLowerCase().trim() === itemTitleNorm) return true;
+    return false;
+  });
+
+  if (seedMatched?.netflixId && /^\d+$/.test(seedMatched.netflixId.trim())) {
+    return seedMatched.netflixId.trim();
+  }
+
+  // 5. STRICT RULE: NEVER call external Watchmode APIs unless explicitly allowed by manual user action
+  if (!allowNetwork) {
+    return null;
+  }
+
+  // Network fallback only for explicit manual sync button:
+  const key = apiKey || DEFAULT_WATCHMODE_KEY;
+  if (!key) return null;
+
   if (item.watchmodeId) {
     const src = await fetchWatchmodeNetflixSource(item.watchmodeId, key);
     if (src?.netflixId) {
@@ -2046,7 +2095,6 @@ export async function resolveNetflixIdForTitle(
     }
   }
 
-  // 3. Fall back to search Watchmode by IMDb / TMDB / title
   const foundWmId = await searchWatchmodeIdByExternal(
     {
       imdbId: item.imdbId,

@@ -905,6 +905,7 @@ Instructions:
                               <div
                                 key={idx}
                                 onClick={() => {
+                                  setIsOpen(false);
                                   onOpenMovieDetail(movie);
                                 }}
                                 className="group relative flex flex-col p-4 rounded-2xl bg-zinc-900/90 border border-zinc-800 hover:border-red-500/60 hover:bg-zinc-850 cursor-pointer transition-all duration-200 shadow-lg hover:shadow-2xl hover:scale-[1.01]"

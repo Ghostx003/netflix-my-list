@@ -494,7 +494,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   if (!item) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
       <div
         className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl text-white scrollbar-thin scrollbar-thumb-zinc-700"
         onClick={(e) => e.stopPropagation()}
@@ -1316,7 +1316,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
       {/* Cast Member Other Titles Modal */}
       {selectedCastMember && (
         <div
-          className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-fade-in"
+          className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-fade-in"
           onClick={() => setSelectedCastMember(null)}
         >
           <div
@@ -1428,7 +1428,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
       {/* Director Catalog Modal */}
       {selectedDirector && (
         <div
-          className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-fade-in"
+          className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-fade-in"
           onClick={() => setSelectedDirector(null)}
         >
           <div
@@ -1545,7 +1545,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
       {/* Creator Catalog Modal */}
       {selectedCreator && (
         <div
-          className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-fade-in"
+          className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-fade-in"
           onClick={() => setSelectedCreator(null)}
         >
           <div

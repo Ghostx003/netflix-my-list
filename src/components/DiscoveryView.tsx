@@ -529,24 +529,8 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
             }
 
             if (!initialTitles || initialTitles.length === 0) {
-              try {
-                initialTitles = await fetchInitialWatchmodeDiscovery({
-                  watchmodeApiKey: settings.watchmodeApiKey,
-                  tmdbApiKey: settings.tmdbApiKey,
-                  limit: 250,
-                });
-              } catch (e) {
-                console.warn('Initial Watchmode discovery fetch failed:', e);
-              }
-            }
-
-            if (!initialTitles || initialTitles.length === 0) {
-              const liveTmdb = await fetchNetflixIndiaDiscovery({
-                page: 1,
-                apiKey: settings.tmdbApiKey,
-                pagesToFetch: 5,
-              });
-              initialTitles = liveTmdb.titles || [];
+              // Strictly fall back to local offline seed titles - NEVER call external APIs automatically!
+              initialTitles = [...SEED_NETFLIX_INDIA_TITLES];
             }
 
             // Merge curated verified Netflix India seed titles with initial fetched titles

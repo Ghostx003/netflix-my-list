@@ -87,8 +87,8 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => {
+                e.stopPropagation();
                 openNetflixInNewTab(netflixUrl, e);
-                if (onStartWatching) onStartWatching(item);
               }}
               className="w-7 h-7 rounded-full bg-white text-black flex items-center justify-center hover:bg-zinc-200 transition-transform active:scale-90 shadow cursor-pointer"
               title={`Watch "${item.title}" on Netflix India`}
