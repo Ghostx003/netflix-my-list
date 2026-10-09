@@ -28,6 +28,7 @@ import {
   Trash2,
   Database,
   Download,
+  Archive,
 } from 'lucide-react';
 import { AppSettings, DiscoveryTitle, LibraryItem } from '../types';
 import {
@@ -1492,15 +1493,15 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
 
         {/* API, Analytics, Surprise Me & Filter Action Buttons */}
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-          {/* 1-Click Export Button */}
+          {/* 1-Click Backup Button */}
           {onOpenBackup && (
             <button
               onClick={onOpenBackup}
               className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-950/40 border border-emerald-400/30 transition-all transform hover:scale-105 active:scale-95 cursor-pointer whitespace-nowrap"
-              title="Export Database & Library"
+              title="Backup full app state & SQLite knowledge base (.zip)"
             >
-              <Download className="w-3.5 h-3.5 text-emerald-200" />
-              <span>Export</span>
+              <Archive className="w-3.5 h-3.5 text-emerald-200" />
+              <span>Backup</span>
             </button>
           )}
 

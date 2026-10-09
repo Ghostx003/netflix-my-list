@@ -953,12 +953,14 @@ export const App: React.FC = () => {
         onSelectMatch={handleSelectMatch}
       />
 
-      {/* Modal: Settings */}
+      {/* Modal: Settings (with Backup & Restore .zip tab) */}
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         settings={settings}
         onSave={handleUpdateSettings}
+        items={items}
+        onRefreshLibrary={handleRefreshLibrary}
       />
 
       {/* Modal: Drop Reason Prompt */}

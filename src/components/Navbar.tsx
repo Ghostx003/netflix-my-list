@@ -1,5 +1,5 @@
 import React from 'react';
-import { Film, Tv, BarChart3, UploadCloud, Settings as SettingsIcon, RefreshCw, CheckSquare, Info, Compass, Play, Sparkles, Search, Database, Download } from 'lucide-react';
+import { Film, Tv, BarChart3, UploadCloud, Settings as SettingsIcon, RefreshCw, CheckSquare, Info, Compass, Play, Sparkles, Search, Database, Download, Archive } from 'lucide-react';
 import { AppSettings, LibraryItem } from '../types';
 import { openNetflixInNewTab } from '../services/normalizer';
 
@@ -213,14 +213,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
-            {/* 1-Click Export & Backup Button */}
+            {/* 1-Click Complete Zip Backup Button */}
             <button
               onClick={onOpenBackup}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 hover:border-emerald-400 transition-all text-xs font-bold whitespace-nowrap shadow-sm shadow-emerald-950/40 cursor-pointer"
-              title="Export database, enriched plots & library backup"
+              title="Backup full app state, library & SQLite knowledge base (.zip)"
             >
-              <Download className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="hidden sm:inline">Export</span>
+              <Archive className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="hidden sm:inline">Backup</span>
             </button>
 
             <button
@@ -240,10 +240,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               onClick={onOpenBackup}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-600/30 transition-all whitespace-nowrap cursor-pointer shadow-sm"
-              title="Export database & library"
+              title="Backup full app state & SQLite knowledge base (.zip)"
             >
-              <Download className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Export</span>
+              <Archive className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Backup</span>
             </button>
             <button
               type="button"
