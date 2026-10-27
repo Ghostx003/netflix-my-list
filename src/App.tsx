@@ -3,7 +3,7 @@ import { AppSettings, LibraryItem, NetflixRawItem, LibraryViewingStatus } from '
 import { DEFAULT_SETTINGS, getAllLibraryItems, getSettings, saveLibraryItems, saveSettings, clearLibrary, deleteLibraryItem, getAllDiscoveryTitles, saveDiscoveryTitles, replaceDiscoveryCatalog } from './services/db';
 import { enrichLibraryItem } from './services/tmdb';
 import { deduplicateAndPrepareItems } from './services/duplicateDetector';
-import { syncLibraryItemsToDiscovery, syncEnrichedDiscoveryTitlesIntoLibrary, enrichAndSyncNewLibraryItem, mergeDiscoveryTitleIntoLibraryItem, isDiscoveryTitleEnriched, deduplicateDiscoveryTitles } from './services/discoveryService';
+import { syncLibraryItemsToDiscovery, syncEnrichedDiscoveryTitlesIntoLibrary, enrichAndSyncNewLibraryItem, mergeDiscoveryTitleIntoLibraryItem, isDiscoveryTitleEnriched, deduplicateDiscoveryTitles, deduplicateLibraryItems, convertEnrichedRecordToDiscoveryTitle } from './services/discoveryService';
 import { createDuplicateKey, isNetflixIndiaAvailable } from './services/normalizer';
 import { Navbar } from './components/Navbar';
 import { ImportLibraryView } from './components/ImportLibraryView';
@@ -19,6 +19,7 @@ import { DropReasonModal } from './components/DropReasonModal';
 import { ConfirmationModal } from './components/ConfirmationModal';
 import { SurpriseMeModal } from './components/SurpriseMeModal';
 import { BackupModal } from './components/BackupModal';
+import { TestingModal } from './components/TestingModal';
 import { InfoView } from './components/InfoView';
 import { DiscoveryView } from './components/DiscoveryView';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
@@ -102,6 +103,8 @@ export const App: React.FC = () => {
       const tabParam = params.get('tab') as ActiveTabType;
       if (VALID_TABS.includes(tabParam)) {
         setActiveTab(tabParam);
+      } else if (tabParam === ('maintenance' as any) || tabParam === ('testing' as any)) {
+        setIsTestingOpen(true);
       } else {
         setActiveTab('recommendations');
       }
@@ -110,11 +113,21 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
+  // Open Maintenance modal automatically if accessed via ?tab=maintenance or ?tab=testing
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    if (tab === 'maintenance' || tab === 'testing') {
+      setIsTestingOpen(true);
+    }
+  }, []);
+
   // Modals state
   const [selectedDetailItem, setSelectedDetailItem] = useState<LibraryItem | null>(null);
   const [matchingItem, setMatchingItem] = useState<LibraryItem | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isBackupOpen, setIsBackupOpen] = useState(false);
+  const [isTestingOpen, setIsTestingOpen] = useState(false);
   const [isSurpriseMeOpen, setIsSurpriseMeOpen] = useState(false);
   const [surpriseMeCustomPool, setSurpriseMeCustomPool] = useState<LibraryItem[] | null>(null);
 
@@ -168,20 +181,38 @@ export const App: React.FC = () => {
           return !t.includes('new arrival') && !t.includes('watch now') && !t.includes('weeks ago') && !t.includes('days ago');
         });
 
-        // Auto-enrich library items with enriched discovery catalog data if any matching items were enriched
+        // Deduplicate library items on startup
+        validItems = deduplicateLibraryItems(validItems);
+
+        // Auto-enrich library items with enriched discovery catalog data
         try {
+          let enrichedKbTitles: DiscoveryTitle[] = [];
+          try {
+            const res = await fetch('/netflix_enriched_kb.json');
+            if (res.ok) {
+              const raw = await res.json();
+              if (Array.isArray(raw) && raw.length > 0) {
+                enrichedKbTitles = raw.map((r: any) => convertEnrichedRecordToDiscoveryTitle(r));
+              }
+            }
+          } catch (kbErr) {
+            console.warn('[App] Could not load /netflix_enriched_kb.json:', kbErr);
+          }
+
           const discoveryTitles = await getAllDiscoveryTitles();
-          const loadedCatalog = deduplicateDiscoveryTitles([
-            ...SEED_NETFLIX_INDIA_TITLES,
+          const rawCatalogPool = [
+            ...(enrichedKbTitles.length > 0 ? enrichedKbTitles : SEED_NETFLIX_INDIA_TITLES),
             ...(discoveryTitles || []),
-          ]).filter((t) => isNetflixIndiaAvailable(t));
-          if (discoveryTitles && discoveryTitles.length !== loadedCatalog.length) {
-            replaceDiscoveryCatalog(loadedCatalog).catch(() => {});
+          ];
+
+          const loadedCatalog = deduplicateDiscoveryTitles(rawCatalogPool).filter((t) => isNetflixIndiaAvailable(t));
+          if (!discoveryTitles || discoveryTitles.length !== loadedCatalog.length || (discoveryTitles.length > 0 && !discoveryTitles[0].audienceVibe)) {
+            await replaceDiscoveryCatalog(loadedCatalog);
           }
           setDiscoveryCatalog(loadedCatalog);
 
           // Auto-repair any stale placeholder posters in IndexedDB
-          const stalePosters = (discoveryTitles || []).filter(
+          const stalePosters = (loadedCatalog || []).filter(
             (dt) => dt.posterPath && (dt.posterPath.includes('_poster.jpg') || dt.posterPath.includes('last_dance_poster'))
           );
           if (stalePosters.length > 0) {
@@ -194,8 +225,8 @@ export const App: React.FC = () => {
             saveDiscoveryTitles(fixedBatch).catch(() => {});
           }
 
-          if (discoveryTitles && discoveryTitles.length > 0) {
-            const { updatedItems, upgradedCount } = syncEnrichedDiscoveryTitlesIntoLibrary(validItems, discoveryTitles);
+          if (loadedCatalog && loadedCatalog.length > 0) {
+            const { updatedItems, upgradedCount } = syncEnrichedDiscoveryTitlesIntoLibrary(validItems, loadedCatalog);
             if (upgradedCount > 0) {
               console.log(`[App] Synced ${upgradedCount} library item(s) from Discovery Catalogue on startup.`);
               validItems = updatedItems;
@@ -561,6 +592,7 @@ export const App: React.FC = () => {
         settings={settings}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenBackup={() => setIsBackupOpen(true)}
+        onOpenMaintenance={() => setIsTestingOpen(true)}
         onRescan={() => triggerBackgroundScan(items, settings)}
         isRescanning={isRescanning}
         onOpenGlobalSearch={() => setIsGlobalSearchOpen(true)}
@@ -660,6 +692,7 @@ export const App: React.FC = () => {
             catalog={discoveryCatalog}
             onCatalogUpdate={setDiscoveryCatalog}
             onOpenBackup={() => setIsBackupOpen(true)}
+            onUpdateSettings={handleUpdateSettings}
             onAddToLibrary={async (discItem) => {
               const newLibItem: LibraryItem = {
                 id: 'item_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
@@ -925,6 +958,16 @@ export const App: React.FC = () => {
         settings={settings}
         onSave={handleUpdateSettings}
         items={items}
+        onRefreshLibrary={handleRefreshLibrary}
+        onOpenTesting={() => setIsTestingOpen(true)}
+      />
+
+      {/* Modal: Testing & Maintenance Studio */}
+      <TestingModal
+        isOpen={isTestingOpen}
+        onClose={() => setIsTestingOpen(false)}
+        items={items}
+        settings={settings}
         onRefreshLibrary={handleRefreshLibrary}
       />
 

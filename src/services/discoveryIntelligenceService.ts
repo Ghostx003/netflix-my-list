@@ -594,24 +594,25 @@ function scoreItem(
     themeMatchScore = hits.length > 0 ? 0.85 : 0.05;
   }
 
-  // 3. Deep Plot Synopsis NLP & Freeform Search
+  // 3. Deep Plot Synopsis NLP & Freeform Search (synopsis, tagline motto, audience vibe, moods, themes)
   let synopsisMatchScore = 0.1;
   let synopsisMatchDetail = '';
+  const fullSearchablePlotText = `${synLower} ${(item.tagline || '').toLowerCase()} ${(item.audienceVibe || '').toLowerCase()} ${(item.moods || []).join(' ').toLowerCase()} ${(item.themes || []).join(' ').toLowerCase()}`;
 
-  // Exact phrase match (e.g. "strong girl", "time travel")
+  // Exact phrase match (e.g. "strong girl", "time travel", "cop and serial killer")
   if (intent.contentTokens.length >= 2) {
     const joinedPhrase = intent.contentTokens.join(' ');
-    if (synLower.includes(joinedPhrase)) {
+    if (fullSearchablePlotText.includes(joinedPhrase)) {
       synopsisMatchScore += 0.65;
-      synopsisMatchDetail = `Synopsis directly matches "${joinedPhrase}"`;
+      synopsisMatchDetail = `Plot/synopsis directly matches "${joinedPhrase}"`;
     }
   }
 
-  // Token co-occurrence in synopsis & title
+  // Token co-occurrence in plot synopsis & title
   let contentTokenHits = 0;
   const matchedTokensList: string[] = [];
   for (const tok of intent.contentTokens) {
-    if (synLower.includes(tok) || titleLower.includes(tok)) {
+    if (fullSearchablePlotText.includes(tok) || titleLower.includes(tok)) {
       contentTokenHits++;
       matchedTokensList.push(tok);
     }
@@ -620,7 +621,7 @@ function scoreItem(
     const hitRatio = contentTokenHits / intent.contentTokens.length;
     synopsisMatchScore = Math.max(synopsisMatchScore, hitRatio * 0.70);
     if (contentTokenHits > 0 && !synopsisMatchDetail) {
-      synopsisMatchDetail = `Synopsis matches keywords (${matchedTokensList.slice(0, 3).join(', ')})`;
+      synopsisMatchDetail = `Plot/synopsis matches keywords (${matchedTokensList.slice(0, 3).join(', ')})`;
     }
   }
 

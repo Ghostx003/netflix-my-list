@@ -339,69 +339,72 @@ export const AskNettyModal: React.FC<AskNettyProps> = ({ libraryItems, onOpenMov
         }
       }
 
-      // Load from enriched knowledge base JSON only if catalog not already populated in IndexedDB
-      if (mergedMap.size < 500) {
-        try {
-          const res = await fetch('/netflix_enriched_kb.json');
-          if (res.ok) {
-            const rawEnriched = await res.json();
-            for (const r of rawEnriched) {
-              const key = (r.title || '').toLowerCase().trim();
-              if (!key) continue;
+      // Always load all 4,800+ titles with plots, taglines, vibe & pacing from netflix_enriched_kb.json
+      try {
+        const res = await fetch('/netflix_enriched_kb.json');
+        if (res.ok) {
+          const rawEnriched = await res.json();
+          for (const r of rawEnriched) {
+            const key = (r.title || '').toLowerCase().trim();
+            if (!key) continue;
 
-              const sec = typeof r.secondary_genres === 'string' ? JSON.parse(r.secondary_genres || '[]') : (r.secondary_genres || []);
-              const allGenres = Array.from(new Set([r.primary_genre, ...sec].filter(Boolean)));
-              const moods = typeof r.moods === 'string' ? JSON.parse(r.moods || '[]') : (r.moods || []);
-              const themes = typeof r.themes === 'string' ? JSON.parse(r.themes || '[]') : (r.themes || []);
-              const existing = mergedMap.get(key);
+            const sec = typeof r.secondary_genres === 'string' ? JSON.parse(r.secondary_genres || '[]') : (r.secondary_genres || []);
+            const allGenres = Array.from(new Set([r.primary_genre, ...sec].filter(Boolean)));
+            const moods = typeof r.moods === 'string' ? JSON.parse(r.moods || '[]') : (r.moods || []);
+            const themes = typeof r.themes === 'string' ? JSON.parse(r.themes || '[]') : (r.themes || []);
+            const existing = mergedMap.get(key);
 
-              const params100: Record<string, number> = r.raw_profile?.parameters_100 ? { ...r.raw_profile.parameters_100 } : {};
-              for (const [col, val] of Object.entries(r)) {
-                if (col.startsWith('param_') && typeof val === 'number') {
-                  params100[col.replace('param_', '')] = val;
-                }
+            const params100: Record<string, number> = r.raw_profile?.parameters_100 ? { ...r.raw_profile.parameters_100 } : {};
+            for (const [col, val] of Object.entries(r)) {
+              if (col.startsWith('param_') && typeof val === 'number') {
+                params100[col.replace('param_', '')] = val;
               }
-
-              const detectedMediaType: 'movie' | 'tv' = (r.media_type === 'tv' || r.media_type === 'tv_series')
-                ? 'tv'
-                : (r.media_type === 'movie' ? 'movie' : (existing?.mediaType || 'movie'));
-
-              const narrativeArchetypes = typeof r.narrative_archetypes === 'string'
-                ? (r.narrative_archetypes.startsWith('[') ? JSON.parse(r.narrative_archetypes || '[]') : [r.narrative_archetypes])
-                : (r.narrative_archetypes || []);
-
-              const enrichedItem: DiscoveryTitle = {
-                id: existing?.id || String(r.id || key),
-                title: r.title,
-                originalTitle: r.title,
-                mediaType: detectedMediaType,
-                releaseYear: r.release_year || existing?.releaseYear,
-                genres: allGenres.length > 0 ? allGenres : (existing?.genres || ['Drama']),
-                themes: themes.length > 0 ? themes : (existing?.themes || []),
-                moods: moods.length > 0 ? moods : (existing?.moods || []),
-                synopsis: r.synopsis || existing?.synopsis || '',
-                rating: existing?.rating || 7.5,
-                imdbRating: existing?.imdbRating || 7.5,
-                isNetflixIndiaVerified: true,
-                countries: existing?.countries || ['India'],
-                posterPath: existing?.posterPath || VERIFIED_POSTER_MAP[normalizeTitleKey(r.title || '')] || r.posterPath || r.poster_path,
-                backdropPath: existing?.backdropPath || r.backdropPath || r.backdrop_path,
-                parameters_100: params100,
-                // Qwen SQLite Knowledge Base Fields
-                storyPace: r.story_pace || undefined,
-                endingType: r.ending_type || undefined,
-                timePeriod: r.time_period || undefined,
-                settingEnvironment: r.setting_environment || undefined,
-                audienceVibe: r.audience_vibe || undefined,
-                narrativeArchetypes,
-                qwenConfidence: typeof r.confidence_score === 'number' ? r.confidence_score : undefined,
-              };
-              mergedMap.set(key, enrichedItem);
             }
+
+            const detectedMediaType: 'movie' | 'tv' = (r.media_type === 'tv' || r.media_type === 'tv_series')
+              ? 'tv'
+              : (r.media_type === 'movie' ? 'movie' : (existing?.mediaType || 'movie'));
+
+            const narrativeArchetypes = typeof r.narrative_archetypes === 'string'
+              ? (r.narrative_archetypes.startsWith('[') ? JSON.parse(r.narrative_archetypes || '[]') : [r.narrative_archetypes])
+              : (r.narrative_archetypes || []);
+
+            const enrichedItem: DiscoveryTitle = {
+              id: existing?.id || String(r.id || key),
+              title: r.title,
+              originalTitle: r.title,
+              mediaType: detectedMediaType,
+              releaseYear: r.release_year || existing?.releaseYear,
+              tagline: r.tagline || existing?.tagline || undefined,
+              primaryGenre: r.primary_genre || existing?.primaryGenre || allGenres[0] || 'Drama',
+              secondaryGenres: (sec && sec.length > 0) ? sec : existing?.secondaryGenres,
+              genres: allGenres.length > 0 ? allGenres : (existing?.genres || ['Drama']),
+              themes: themes.length > 0 ? themes : (existing?.themes || []),
+              moods: moods.length > 0 ? moods : (existing?.moods || []),
+              synopsis: r.synopsis || existing?.synopsis || '',
+              rating: existing?.rating || 7.5,
+              imdbRating: existing?.imdbRating || 7.5,
+              isNetflixIndiaVerified: true,
+              countries: (r.countries && Array.isArray(r.countries) && r.countries.length > 0)
+                ? r.countries
+                : (existing?.countries || ['India']),
+              posterPath: existing?.posterPath || VERIFIED_POSTER_MAP[normalizeTitleKey(r.title || '')] || r.posterPath || r.poster_path,
+              backdropPath: existing?.backdropPath || r.backdropPath || r.backdrop_path,
+              parameters_100: params100,
+              // Qwen SQLite Knowledge Base Fields
+              storyPace: r.story_pace || existing?.storyPace || undefined,
+              endingType: r.ending_type || existing?.endingType || undefined,
+              timePeriod: r.time_period || existing?.timePeriod || undefined,
+              settingEnvironment: r.setting_environment || existing?.settingEnvironment || undefined,
+              audienceVibe: r.audience_vibe || existing?.audienceVibe || undefined,
+              narrativeArchetypes,
+              qwenConfidence: typeof r.confidence_score === 'number' ? r.confidence_score : undefined,
+            };
+            mergedMap.set(key, enrichedItem);
           }
-        } catch (err) {
-          console.info('Enriched KB fetch skipped or not yet generated:', err);
         }
+      } catch (err) {
+        console.info('Enriched KB fetch skipped or not yet generated:', err);
       }
 
       if (isMounted) {

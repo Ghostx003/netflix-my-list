@@ -1,4 +1,4 @@
-import { DEFAULT_PUBLIC_TMDB_KEY } from './tmdb';
+import { DEFAULT_PUBLIC_TMDB_KEY, fetchTmdbUrl, TMDB_BASE_URL } from './tmdb';
 import { getCachedThumbnail, setCachedThumbnail } from './db';
 
 // Curated verified TMDB high-res posters for popular titles to ensure instant 100% loading
@@ -143,9 +143,9 @@ export async function fetchPosterByTitle(title: string, year?: number): Promise<
     try {
       const apiKey = DEFAULT_PUBLIC_TMDB_KEY;
       const yearParam = year ? `&year=${year}` : '';
-      const url = `https://api.themoviedb.org/3/search/multi?api_key=${apiKey}&query=${encodeURIComponent(title)}${yearParam}&include_adult=false`;
+      const url = `${TMDB_BASE_URL}/search/multi?api_key=${apiKey}&query=${encodeURIComponent(title)}${yearParam}&include_adult=false`;
 
-      const res = await fetch(url);
+      const res = await fetchTmdbUrl(url);
       if (!res.ok) return null;
       const data = await res.json();
       const results = data.results || [];

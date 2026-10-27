@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Play, Plus, Check, Star, Info, Sparkles } from 'lucide-react';
 import { DiscoveryTitle, RecommendationCandidate } from '../../types';
 import { CachedImage } from '../CachedImage';
+import { CardMetadataPills } from '../CardMetadataPills';
 import { getNetflixUrl, openNetflixInNewTab } from '../../services/normalizer';
 
 interface RecommendationCardProps {
@@ -73,11 +74,22 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
 
         {/* Dynamic Netflix-Style Reason */}
         {candidate.reason && (
-          <div className="mt-1.5 flex items-start gap-1 text-[10px] text-zinc-400 line-clamp-1 italic">
+          <div className="mt-1 flex items-start gap-1 text-[10px] text-zinc-400 line-clamp-1 italic">
             <Sparkles className="w-2.5 h-2.5 text-[#E50914] flex-shrink-0 mt-0.5" />
             <span>{candidate.reason}</span>
           </div>
         )}
+
+        {item.tagline && (
+          <div className="mt-1 px-1.5 py-0.5 rounded bg-amber-500/10 border-l-2 border-amber-500/70">
+            <p className="text-[10px] text-amber-200/90 font-medium italic line-clamp-2 leading-snug" title={item.tagline}>
+              "{item.tagline}"
+            </p>
+          </div>
+        )}
+
+        {/* 6 Rich Narrative Metadata Dimensions */}
+        <CardMetadataPills item={item} className="mt-1" />
 
         {/* Quick Action Icons on Hover */}
         <div className="mt-2.5 flex items-center justify-between gap-1.5 pt-2 border-t border-white/10 opacity-0 group-hover:opacity-100 transition-opacity">

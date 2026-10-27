@@ -115,6 +115,28 @@ export async function deleteLibraryItem(id: string): Promise<void> {
   } catch {}
 }
 
+export async function deleteLibraryItems(ids: string[]): Promise<void> {
+  if (!ids || ids.length === 0) return;
+  const idSet = new Set(ids);
+  try {
+    const db = await getDB();
+    const tx = db.transaction('library', 'readwrite');
+    for (const id of ids) {
+      if (id) {
+        await tx.store.delete(id);
+      }
+    }
+    await tx.done;
+  } catch (err) {
+    console.error('Failed to delete library items from IDB:', err);
+  }
+  const current = await getAllLibraryItems();
+  const filtered = current.filter((x) => !idSet.has(x.id));
+  try {
+    localStorage.setItem('netflix_watchlist_items', JSON.stringify(filtered));
+  } catch {}
+}
+
 export async function saveLibraryItems(items: LibraryItem[]): Promise<void> {
   try {
     const db = await getDB();
@@ -244,13 +266,18 @@ export async function getAllCachedMetadata(): Promise<Array<{ cacheKey: string; 
 export async function restoreCachedMetadata(entries: Array<{ cacheKey: string; data: any; timestamp: number }>): Promise<void> {
   try {
     const db = await getDB();
-    const tx = db.transaction('metadata_cache', 'readwrite');
-    for (const item of entries) {
-      if (item.cacheKey && item.data) {
-        tx.store.put(item);
+    const BATCH_SIZE = 500;
+    for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+      const batch = entries.slice(i, i + BATCH_SIZE);
+      const tx = db.transaction('metadata_cache', 'readwrite');
+      for (const item of batch) {
+        if (item.cacheKey && item.data) {
+          tx.store.put(item);
+        }
       }
+      await tx.done;
+      await new Promise<void>((r) => setTimeout(r, 0));
     }
-    await tx.done;
   } catch (err) {
     console.warn('Failed restoring metadata cache:', err);
   }
@@ -300,17 +327,23 @@ export async function getAllCachedThumbnails(): Promise<Record<string, string>> 
 export async function restoreCachedThumbnails(thumbnails: Record<string, string>): Promise<void> {
   try {
     const db = await getDB();
-    const tx = db.transaction('thumbnail_cache', 'readwrite');
-    for (const [url, dataUrl] of Object.entries(thumbnails)) {
-      if (url && dataUrl) {
-        tx.store.put({
-          url,
-          dataUrl,
-          cachedAt: Date.now(),
-        });
+    const entries = Object.entries(thumbnails);
+    const BATCH_SIZE = 200;
+    for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+      const batch = entries.slice(i, i + BATCH_SIZE);
+      const tx = db.transaction('thumbnail_cache', 'readwrite');
+      for (const [url, dataUrl] of batch) {
+        if (url && dataUrl) {
+          tx.store.put({
+            url,
+            dataUrl,
+            cachedAt: Date.now(),
+          });
+        }
       }
+      await tx.done;
+      await new Promise<void>((r) => setTimeout(r, 0));
     }
-    await tx.done;
   } catch (err) {
     console.warn('Failed restoring thumbnail cache:', err);
   }

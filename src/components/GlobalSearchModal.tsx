@@ -33,6 +33,7 @@ import { DiscoveryTitle, LibraryItem } from '../types';
 import { getNetflixUrl, openNetflixInNewTab } from '../services/normalizer';
 import { formatRuntime } from '../services/analytics';
 import { CachedImage } from './CachedImage';
+import { CardMetadataPills } from './CardMetadataPills';
 
 interface GlobalSearchModalProps {
   isOpen: boolean;
@@ -147,6 +148,106 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
 
   const { results, didYouMean, parsedQuery } = searchResponse;
 
+  // Media Type Filter: 'all' | 'movie' | 'tv'
+  const [mediaTypeFilter, setMediaTypeFilter] = useState<'all' | 'movie' | 'tv'>('all');
+
+  // Filtered results based on mediaTypeFilter
+  const filteredResults = useMemo(() => {
+    if (mediaTypeFilter === 'all') return results;
+    return results.filter((r) => r.item.mediaType === mediaTypeFilter);
+  }, [results, mediaTypeFilter]);
+
+  // Exact or Top Match
+  const exactOrTopMatch = useMemo(() => {
+    if (filteredResults.length === 0) return null;
+    const cleanQ = debouncedQuery.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const foundExact = filteredResults.find((r) => {
+      const cleanT = (r.item.title || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      return r.isExactMatch || cleanT === cleanQ || cleanT.startsWith(cleanQ);
+    });
+    return foundExact || filteredResults[0];
+  }, [filteredResults, debouncedQuery]);
+
+  // "Movies / Shows Like {xyz}" - taking genre, mood, and theme from the matched title
+  const titlesLikeTarget = useMemo(() => {
+    if (!exactOrTopMatch) return [];
+    const target = exactOrTopMatch.item;
+    const targetTitleClean = (target.title || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const targetGenres = new Set((target.genres || []).map((g) => g.toLowerCase()));
+    const targetThemes = new Set((target.themes || []).map((t) => t.toLowerCase()));
+    const targetMoods = new Set(((target.sourceItem as any)?.moods || []).map((m: string) => m.toLowerCase()));
+    const targetPace = (target.sourceItem as any)?.storyPace;
+
+    const pool: (DiscoveryTitle | LibraryItem)[] = [...catalog, ...libraryItems];
+    const seenIds = new Set<string>([target.id]);
+    const candidates: Array<{
+      item: DiscoveryTitle | LibraryItem;
+      similarityScore: number;
+      matchReason: string;
+      vibeBadge?: string;
+    }> = [];
+
+    for (const item of pool) {
+      if (!item || seenIds.has(item.id)) continue;
+      const itemTitle = (item as any).title || (item as any).originalTitle || '';
+      const itemTitleClean = itemTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (itemTitleClean === targetTitleClean) continue;
+
+      const itemMediaType = item.mediaType === 'tv' ? 'tv' : 'movie';
+      if (mediaTypeFilter !== 'all' && itemMediaType !== mediaTypeFilter) continue;
+
+      seenIds.add(item.id);
+
+      let score = 0;
+      const reasons: string[] = [];
+
+      // Genre match
+      const itemGenres = (item.genres || []).map((g) => g.toLowerCase());
+      const commonGenres = itemGenres.filter((g) => targetGenres.has(g));
+      if (commonGenres.length > 0) {
+        score += commonGenres.length * 20;
+        reasons.push(commonGenres.slice(0, 2).map((g) => g.charAt(0).toUpperCase() + g.slice(1)).join(' & '));
+      }
+
+      // Theme match
+      const itemThemes = (item.themes || []).map((t) => t.toLowerCase());
+      const commonThemes = itemThemes.filter((t) => targetThemes.has(t));
+      if (commonThemes.length > 0) {
+        score += commonThemes.length * 30;
+        reasons.push(itemThemes[0]);
+      }
+
+      // Mood match
+      const itemMoods = ((item as any).moods || []).map((m: string) => m.toLowerCase());
+      const commonMoods = itemMoods.filter((m: string) => targetMoods.has(m));
+      if (commonMoods.length > 0) {
+        score += commonMoods.length * 25;
+        reasons.push(itemMoods[0]);
+      }
+
+      // Story pace
+      if (targetPace && (item as any).storyPace === targetPace) {
+        score += 15;
+      }
+
+      const rating = (item as any).imdbRating || (item as any).rating || 0;
+      score += (rating / 10) * 10;
+
+      if (score >= 25) {
+        candidates.push({
+          item,
+          similarityScore: score,
+          matchReason: reasons.slice(0, 2).join(' • ') || 'Shares style DNA',
+          vibeBadge: commonThemes[0] || commonMoods[0] || commonGenres[0] || (item as any).audienceVibe,
+        });
+      }
+    }
+
+    candidates.sort((a, b) => b.similarityScore - a.similarityScore);
+    return candidates.slice(0, 10);
+  }, [exactOrTopMatch, catalog, libraryItems, mediaTypeFilter]);
+
   // Unified spell check recommendation: prioritize Qwen AI typo detection, fallback to local Trie
   const effectiveDidYouMean = useMemo(() => {
     const cleanQuery = debouncedQuery.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -178,7 +279,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
       return;
     }
 
-    const totalNavigableItems = (effectiveDidYouMean ? 1 : 0) + results.length;
+    const totalNavigableItems = (effectiveDidYouMean ? 1 : 0) + filteredResults.length;
     if (totalNavigableItems === 0) return;
 
     if (e.key === 'ArrowDown') {
@@ -190,9 +291,8 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (selectedIndex === -1) {
-        // If didYouMean exists and no item selected, Enter defaults to first result or correction
-        if (results.length > 0) {
-          handleSelectResult(results[0].item);
+        if (filteredResults.length > 0) {
+          handleSelectResult(filteredResults[0].item);
         } else if (effectiveDidYouMean) {
           handleApplyDidYouMean(effectiveDidYouMean.suggestedTitle);
         }
@@ -200,13 +300,11 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
       }
 
       if (effectiveDidYouMean && selectedIndex === 0) {
-        // "Did you mean?" suggestion is selected
         handleApplyDidYouMean(effectiveDidYouMean.suggestedTitle);
       } else {
-        // Result item is selected
         const resultIdx = effectiveDidYouMean ? selectedIndex - 1 : selectedIndex;
-        if (results[resultIdx]) {
-          handleSelectResult(results[resultIdx].item);
+        if (filteredResults[resultIdx]) {
+          handleSelectResult(filteredResults[resultIdx].item);
         }
       }
     }
@@ -288,6 +386,53 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
           </div>
         </div>
 
+        {/* Media Type Filter Tabs (All / Movies / TV Shows) */}
+        <div className="px-3.5 sm:px-4 py-2 border-b border-white/5 bg-zinc-950/80 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] text-zinc-500 font-semibold mr-1">Type:</span>
+            <button
+              type="button"
+              onClick={() => setMediaTypeFilter('all')}
+              className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                mediaTypeFilter === 'all'
+                  ? 'bg-white text-black shadow'
+                  : 'bg-zinc-800/80 text-zinc-400 hover:text-white hover:bg-zinc-700'
+              }`}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              onClick={() => setMediaTypeFilter('movie')}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                mediaTypeFilter === 'movie'
+                  ? 'bg-[#E50914] text-white shadow shadow-red-600/30'
+                  : 'bg-zinc-800/80 text-zinc-400 hover:text-white hover:bg-zinc-700'
+              }`}
+            >
+              <Film className="w-3.5 h-3.5" />
+              <span>Movies</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMediaTypeFilter('tv')}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                mediaTypeFilter === 'tv'
+                  ? 'bg-purple-600 text-white shadow shadow-purple-600/30'
+                  : 'bg-zinc-800/80 text-zinc-400 hover:text-white hover:bg-zinc-700'
+              }`}
+            >
+              <Tv className="w-3.5 h-3.5" />
+              <span>TV Shows</span>
+            </button>
+          </div>
+          {filteredResults.length > 0 && debouncedQuery && (
+            <span className="text-[11px] text-zinc-400 font-mono hidden sm:inline">
+              {filteredResults.length} {mediaTypeFilter === 'all' ? 'matches' : mediaTypeFilter === 'movie' ? 'movies' : 'shows'}
+            </span>
+          )}
+        </div>
+
         {/* Results / Suggestions Container */}
         <div
           ref={resultsContainerRef}
@@ -356,155 +501,372 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
           )}
 
               {/* Search Results List */}
-              {results.length > 0 ? (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs text-zinc-400 px-1 pb-1 border-b border-white/5">
-                    <span>Found <strong className="text-white">{results.length}</strong> relevant matches</span>
-                    <span className="text-[10px] text-zinc-500 font-mono">Ranked by intent relevance</span>
-                  </div>
+              {filteredResults.length > 0 ? (
+                <div className="space-y-3.5">
+                  {/* 1. EXACT / TOP MATCH HIGHLIGHT CARD */}
+                  {exactOrTopMatch && (
+                    <div className="p-3 sm:p-4 rounded-2xl bg-gradient-to-r from-red-950/40 via-zinc-900/90 to-zinc-950 border-2 border-red-500/50 shadow-xl space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm">
+                            🎯 Exact Match
+                          </span>
+                          <span className="text-xs text-zinc-400 font-medium">Top match for "{debouncedQuery}"</span>
+                        </div>
+                        <span className="text-[10px] text-zinc-500 font-mono">Rank #1</span>
+                      </div>
 
-                  {results.map((res, idx) => {
-                    const item = res.item;
-                    const visualIndex = effectiveDidYouMean ? idx + 1 : idx;
-                    const isSelected = selectedIndex === visualIndex;
-                    const netflixUrl = getNetflixUrl({
-                      videoId: item.netflixId || item.videoId,
-                      netflixId: item.netflixId || item.videoId,
-                      originalTitle: item.title,
-                      externalTitle: item.externalTitle || item.title,
-                    });
-
-                    const inLib = isInLibrary ? isInLibrary(item.sourceItem) : false;
-
-                    return (
-                      <div
-                        key={item.id}
-                        onClick={() => handleSelectResult(item)}
-                        className={`p-2.5 sm:p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 group ${
-                          isSelected
-                            ? 'bg-zinc-800/90 border-red-500 text-white shadow-xl ring-2 ring-red-500/40'
-                            : 'bg-zinc-900/60 hover:bg-zinc-800/60 border-white/5 text-zinc-200'
-                        }`}
-                      >
-                        {/* Poster + Info */}
-                        <div className="flex items-center gap-3 min-w-0 flex-1">
-                          <div className="w-12 sm:w-14 aspect-[2/3] rounded-lg overflow-hidden bg-zinc-800 shrink-0 border border-white/10 shadow relative">
+                      <div className="flex items-start sm:items-center justify-between gap-3.5">
+                        <div
+                          className="flex items-start sm:items-center gap-3.5 min-w-0 flex-1 cursor-pointer group"
+                          onClick={() => handleSelectResult(exactOrTopMatch.item)}
+                        >
+                          <div className="w-14 sm:w-16 aspect-[2/3] rounded-xl overflow-hidden bg-zinc-800 shrink-0 border border-white/20 shadow-lg relative">
                             <CachedImage
-                              src={item.posterPath}
-                              alt={item.title}
-                              className="w-full h-full object-cover"
-                              fallbackIcon={<Film className="w-5 h-5 text-zinc-600 m-auto" />}
+                              src={exactOrTopMatch.item.posterPath}
+                              alt={exactOrTopMatch.item.title}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                              fallbackIcon={<Film className="w-6 h-6 text-zinc-600 m-auto" />}
                             />
                           </div>
 
                           <div className="min-w-0 flex-1 space-y-1">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <h4 className="text-sm sm:text-base font-bold text-white truncate group-hover:text-red-400 transition-colors">
-                                {item.title}
-                              </h4>
-
-                              {/* Media Type Badge */}
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="text-base sm:text-lg font-black text-white group-hover:text-red-400 transition-colors">
+                                {exactOrTopMatch.item.title}
+                              </h3>
                               <span
-                                className={`text-[9px] px-1.5 py-0.2 rounded font-black uppercase tracking-wider ${
-                                  item.mediaType === 'movie'
+                                className={`text-[9px] px-1.5 py-0.2 rounded font-black uppercase ${
+                                  exactOrTopMatch.item.mediaType === 'movie'
                                     ? 'bg-red-600/30 text-red-300 border border-red-500/40'
                                     : 'bg-purple-600/30 text-purple-300 border border-purple-500/40'
                                 }`}
                               >
-                                {item.mediaType === 'movie' ? 'Movie' : 'Series'}
+                                {exactOrTopMatch.item.mediaType === 'movie' ? 'Movie' : 'Series'}
                               </span>
-
-                              {/* Release Year */}
-                              {item.releaseYear && (
-                                <span
-                                  className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold ${
-                                    res.yearMatchStatus === 'exact'
-                                      ? 'bg-amber-500/30 text-amber-300 border border-amber-500/40'
-                                      : 'bg-black/40 text-zinc-400'
-                                  }`}
-                                  title={res.yearMatchStatus === 'exact' ? 'Exact year match' : undefined}
-                                >
-                                  {item.releaseYear}
-                                  {res.yearMatchStatus === 'exact' && ' ✓'}
+                              {exactOrTopMatch.item.releaseYear && (
+                                <span className="text-xs font-mono font-bold text-amber-300 bg-black/40 px-2 py-0.5 rounded border border-amber-500/30">
+                                  {exactOrTopMatch.item.releaseYear}
                                 </span>
                               )}
-
-                              {/* Ratings */}
-                              {item.imdbRating && (
-                                <span className="px-1.5 py-0.2 rounded bg-black/40 border border-amber-500/30 text-amber-400 text-[10px] font-black flex items-center gap-0.5">
-                                  <Star className="w-2.5 h-2.5 fill-amber-400" />
-                                  {item.imdbRating}
-                                </span>
-                              )}
-
-                              {item.rottenTomatoesRating !== undefined && item.rottenTomatoesRating > 0 && (
-                                <span className="px-1.5 py-0.2 rounded bg-black/40 border border-red-500/30 text-red-300 text-[10px] font-bold">
-                                  🍅 {item.rottenTomatoesRating}%
+                              {exactOrTopMatch.item.imdbRating && (
+                                <span className="text-xs font-bold text-amber-400 bg-black/40 px-2 py-0.5 rounded border border-amber-500/30 flex items-center gap-1">
+                                  ⭐ {exactOrTopMatch.item.imdbRating}
                                 </span>
                               )}
                             </div>
 
-                            {/* Subtitle / Genres / Match Reason */}
-                            <div className="flex flex-wrap items-center gap-1.5 text-xs text-zinc-400">
-                              {item.genres?.slice(0, 3).map((g) => (
-                                <span key={g} className="text-[10px] text-zinc-400 bg-white/5 px-1.5 py-0.2 rounded">
-                                  {g}
-                                </span>
-                              ))}
+                            {/* 2-line Motto / Tagline */}
+                            {((exactOrTopMatch.item.sourceItem as any)?.tagline || (exactOrTopMatch.item as any).tagline) && (
+                              <div className="my-1 px-2.5 py-1 rounded bg-amber-500/10 border-l-2 border-amber-500/70">
+                                <p className="text-xs sm:text-sm font-semibold text-amber-200/90 italic line-clamp-2 leading-snug">
+                                  "{((exactOrTopMatch.item.sourceItem as any)?.tagline || (exactOrTopMatch.item as any).tagline)}"
+                                </p>
+                              </div>
+                            )}
 
-                              {item.director && (
-                                <span className="text-[10px] text-zinc-500 truncate max-w-[140px]">
-                                  Dir: {item.director}
-                                </span>
-                              )}
-                            </div>
+                            {/* 6 Rich Narrative Metadata Dimensions */}
+                            <CardMetadataPills item={exactOrTopMatch.item.sourceItem as any} />
                           </div>
                         </div>
 
-                        {/* Quick Action Buttons */}
-                        <div
-                          className="flex items-center gap-1.5 shrink-0"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {onAddToLibrary && (
-                            <button
-                              type="button"
-                              onClick={() => onAddToLibrary(item.sourceItem)}
-                              className={`p-2 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
-                                inLib
-                                  ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30'
-                                  : 'bg-zinc-800 hover:bg-zinc-700 text-white border border-white/10'
-                              }`}
-                              title={inLib ? 'In your library' : 'Add to library'}
-                            >
-                              {inLib ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                            </button>
-                          )}
-
+                        <div className="flex flex-col sm:flex-row items-center gap-2 shrink-0">
                           <a
-                            href={netflixUrl}
+                            href={getNetflixUrl({
+                              videoId: exactOrTopMatch.item.netflixId || exactOrTopMatch.item.videoId,
+                              netflixId: exactOrTopMatch.item.netflixId || exactOrTopMatch.item.videoId,
+                              originalTitle: exactOrTopMatch.item.title,
+                              externalTitle: exactOrTopMatch.item.externalTitle || exactOrTopMatch.item.title,
+                            })}
                             target="_blank"
                             rel="noopener noreferrer"
-                            onClick={(e) => openNetflixInNewTab(netflixUrl, e)}
-                            className="flex items-center gap-1 px-3 py-2 rounded-xl bg-[#E50914] hover:bg-red-700 text-white text-xs font-bold shadow-md shadow-red-600/30 transition-transform active:scale-95 no-underline cursor-pointer"
-                            title="Watch on Netflix (opens in new tab)"
+                            onClick={(e) => openNetflixInNewTab(getNetflixUrl({
+                              videoId: exactOrTopMatch.item.netflixId || exactOrTopMatch.item.videoId,
+                              netflixId: exactOrTopMatch.item.netflixId || exactOrTopMatch.item.videoId,
+                              originalTitle: exactOrTopMatch.item.title,
+                              externalTitle: exactOrTopMatch.item.externalTitle || exactOrTopMatch.item.title,
+                            }), e)}
+                            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#E50914] hover:bg-red-700 text-white text-xs font-bold shadow-lg shadow-red-600/40 transition-transform active:scale-95 no-underline cursor-pointer"
                           >
-                            <Play className="w-3 h-3 fill-white" />
-                            <span className="hidden sm:inline">Netflix</span>
+                            <Play className="w-3.5 h-3.5 fill-white" />
+                            <span>Watch</span>
                           </a>
-
                           <button
                             type="button"
-                            onClick={() => handleSelectResult(item)}
-                            className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors cursor-pointer border border-white/5"
-                            title="View Full Details"
+                            onClick={() => handleSelectResult(exactOrTopMatch.item)}
+                            className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white transition-colors cursor-pointer border border-white/10 text-xs font-bold"
+                            title="Details"
                           >
                             <Info className="w-4 h-4" />
                           </button>
                         </div>
                       </div>
-                    );
-                  })}
+                    </div>
+                  )}
+
+                  {/* 2. DEDICATED ROW: "Movies / Shows like {xyz}" (taking genre, mood, theme) */}
+                  {exactOrTopMatch && titlesLikeTarget.length > 0 && (
+                    <div className="p-3 sm:p-3.5 rounded-2xl bg-zinc-900/80 border border-purple-500/30 space-y-2.5 shadow-lg">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="p-1.5 rounded-lg bg-purple-600/30 text-purple-300 border border-purple-500/40">
+                            <Sparkles className="w-4 h-4" />
+                          </span>
+                          <div>
+                            <h4 className="text-xs sm:text-sm font-black text-white flex items-center gap-1.5">
+                              <span>
+                                {mediaTypeFilter === 'movie'
+                                  ? 'Movies'
+                                  : mediaTypeFilter === 'tv'
+                                  ? 'Shows'
+                                  : 'Movies & Shows'}{' '}
+                                like <strong className="text-purple-300">"{exactOrTopMatch.item.title}"</strong>
+                              </span>
+                            </h4>
+                            <span className="text-[10px] text-zinc-400">
+                              Matched via shared genres, moods & themes
+                            </span>
+                          </div>
+                        </div>
+                        <span className="text-[10px] text-purple-300 font-mono bg-purple-950/80 px-2.5 py-0.5 rounded-full border border-purple-500/30 font-bold hidden sm:inline">
+                          ✨ Genre & Mood DNA
+                        </span>
+                      </div>
+
+                      {/* Horizontal Scroll Row */}
+                      <div className="flex gap-3 overflow-x-auto pb-2 pt-1 scrollbar-thin scrollbar-thumb-zinc-700">
+                        {titlesLikeTarget.map((cand) => {
+                          const cItem = cand.item;
+                          const cTitle = (cItem as any).title || (cItem as any).originalTitle || '';
+                          const cPoster = (cItem as any).posterPath;
+                          const cYear = (cItem as any).releaseYear;
+                          const cRating = (cItem as any).imdbRating || (cItem as any).rating;
+                          const cIsMovie = cItem.mediaType === 'movie';
+                          const cNetUrl = getNetflixUrl({
+                            videoId: (cItem as any).netflixId || (cItem as any).videoId,
+                            netflixId: (cItem as any).netflixId || (cItem as any).videoId,
+                            originalTitle: cTitle,
+                            externalTitle: (cItem as any).externalTitle || cTitle,
+                          });
+
+                          return (
+                            <div
+                              key={`sim-row-${cItem.id}`}
+                              onClick={() => {
+                                onClose();
+                                onOpenItemDetail(cItem);
+                              }}
+                              className="w-[140px] sm:w-[155px] shrink-0 group cursor-pointer bg-zinc-950 rounded-xl overflow-hidden border border-white/10 hover:border-purple-500/60 transition-all shadow-md hover:-translate-y-1 flex flex-col justify-between"
+                            >
+                              <div>
+                                <div className="relative aspect-[2/3] w-full bg-zinc-800">
+                                  <CachedImage
+                                    src={cPoster}
+                                    alt={cTitle}
+                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                                    fallbackIcon={<Film className="w-5 h-5 text-zinc-600 m-auto" />}
+                                  />
+                                  <span
+                                    className={`absolute top-1.5 left-1.5 text-[8px] font-black uppercase px-1.5 py-0.5 rounded shadow ${
+                                      cIsMovie
+                                        ? 'bg-red-600/90 text-white'
+                                        : 'bg-purple-600/90 text-white'
+                                    }`}
+                                  >
+                                    {cIsMovie ? 'Movie' : 'Series'}
+                                  </span>
+                                  {cRating && (
+                                    <span className="absolute top-1.5 right-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-black/80 text-amber-400 border border-amber-500/30 flex items-center gap-0.5">
+                                      ⭐ {cRating}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="p-2 space-y-1">
+                                  <h5 className="text-xs font-bold text-white line-clamp-1 group-hover:text-purple-300 transition-colors">
+                                    {cTitle}
+                                  </h5>
+                                  {cand.vibeBadge && (
+                                    <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-purple-600/20 text-purple-300 border border-purple-500/30 line-clamp-1 inline-block">
+                                      {cand.vibeBadge}
+                                    </span>
+                                  )}
+                                  <p className="text-[9px] text-zinc-400 line-clamp-1">
+                                    {cand.matchReason}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="p-2 pt-0 flex items-center justify-between gap-1 border-t border-white/5 mt-1">
+                                <span className="text-[10px] text-zinc-500 font-mono">{cYear || ''}</span>
+                                <a
+                                  href={cNetUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openNetflixInNewTab(cNetUrl, e);
+                                  }}
+                                  className="p-1 rounded bg-[#E50914] text-white hover:bg-red-700 transition-colors"
+                                  title="Watch on Netflix"
+                                >
+                                  <Play className="w-3 h-3 fill-white" />
+                                </a>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 3. ALL MATCHING RESULTS LIST */}
+                  <div className="space-y-2 pt-1">
+                    <div className="flex items-center justify-between text-xs text-zinc-400 px-1 pb-1 border-b border-white/5">
+                      <span>All Matching Titles (<strong className="text-white">{filteredResults.length}</strong>)</span>
+                      <span className="text-[10px] text-zinc-500 font-mono">Ranked by intent relevance</span>
+                    </div>
+
+                    {filteredResults.map((res, idx) => {
+                      const item = res.item;
+                      const visualIndex = effectiveDidYouMean ? idx + 1 : idx;
+                      const isSelected = selectedIndex === visualIndex;
+                      const netflixUrl = getNetflixUrl({
+                        videoId: item.netflixId || item.videoId,
+                        netflixId: item.netflixId || item.videoId,
+                        originalTitle: item.title,
+                        externalTitle: item.externalTitle || item.title,
+                      });
+
+                      const inLib = isInLibrary ? isInLibrary(item.sourceItem) : false;
+
+                      return (
+                        <div
+                          key={item.id}
+                          onClick={() => handleSelectResult(item)}
+                          className={`p-2.5 sm:p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 group ${
+                            isSelected
+                              ? 'bg-zinc-800/90 border-red-500 text-white shadow-xl ring-2 ring-red-500/40'
+                              : 'bg-zinc-900/60 hover:bg-zinc-800/60 border-white/5 text-zinc-200'
+                          }`}
+                        >
+                          {/* Poster + Info */}
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <div className="w-12 sm:w-14 aspect-[2/3] rounded-lg overflow-hidden bg-zinc-800 shrink-0 border border-white/10 shadow relative">
+                              <CachedImage
+                                src={item.posterPath}
+                                alt={item.title}
+                                className="w-full h-full object-cover"
+                                fallbackIcon={<Film className="w-5 h-5 text-zinc-600 m-auto" />}
+                              />
+                            </div>
+
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <h4 className="text-sm sm:text-base font-bold text-white truncate group-hover:text-red-400 transition-colors">
+                                  {item.title}
+                                </h4>
+
+                                {/* Media Type Badge */}
+                                <span
+                                  className={`text-[9px] px-1.5 py-0.2 rounded font-black uppercase tracking-wider ${
+                                    item.mediaType === 'movie'
+                                      ? 'bg-red-600/30 text-red-300 border border-red-500/40'
+                                      : 'bg-purple-600/30 text-purple-300 border border-purple-500/40'
+                                  }`}
+                                >
+                                  {item.mediaType === 'movie' ? 'Movie' : 'Series'}
+                                </span>
+
+                                {/* Release Year */}
+                                {item.releaseYear && (
+                                  <span
+                                    className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold ${
+                                      res.yearMatchStatus === 'exact'
+                                        ? 'bg-amber-500/30 text-amber-300 border border-amber-500/40'
+                                        : 'bg-black/40 text-zinc-400'
+                                    }`}
+                                    title={res.yearMatchStatus === 'exact' ? 'Exact year match' : undefined}
+                                  >
+                                    {item.releaseYear}
+                                    {res.yearMatchStatus === 'exact' && ' ✓'}
+                                  </span>
+                                )}
+
+                                {/* Ratings */}
+                                {item.imdbRating && (
+                                  <span className="px-1.5 py-0.2 rounded bg-black/40 border border-amber-500/30 text-amber-400 text-[10px] font-black flex items-center gap-0.5">
+                                    <Star className="w-2.5 h-2.5 fill-amber-400" />
+                                    {item.imdbRating}
+                                  </span>
+                                )}
+
+                                {item.rottenTomatoesRating !== undefined && item.rottenTomatoesRating > 0 && (
+                                  <span className="px-1.5 py-0.2 rounded bg-black/40 border border-red-500/30 text-red-300 text-[10px] font-bold">
+                                    🍅 {item.rottenTomatoesRating}%
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* 2-line Tagline if available */}
+                              {((item.sourceItem as any)?.tagline || (item as any).tagline) && (
+                                <div className="my-1 px-2 py-0.5 rounded bg-amber-500/10 border-l-2 border-amber-500/70">
+                                  <p className="text-[11px] text-amber-200/90 font-medium italic line-clamp-2 leading-snug">
+                                    "{((item.sourceItem as any)?.tagline || (item as any).tagline)}"
+                                  </p>
+                                </div>
+                              )}
+
+                              {/* 6 Rich Narrative Metadata Dimensions */}
+                              <CardMetadataPills item={item.sourceItem as any} />
+                            </div>
+                          </div>
+
+                          {/* Quick Action Buttons */}
+                          <div
+                            className="flex items-center gap-1.5 shrink-0"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {onAddToLibrary && (
+                              <button
+                                type="button"
+                                onClick={() => onAddToLibrary(item.sourceItem)}
+                                className={`p-2 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                                  inLib
+                                    ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30'
+                                    : 'bg-zinc-800 hover:bg-zinc-700 text-white border border-white/10'
+                                }`}
+                                title={inLib ? 'In your library' : 'Add to library'}
+                              >
+                                {inLib ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                              </button>
+                            )}
+
+                            <a
+                              href={netflixUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => openNetflixInNewTab(netflixUrl, e)}
+                              className="flex items-center gap-1 px-3 py-2 rounded-xl bg-[#E50914] hover:bg-red-700 text-white text-xs font-bold shadow-md shadow-red-600/30 transition-transform active:scale-95 no-underline cursor-pointer"
+                              title="Watch on Netflix (opens in new tab)"
+                            >
+                              <Play className="w-3 h-3 fill-white" />
+                              <span className="hidden sm:inline">Netflix</span>
+                            </a>
+
+                            <button
+                              type="button"
+                              onClick={() => handleSelectResult(item)}
+                              className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors cursor-pointer border border-white/5"
+                              title="View Full Details"
+                            >
+                              <Info className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               ) : debouncedQuery && !isSearching ? (
                 /* Empty State */

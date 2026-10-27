@@ -86,6 +86,7 @@ interface DiscoveryViewProps {
   catalog?: DiscoveryTitle[];
   onCatalogUpdate?: (catalog: DiscoveryTitle[]) => void;
   onOpenBackup?: () => void;
+  onUpdateSettings?: (settings: AppSettings) => Promise<void> | void;
 }
 
 type ContentType = 'all' | 'movie' | 'tv';
@@ -168,6 +169,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   catalog: externalCatalog,
   onCatalogUpdate,
   onOpenBackup,
+  onUpdateSettings,
 }) => {
   // Discovery catalog data - persistent from local IndexedDB and unified across tabs
   const [internalCatalog, setInternalCatalog] = useState<DiscoveryTitle[]>(() =>
@@ -243,8 +245,8 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   const [themeModalTab, setThemeModalTab] = useState<'include' | 'exclude'>('include');
   const [themeSearchQuery, setThemeSearchQuery] = useState('');
 
-  // Theme & Genre Tag Explore Modal state
-  const [tagExploreModal, setTagExploreModal] = useState<{ tag: string; type: 'genre' | 'theme' } | null>(null);
+  // Theme, Genre, Vibe & Mood Tag Explore Modal state
+  const [tagExploreModal, setTagExploreModal] = useState<{ tag: string; type: 'genre' | 'theme' | 'vibe' | 'mood' | 'pace' } | null>(null);
 
   // Shuffle Surprise Modal state
   const [showShuffleSurpriseModal, setShowShuffleSurpriseModal] = useState(false);
@@ -329,9 +331,54 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
   const [unfetchedProgress, setUnfetchedProgress] = useState<UnfetchedSyncProgress | null>(null);
   const cancelUnfetchedSyncRef = useRef(false);
 
+  // Custom Watchmode API Key state for quick input & usage
+  const [customWatchmodeKey, setCustomWatchmodeKey] = useState<string>(
+    () => settings.watchmodeApiKey || localStorage.getItem('watchmode_api_key') || ''
+  );
+  const [isSavingKey, setIsSavingKey] = useState(false);
+
+  useEffect(() => {
+    if (settings.watchmodeApiKey && settings.watchmodeApiKey !== customWatchmodeKey) {
+      setCustomWatchmodeKey(settings.watchmodeApiKey);
+    }
+  }, [settings.watchmodeApiKey]);
+
+  const handleSaveWatchmodeKey = async () => {
+    const trimmed = customWatchmodeKey.trim();
+    setIsSavingKey(true);
+    try {
+      localStorage.setItem('watchmode_api_key', trimmed);
+      const updatedSettings: AppSettings = {
+        ...settings,
+        watchmodeApiKey: trimmed,
+      };
+      if (onUpdateSettings) {
+        await onUpdateSettings(updatedSettings);
+      }
+      const q = await resetWatchmodeQuotaStatus(trimmed);
+      if (q) {
+        setQuotaInfo(q);
+        setRefreshNotification(`✓ Watchmode API Key active! Live Quota: ${q.quotaUsed} / ${q.quota.toLocaleString()} used.`);
+      } else {
+        setRefreshNotification('✓ Watchmode API Key saved and active.');
+      }
+    } catch (err: any) {
+      setRefreshNotification('✓ Watchmode API Key saved to local storage.');
+    } finally {
+      setIsSavingKey(false);
+      setTimeout(() => setRefreshNotification(null), 4000);
+    }
+  };
+
   // Count how many titles in catalogue lack direct numeric Netflix ID
   const unfetchedCount = useMemo(() => {
-    return catalog.filter((t) => !t.netflixId || !/^\d+$/.test(t.netflixId.trim())).length;
+    return catalog.filter((t) => {
+      const nid = t.netflixId?.trim();
+      const vid = t.videoId?.trim();
+      const hasNid = Boolean(nid && /^\d+$/.test(nid));
+      const hasVid = Boolean(vid && /^\d+$/.test(vid));
+      return !hasNid && !hasVid;
+    }).length;
   }, [catalog]);
 
   // Modal dialog states matching MoviesSeriesView
@@ -493,6 +540,29 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
             });
           }
 
+          // Load pristine Enriched Knowledge Base JSON first (with rich 6 narrative dimensions)
+          let enrichedKbTitles: DiscoveryTitle[] = [];
+          try {
+            const res = await fetch('/netflix_enriched_kb.json');
+            if (res.ok) {
+              const rawEnriched = await res.json();
+              if (Array.isArray(rawEnriched) && rawEnriched.length > 0) {
+                enrichedKbTitles = rawEnriched.map((r: any) => convertEnrichedRecordToDiscoveryTitle(r));
+              }
+            }
+          } catch (err) {
+            console.info('Enriched KB not found at /netflix_enriched_kb.json, falling back:', err);
+          }
+
+          const rawPool = [
+            ...(enrichedKbTitles.length > 0 ? enrichedKbTitles : SEED_NETFLIX_INDIA_TITLES),
+            ...(localTitles || []),
+          ];
+
+          const cleanCatalog = ensureTvThrillerGenres(
+            deduplicateDiscoveryTitles(rawPool).filter((t) => isNetflixIndiaAvailable(t))
+          );
+
           if (localTitles && localTitles.length > 0) {
             const nonNetflixOnDisk = localTitles.filter((t) => !isNetflixIndiaAvailable(t));
             if (nonNetflixOnDisk.length > 0) {
@@ -500,52 +570,16 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                 if (isMounted) setRemovedTitles(r);
               }).catch(() => {});
             }
+          }
 
-            const mergedWithSeeds = deduplicateDiscoveryTitles([
-              ...localTitles,
-              ...SEED_NETFLIX_INDIA_TITLES,
-            ]).filter((t) => isNetflixIndiaAvailable(t));
-            const enhanced = ensureTvThrillerGenres(mergedWithSeeds);
-            setCatalog(enhanced);
-            if (enhanced.length !== localTitles.length) {
-              replaceDiscoveryCatalog(enhanced).catch(() => {});
-            } else {
-              saveDiscoveryTitles(enhanced).catch(() => {});
-            }
-          } else {
-            // First time: Try loading from local Enriched Knowledge Base JSON first (all 4,800+ titles)
-            let initialTitles: DiscoveryTitle[] = [];
+          setCatalog(cleanCatalog);
+          if (onCatalogUpdate) {
+            onCatalogUpdate(cleanCatalog);
+          }
 
-            try {
-              const res = await fetch('/netflix_enriched_kb.json');
-              if (res.ok) {
-                const rawEnriched = await res.json();
-                if (Array.isArray(rawEnriched) && rawEnriched.length > 0) {
-                  initialTitles = rawEnriched.map((r: any) => convertEnrichedRecordToDiscoveryTitle(r));
-                }
-              }
-            } catch (err) {
-              console.info('Enriched KB not found at /netflix_enriched_kb.json, falling back to Watchmode/TMDB:', err);
-            }
-
-            if (!initialTitles || initialTitles.length === 0) {
-              // Strictly fall back to local offline seed titles - NEVER call external APIs automatically!
-              initialTitles = [...SEED_NETFLIX_INDIA_TITLES];
-            }
-
-            // Merge curated verified Netflix India seed titles with initial fetched titles
-            // so rich genres (like Thriller, Crime, Drama) always have full catalogues
-            const combinedInitial = ensureTvThrillerGenres(
-              deduplicateDiscoveryTitles([
-                ...SEED_NETFLIX_INDIA_TITLES,
-                ...(initialTitles || []),
-              ])
-            );
-
-            if (combinedInitial.length > 0) {
-              setCatalog(combinedInitial);
-              await saveDiscoveryTitles(combinedInitial);
-            }
+          // Persist pristine deduplicated catalog to IndexedDB if it was updated or missing metadata
+          if (!localTitles || localTitles.length !== cleanCatalog.length || (localTitles.length > 0 && !localTitles[0].audienceVibe)) {
+            replaceDiscoveryCatalog(cleanCatalog).catch(() => {});
           }
         }
       } catch (err) {
@@ -1786,34 +1820,55 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
               </div>
             </div>
 
-            {/* Watchmode API Quota Display & Live Reset Button */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-blue-950/40 border border-blue-500/30 text-xs shadow-inner">
-              <div className="flex items-center gap-2.5">
-                <div className="p-1.5 rounded-lg bg-blue-500/20 text-blue-400">
-                  <BarChart2 className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="font-semibold text-zinc-300 flex items-center gap-1.5 flex-wrap">
-                    <span>Watchmode Quota:</span>
-                    <span className={`font-mono font-bold ${quotaInfo && quotaInfo.quotaUsed >= quotaInfo.quota ? 'text-red-400' : 'text-emerald-400'}`}>
-                      {quotaInfo ? `${quotaInfo.quotaUsed} / ${quotaInfo.quota.toLocaleString()} used (${(quotaInfo.quota - quotaInfo.quotaUsed).toLocaleString()} remaining)` : 'Checking live...'}
-                    </span>
+            {/* Watchmode API Key & Live Quota Display */}
+            <div className="p-3.5 rounded-xl bg-blue-950/40 border border-blue-500/30 text-xs shadow-inner space-y-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="p-1.5 rounded-lg bg-blue-500/20 text-blue-400 shrink-0">
+                    <BarChart2 className="w-4 h-4" />
                   </div>
-                  <div className="text-[10px] text-zinc-400 font-mono">
-                    Active Key: {settings.watchmodeApiKey ? `${settings.watchmodeApiKey.slice(0, 6)}...${settings.watchmodeApiKey.slice(-4)}` : 'Not set'}
+                  <div className="min-w-0">
+                    <div className="font-semibold text-zinc-300 flex items-center gap-1.5 flex-wrap">
+                      <span>Watchmode Quota:</span>
+                      <span className={`font-mono font-bold ${quotaInfo && quotaInfo.quotaUsed >= quotaInfo.quota ? 'text-red-400' : 'text-emerald-400'}`}>
+                        {quotaInfo ? `${quotaInfo.quotaUsed} / ${quotaInfo.quota.toLocaleString()} used (${(quotaInfo.quota - quotaInfo.quotaUsed).toLocaleString()} remaining)` : 'Checking live...'}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-zinc-400 font-mono truncate">
+                      Active Key: {settings.watchmodeApiKey || localStorage.getItem('watchmode_api_key') ? `${(settings.watchmodeApiKey || localStorage.getItem('watchmode_api_key')!).slice(0, 6)}...${(settings.watchmodeApiKey || localStorage.getItem('watchmode_api_key')!).slice(-4)}` : 'Default embedded'}
+                    </div>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={handleResetQuota}
+                  disabled={isRefreshingQuota}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/30 hover:bg-blue-600 border border-blue-500/40 text-blue-200 hover:text-white text-xs font-bold transition-all shrink-0 active:scale-95 disabled:opacity-60 cursor-pointer"
+                  title="Force refresh live quota from Watchmode server"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingQuota ? 'animate-spin' : ''}`} />
+                  <span>{isRefreshingQuota ? 'Refreshing...' : 'Refresh Quota'}</span>
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={handleResetQuota}
-                disabled={isRefreshingQuota}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/30 hover:bg-blue-600 border border-blue-500/40 text-blue-200 hover:text-white text-xs font-bold transition-all shrink-0 active:scale-95 disabled:opacity-60"
-                title="Force refresh live quota from Watchmode server"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingQuota ? 'animate-spin' : ''}`} />
-                <span>{isRefreshingQuota ? 'Resetting...' : 'Reset Quota'}</span>
-              </button>
+
+              {/* Watchmode API Key Input Field */}
+              <div className="pt-2 border-t border-blue-500/20 flex items-center gap-2">
+                <input
+                  type="text"
+                  value={customWatchmodeKey}
+                  onChange={(e) => setCustomWatchmodeKey(e.target.value)}
+                  placeholder="Paste custom Watchmode API key here..."
+                  className="flex-1 bg-black/60 border border-blue-500/30 rounded-lg px-3 py-1.5 text-xs text-white placeholder-zinc-500 font-mono focus:outline-none focus:border-blue-400"
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveWatchmodeKey}
+                  disabled={isSavingKey}
+                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all active:scale-95 disabled:opacity-60 shadow-md cursor-pointer shrink-0"
+                >
+                  {isSavingKey ? 'Saving...' : 'Save & Use Key'}
+                </button>
+              </div>
             </div>
 
             <div className="space-y-4 pt-2">
@@ -1863,6 +1918,7 @@ export const DiscoveryView: React.FC<DiscoveryViewProps> = ({
                   {/* Fast Presets */}
                   <div className="flex flex-wrap gap-1.5 pt-1">
                     {[
+                      { label: '1 Mo', val: 1 },
                       { label: '3 Mo (Default)', val: 3 },
                       { label: '6 Mo', val: 6 },
                       { label: '1 Yr', val: 12 },

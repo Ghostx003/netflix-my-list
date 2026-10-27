@@ -5,6 +5,7 @@ import { formatRuntime, calculateSeriesRuntime } from '../services/analytics';
 import { getNetflixUrl, getPriorityLanguageBadge, openNetflixInNewTab } from '../services/normalizer';
 import { resolveNetflixIdForTitle } from '../services/discoveryService';
 import { CachedImage } from './CachedImage';
+import { CardMetadataPills, CardPosterOverlay } from './CardMetadataPills';
 
 interface TvSeriesCardProps {
   item: LibraryItem;
@@ -15,6 +16,7 @@ interface TvSeriesCardProps {
   onDrop?: (item: LibraryItem, e: React.MouseEvent) => void;
   onMarkWatched?: (item: LibraryItem, e: React.MouseEvent) => void;
   onAddToWatching?: (item: LibraryItem, e: React.MouseEvent) => void;
+  onTagClick?: (tag: string, type: 'genre' | 'theme' | 'vibe' | 'mood' | 'pace', e: React.MouseEvent) => void;
 }
 
 export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
@@ -26,6 +28,7 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
   onDrop,
   onMarkWatched,
   onAddToWatching,
+  onTagClick,
 }) => {
   const breakdown = calculateSeriesRuntime(item, maxEpisodesLimit, capEpisodes);
   const netflixUrl = getNetflixUrl(item);
@@ -128,6 +131,9 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
             </div>
           )}
         </div>
+
+        {/* Floating Creative Tickers Outside Card (Over Poster Area) */}
+        <CardPosterOverlay item={item} onTagClick={onTagClick} />
       </div>
 
       <div className="p-2.5 sm:p-3.5 flex flex-col justify-between flex-1">
@@ -150,33 +156,15 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
             )}
           </div>
           {item.tagline && (
-            <p className="text-[10px] sm:text-[11px] text-zinc-300 font-medium italic line-clamp-1 mb-1">
-              "{item.tagline}"
-            </p>
+            <div className="my-1.5 px-2 py-1 rounded bg-amber-500/10 border-l-2 border-amber-500/70">
+              <p className="text-[11px] sm:text-xs text-amber-200/90 font-medium italic line-clamp-2 leading-snug" title={item.tagline}>
+                "{item.tagline}"
+              </p>
+            </div>
           )}
 
-          {/* Genre & Theme Tags */}
-          {(item.genres && item.genres.length > 0) || (item.themes && item.themes.length > 0) ? (
-            <div className="flex flex-wrap gap-1 mt-0.5 sm:mt-1 items-center">
-              {item.themes && item.themes.map((t) => (
-                <span
-                  key={`theme-${t}`}
-                  className="text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded bg-purple-950/70 text-purple-300 border border-purple-500/40 font-semibold"
-                  title={`Theme: ${t}`}
-                >
-                  ✨ {t}
-                </span>
-              ))}
-              {item.genres && item.genres.map((g) => (
-                <span
-                  key={`genre-${g}`}
-                  className="text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 border border-zinc-700/50 font-medium"
-                >
-                  {g}
-                </span>
-              ))}
-            </div>
-          ) : null}
+          {/* 6 Rich Narrative Metadata Dimensions */}
+          <CardMetadataPills item={item} onTagClick={onTagClick} />
         </div>
 
         {/* Action Row */}

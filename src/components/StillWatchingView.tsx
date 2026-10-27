@@ -28,6 +28,7 @@ import { DiscoveryTitle, LibraryItem, WatchProgress } from '../types';
 import { formatRuntime } from '../services/analytics';
 import { getNetflixUrl, openNetflixInNewTab } from '../services/normalizer';
 import { SEED_NETFLIX_INDIA_TITLES } from '../services/discoveryService';
+import { CardMetadataPills } from './CardMetadataPills';
 import { CachedImage } from './CachedImage';
 
 interface StillWatchingViewProps {
@@ -483,6 +484,12 @@ export const StillWatchingView: React.FC<StillWatchingViewProps> = ({
           voteCount: disc.voteCount,
           synopsis: disc.synopsis,
           genres: disc.genres,
+          primaryGenre: disc.primaryGenre,
+          secondaryGenres: disc.secondaryGenres,
+          audienceVibe: disc.audienceVibe,
+          storyPace: disc.storyPace,
+          moods: disc.moods,
+          tagline: disc.tagline,
           themes: disc.themes,
           countries: disc.countries,
           languages: disc.audioLanguages,
@@ -1238,6 +1245,9 @@ export const StillWatchingView: React.FC<StillWatchingViewProps> = ({
                         <Clock className="w-3 h-3 text-zinc-500 shrink-0" />
                         <span className="line-clamp-1">{remainingText}</span>
                       </p>
+
+                      {/* 6 Rich Narrative Metadata Dimensions */}
+                      <CardMetadataPills item={item} maxMoods={1} maxThemes={1} maxSecondaryGenres={1} className="mt-1" />
                     </div>
                   </div>
 

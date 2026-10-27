@@ -1,13 +1,13 @@
 import { DiscoveryTitle, EpisodeInfo, TrailerInfo, LibraryItem } from '../types';
-import { DEFAULT_PUBLIC_TMDB_KEY, fetchOMDBMetadata, selectBestTrailer } from './tmdb';
-import { getCachedMetadata, setCachedMetadata, saveDiscoveryTitles, replaceDiscoveryCatalog, saveRemovedDiscoveryTitles, getAllDiscoveryTitles, getDiscoveryCatalogMeta, setDiscoveryCatalogMeta } from './db';
+import { DEFAULT_PUBLIC_TMDB_KEY, fetchOMDBMetadata, selectBestTrailer, TMDB_BASE_URL } from './tmdb';
+import { getCachedMetadata, setCachedMetadata, saveDiscoveryTitles, replaceDiscoveryCatalog, saveRemovedDiscoveryTitles, getAllDiscoveryTitles, getDiscoveryCatalogMeta, setDiscoveryCatalogMeta, saveLibraryItems } from './db';
 import { normalizeCountriesList, normalizeTitle, createDuplicateKey, NETFLIX_HINDI_DUBBED_TITLES, isNetflixIndiaAvailable } from './normalizer';
 import { extractThemesFromKeywords, generateFallbackTagline } from './themeMapper';
 import { enrichDiscoveryTitleWithTMDBDetails } from './tmdbEnrichmentService';
 import { EXPANDED_NETFLIX_CATALOG_TITLES } from './seedCatalogData';
 import { sanitizeImageUrl } from './imageResolver';
 
-const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
+
 
 // Curated robust catalog of verified Netflix India titles across Hollywood, Bollywood, K-Dramas, Anime, European & Hindi Dubbed
 export const SEED_NETFLIX_INDIA_TITLES: DiscoveryTitle[] = [
@@ -1602,6 +1602,29 @@ function normalizeTmdbToDiscovery(item: any, mediaType: 'movie' | 'tv'): Discove
  * Merges duplicate records preserving the richest, highest-quality metadata
  * and ensures only valid Netflix India content remains.
  */
+export function cleanTitleForDeduplication(title: string): string {
+  if (!title) return '';
+  return title
+    .toLowerCase()
+    .replace(/:\s*season\s*\d+/gi, '')
+    .replace(/:\s*part\s*\d+/gi, '')
+    .replace(/:\s*the\s*series/gi, '')
+    .replace(/\s*\(.*\)/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Deduplicates an array of DiscoveryTitle objects using a strict identity hierarchy:
+ * 1. Watchmode ID
+ * 2. IMDb ID
+ * 3. TMDB ID + MediaType
+ * 4. Verified Netflix ID
+ * 5. Normalized Canonical Title + MediaType (with flexible release year tolerance)
+ *
+ * Merges duplicate records preserving the richest, highest-quality metadata
+ * (Audience Vibe, Story Pace, Moods, Themes, Primary/Secondary Genres, etc.)
+ * and ensures only valid Netflix India content remains.
+ */
 export function deduplicateDiscoveryTitles(titles: DiscoveryTitle[]): DiscoveryTitle[] {
   const masterList: DiscoveryTitle[] = [];
   const keyToMasterIndex = new Map<string, number>();
@@ -1622,10 +1645,11 @@ export function deduplicateDiscoveryTitles(titles: DiscoveryTitle[]): DiscoveryT
     if (item.tmdbId) keys.push(`tmdb_${item.mediaType || 'any'}_${item.tmdbId}`);
     if (item.netflixId && /^\d+$/.test(item.netflixId.trim())) keys.push(`netflix_${item.netflixId.trim()}`);
     if (item.title) {
-      const normTitle = createDuplicateKey(item.title);
+      const normTitle = cleanTitleForDeduplication(item.title);
       if (normTitle) {
+        keys.push(`title_type_${normTitle}_${item.mediaType || 'any'}`);
         if (item.releaseYear) {
-          keys.push(`title_${normTitle}_${item.releaseYear}`);
+          keys.push(`title_yr_${normTitle}_${item.releaseYear}`);
         }
       }
     }
@@ -1654,11 +1678,18 @@ export function deduplicateDiscoveryTitles(titles: DiscoveryTitle[]): DiscoveryT
       matchIndex = keyToMasterIndex.get(`tmdb_${item.mediaType || 'any'}_${item.tmdbId}`);
     } else if (item.netflixId && /^\d+$/.test(item.netflixId.trim()) && keyToMasterIndex.has(`netflix_${item.netflixId.trim()}`)) {
       matchIndex = keyToMasterIndex.get(`netflix_${item.netflixId.trim()}`);
-    } else if (item.title && item.releaseYear) {
-      const normTitle = createDuplicateKey(item.title);
-      const titleYearKey = `title_${normTitle}_${item.releaseYear}`;
-      if (keyToMasterIndex.has(titleYearKey)) {
-        matchIndex = keyToMasterIndex.get(titleYearKey);
+    } else if (item.title) {
+      const normTitle = cleanTitleForDeduplication(item.title);
+      if (item.releaseYear && keyToMasterIndex.has(`title_yr_${normTitle}_${item.releaseYear}`)) {
+        matchIndex = keyToMasterIndex.get(`title_yr_${normTitle}_${item.releaseYear}`);
+      } else if (keyToMasterIndex.has(`title_type_${normTitle}_${item.mediaType || 'any'}`)) {
+        const candidateIdx = keyToMasterIndex.get(`title_type_${normTitle}_${item.mediaType || 'any'}`);
+        if (candidateIdx !== undefined) {
+          const candidate = masterList[candidateIdx];
+          if (!candidate.releaseYear || !item.releaseYear || Math.abs(candidate.releaseYear - item.releaseYear) <= 2) {
+            matchIndex = candidateIdx;
+          }
+        }
       }
     }
 
@@ -1707,9 +1738,26 @@ export function deduplicateDiscoveryTitles(titles: DiscoveryTitle[]): DiscoveryT
       existing.trailer = existing.trailer || normalizedItem.trailer;
       existing.episodes = existing.episodes || normalizedItem.episodes;
 
+      // Narrative dimensions & metadata
+      if (!existing.audienceVibe && normalizedItem.audienceVibe) existing.audienceVibe = normalizedItem.audienceVibe;
+      if (!existing.storyPace && normalizedItem.storyPace) existing.storyPace = normalizedItem.storyPace;
+      if (!existing.primaryGenre && normalizedItem.primaryGenre) existing.primaryGenre = normalizedItem.primaryGenre;
+      if (!existing.endingType && normalizedItem.endingType) existing.endingType = normalizedItem.endingType;
+      if (!existing.timePeriod && normalizedItem.timePeriod) existing.timePeriod = normalizedItem.timePeriod;
+      if (!existing.settingEnvironment && normalizedItem.settingEnvironment) existing.settingEnvironment = normalizedItem.settingEnvironment;
+      if (!existing.parameters_100 && normalizedItem.parameters_100) existing.parameters_100 = normalizedItem.parameters_100;
+
       // Merge genres without duplicates
       const genreSet = new Set([...(existing.genres || []), ...(normalizedItem.genres || [])]);
       existing.genres = Array.from(genreSet);
+
+      // Merge secondary genres without duplicates
+      const secGenreSet = new Set([...(existing.secondaryGenres || []), ...(normalizedItem.secondaryGenres || [])]);
+      existing.secondaryGenres = Array.from(secGenreSet);
+
+      // Merge moods without duplicates
+      const moodSet = new Set([...(existing.moods || []), ...(normalizedItem.moods || [])]);
+      existing.moods = Array.from(moodSet);
 
       // Merge themes without duplicates
       const themeSet = new Set([...(existing.themes || []), ...(normalizedItem.themes || [])]);
@@ -1751,10 +1799,41 @@ export function deduplicateDiscoveryTitles(titles: DiscoveryTitle[]): DiscoveryT
   return masterList.filter((item) => isNetflixIndiaAvailable(item));
 }
 
+/**
+ * Deduplicates library items strictly by canonical normalized title and media type.
+ */
+export function deduplicateLibraryItems(items: LibraryItem[]): LibraryItem[] {
+  const seen = new Set<string>();
+  const result: LibraryItem[] = [];
+  for (const item of items) {
+    const title = (item.externalTitle || item.originalTitle || '').toLowerCase().trim();
+    const norm = cleanTitleForDeduplication(title);
+    const mediaType = item.mediaType || 'movie';
+    const key = `${norm}_${mediaType}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
+}
+
 export const WATCHMODE_BASE_URL = 'https://api.watchmode.com/v1';
 export const DEFAULT_WATCHMODE_KEY =
   (typeof import.meta !== 'undefined' && (import.meta.env?.WATCHMODE_API_KEY || import.meta.env?.VITE_WATCHMODE_API_KEY)) ||
   '1VFSlNDS4wbjnZ16DOQkRPuc95swe4qnxZazWn17';
+
+/**
+ * Returns the effective Watchmode API key, checking explicit passed key,
+ * local storage configured key, and environment default fallback.
+ */
+export function getEffectiveWatchmodeKey(passedKey?: string): string {
+  if (passedKey && passedKey.trim()) return passedKey.trim();
+  if (typeof localStorage !== 'undefined') {
+    const stored = localStorage.getItem('watchmode_api_key');
+    if (stored && stored.trim()) return stored.trim();
+  }
+  return DEFAULT_WATCHMODE_KEY;
+}
 
 export interface WatchmodeStatusResponse {
   quota: number;
@@ -1844,7 +1923,7 @@ export async function safeWatchmodeFetch<T = any>(url: string, maxAttempts = 3):
  * Checks Watchmode API account quota status with 1,000,000 monthly allocation limit
  */
 export async function getWatchmodeQuotaStatus(apiKey?: string, forceRefresh = false): Promise<WatchmodeStatusResponse | null> {
-  const key = apiKey || DEFAULT_WATCHMODE_KEY;
+  const key = getEffectiveWatchmodeKey(apiKey);
   if (!key) return { quota: 1000000, quotaUsed: 0 };
 
   const cacheKey = `wm_quota_status_${key.slice(-6)}`;
@@ -1871,7 +1950,7 @@ export async function getWatchmodeQuotaStatus(apiKey?: string, forceRefresh = fa
  * Explicitly resets cached quota and fetches live status with 1,000,000 monthly allocation limit
  */
 export async function resetWatchmodeQuotaStatus(apiKey?: string): Promise<WatchmodeStatusResponse | null> {
-  const key = apiKey || DEFAULT_WATCHMODE_KEY;
+  const key = getEffectiveWatchmodeKey(apiKey);
   if (!key) return { quota: 1000000, quotaUsed: 0 };
   const cacheKey = `wm_quota_status_${key.slice(-6)}`;
   await setCachedMetadata(cacheKey, null);
@@ -1894,8 +1973,9 @@ export async function fetchWatchmodePage(
   total_pages: number;
   total_results: number;
 }> {
+  const effectiveKey = getEffectiveWatchmodeKey(apiKey);
   const typeParam = types ? `&types=${encodeURIComponent(types)}` : '';
-  const url = `${WATCHMODE_BASE_URL}/list-titles/?apiKey=${encodeURIComponent(apiKey)}&source_ids=203&regions=IN${typeParam}&limit=${limit}&page=${page}`;
+  const url = `${WATCHMODE_BASE_URL}/list-titles/?apiKey=${encodeURIComponent(effectiveKey)}&source_ids=203&regions=IN${typeParam}&limit=${limit}&page=${page}`;
 
   const data = await safeWatchmodeFetch<any>(url, 3);
   return {
@@ -1912,15 +1992,18 @@ export async function fetchWatchmodePage(
  */
 export async function fetchWatchmodeNetflixSource(
   watchmodeId: number,
-  apiKey?: string
+  apiKey?: string,
+  bypassCache = false
 ): Promise<{ netflixId: string; webUrl: string } | null> {
-  const key = apiKey || DEFAULT_WATCHMODE_KEY;
+  const key = getEffectiveWatchmodeKey(apiKey);
   if (!key || !watchmodeId) return null;
 
   const cacheKey = `wm_netflix_src_${watchmodeId}`;
-  const cached = await getCachedMetadata(cacheKey);
-  if (cached && (cached.netflixId || cached.notFound)) {
-    return cached.notFound ? null : { netflixId: cached.netflixId, webUrl: cached.webUrl };
+  if (!bypassCache) {
+    const cached = await getCachedMetadata(cacheKey);
+    if (cached && cached.netflixId && /^\d+$/.test(String(cached.netflixId).trim())) {
+      return { netflixId: String(cached.netflixId).trim(), webUrl: cached.webUrl || '' };
+    }
   }
 
   try {
@@ -1930,7 +2013,7 @@ export async function fetchWatchmodeNetflixSource(
       return { _quotaExceeded: true } as any;
     }
     if (!Array.isArray(sources)) {
-      await setCachedMetadata(cacheKey, { notFound: true });
+      await setCachedMetadata(cacheKey, { notFound: true, timestamp: Date.now() });
       return null;
     }
 
@@ -1939,19 +2022,41 @@ export async function fetchWatchmodeNetflixSource(
       (s: any) => s.source_id === 203 || (s.name && s.name.toLowerCase().includes('netflix'))
     );
 
-    if (netflixSource && netflixSource.web_url) {
-      const match = netflixSource.web_url.match(/netflix\.com\/(?:title|watch)\/([a-zA-Z0-9_-]+)/i);
-      const netflixId = match ? match[1] : undefined;
-      const result = {
-        netflixId: netflixId || '',
-        webUrl: netflixSource.web_url,
-      };
-      await setCachedMetadata(cacheKey, result);
-      return result.netflixId ? result : null;
+    if (netflixSource) {
+      const rawUrl = netflixSource.web_url ? String(netflixSource.web_url) : '';
+      let netflixId = '';
+
+      // Direct regex: match /(title|watch)/12345678 (supports /in/title/... or trailing query params)
+      const matchTitleWatch = rawUrl.match(/(?:title|watch)\/(\d+)/i);
+      if (matchTitleWatch) {
+        netflixId = matchTitleWatch[1];
+      } else {
+        const matchJbv = rawUrl.match(/[?&]jbv=(\d+)/i);
+        if (matchJbv) {
+          netflixId = matchJbv[1];
+        } else {
+          const matchDigits = rawUrl.match(/(\d{7,10})/);
+          if (matchDigits) netflixId = matchDigits[1];
+        }
+      }
+
+      // Check external_id fallback if web_url didn't yield clean digits
+      if (!netflixId && netflixSource.external_id && /^\d+$/.test(String(netflixSource.external_id).trim())) {
+        netflixId = String(netflixSource.external_id).trim();
+      }
+
+      if (netflixId) {
+        const result = {
+          netflixId,
+          webUrl: rawUrl || `https://www.netflix.com/title/${netflixId}`,
+        };
+        await setCachedMetadata(cacheKey, result);
+        return result;
+      }
     }
 
     // Mark as checked in cache
-    await setCachedMetadata(cacheKey, { notFound: true });
+    await setCachedMetadata(cacheKey, { notFound: true, timestamp: Date.now() });
     return null;
   } catch (err) {
     console.warn(`[fetchWatchmodeNetflixSource] Error for watchmodeId ${watchmodeId}:`, err);
@@ -1960,7 +2065,8 @@ export async function fetchWatchmodeNetflixSource(
 }
 
 /**
- * Maps an IMDb ID or TMDb ID or title to a Watchmode ID using Watchmode's ID-Mapping /search endpoint
+ * Maps an IMDb ID or TMDb ID or title to a Watchmode ID using Watchmode's ID-Mapping /search endpoint.
+ * Cascades gracefully: tries IMDb ID, then TMDb ID, then Title name.
  */
 export async function searchWatchmodeIdByExternal(
   titleItem: {
@@ -1971,53 +2077,55 @@ export async function searchWatchmodeIdByExternal(
   },
   apiKey?: string
 ): Promise<number | null> {
-  const key = apiKey || DEFAULT_WATCHMODE_KEY;
+  const key = getEffectiveWatchmodeKey(apiKey);
   if (!key) return null;
 
   const cacheKey = `wm_map_${titleItem.imdbId || titleItem.tmdbId || normalizeTitle(titleItem.title || '')}`;
   const cached = await getCachedMetadata(cacheKey);
-  if (cached !== undefined && cached !== null) {
-    return cached.watchmodeId || null;
+  if (cached !== undefined && cached !== null && cached.watchmodeId) {
+    return cached.watchmodeId;
   }
 
-  try {
-    let searchField = '';
-    let searchValue = '';
-
-    if (titleItem.imdbId) {
-      searchField = 'imdb_id';
-      searchValue = titleItem.imdbId;
-    } else if (titleItem.tmdbId) {
-      searchField = titleItem.mediaType === 'tv' ? 'tmdb_tv_id' : 'tmdb_movie_id';
-      searchValue = String(titleItem.tmdbId);
-    } else if (titleItem.title) {
-      searchField = 'name';
-      searchValue = normalizeTitle(titleItem.title);
-    }
-
-    if (!searchField || !searchValue) return null;
-
-    const url = `${WATCHMODE_BASE_URL}/search/?apiKey=${encodeURIComponent(key)}&search_field=${encodeURIComponent(searchField)}&search_value=${encodeURIComponent(searchValue)}`;
-    const data = await safeWatchmodeFetch<any>(url, 4);
-
-    if (data && Array.isArray(data.title_results) && data.title_results.length > 0) {
-      const wmId = data.title_results[0].id;
-      await setCachedMetadata(cacheKey, { watchmodeId: wmId });
-      return wmId;
-    }
-
-    await setCachedMetadata(cacheKey, { watchmodeId: null });
-    return null;
-  } catch (err) {
-    console.warn('[searchWatchmodeIdByExternal] Error:', err);
-    return null;
+  // Priority search attempts: 1. IMDb, 2. TMDb, 3. Name
+  const searchCandidates: Array<{ field: string; value: string }> = [];
+  if (titleItem.imdbId) {
+    searchCandidates.push({ field: 'imdb_id', value: titleItem.imdbId.trim() });
   }
+  if (titleItem.tmdbId) {
+    const tmdbField = titleItem.mediaType === 'tv' ? 'tmdb_tv_id' : 'tmdb_movie_id';
+    searchCandidates.push({ field: tmdbField, value: String(titleItem.tmdbId).trim() });
+  }
+  if (titleItem.title) {
+    const cleanTitle = normalizeTitle(titleItem.title);
+    if (cleanTitle) {
+      searchCandidates.push({ field: 'name', value: cleanTitle });
+    }
+  }
+
+  for (const cand of searchCandidates) {
+    try {
+      const url = `${WATCHMODE_BASE_URL}/search/?apiKey=${encodeURIComponent(key)}&search_field=${encodeURIComponent(cand.field)}&search_value=${encodeURIComponent(cand.value)}`;
+      const data = await safeWatchmodeFetch<any>(url, 4);
+
+      if (data && Array.isArray(data.title_results) && data.title_results.length > 0) {
+        const wmId = data.title_results[0].id;
+        if (wmId && typeof wmId === 'number') {
+          await setCachedMetadata(cacheKey, { watchmodeId: wmId });
+          return wmId;
+        }
+      }
+    } catch (err) {
+      console.warn(`[searchWatchmodeIdByExternal] Attempt failed for ${cand.field}:`, err);
+    }
+  }
+
+  return null;
 }
 
 /**
  * Resolves the exact Netflix India ID for any title (DiscoveryTitle or LibraryItem)
  * by prioritizing local enriched databases and IndexedDB.
- * NEVER makes external network API calls unless allowNetwork = true is explicitly requested.
+ * External network calls to Watchmode are performed whenever allowNetwork = true.
  */
 export async function resolveNetflixIdForTitle(
   item: {
@@ -2079,22 +2187,23 @@ export async function resolveNetflixIdForTitle(
     return seedMatched.netflixId.trim();
   }
 
-  // 5. STRICT RULE: NEVER call external Watchmode APIs unless explicitly allowed by manual user action
+  // 5. External network call only when explicitly allowed
   if (!allowNetwork) {
     return null;
   }
 
-  // Network fallback only for explicit manual sync button:
-  const key = apiKey || DEFAULT_WATCHMODE_KEY;
+  const key = getEffectiveWatchmodeKey(apiKey);
   if (!key) return null;
 
+  // 6. Try existing Watchmode ID first
   if (item.watchmodeId) {
-    const src = await fetchWatchmodeNetflixSource(item.watchmodeId, key);
-    if (src?.netflixId) {
-      return src.netflixId;
+    const src = await fetchWatchmodeNetflixSource(item.watchmodeId, key, true);
+    if (src?.netflixId && /^\d+$/.test(src.netflixId.trim())) {
+      return src.netflixId.trim();
     }
   }
 
+  // 7. Search Watchmode by external identifiers (IMDb, TMDb, Name)
   const foundWmId = await searchWatchmodeIdByExternal(
     {
       imdbId: item.imdbId,
@@ -2109,9 +2218,9 @@ export async function resolveNetflixIdForTitle(
     if ('watchmodeId' in item) {
       item.watchmodeId = foundWmId;
     }
-    const src = await fetchWatchmodeNetflixSource(foundWmId, key);
-    if (src?.netflixId) {
-      return src.netflixId;
+    const src = await fetchWatchmodeNetflixSource(foundWmId, key, true);
+    if (src?.netflixId && /^\d+$/.test(src.netflixId.trim())) {
+      return src.netflixId.trim();
     }
   }
 
@@ -2197,6 +2306,9 @@ export function convertEnrichedRecordToDiscoveryTitle(r: any, existing?: Discove
     originalTitle: r.title,
     mediaType: detectedMediaType,
     releaseYear: r.release_year || existing?.releaseYear,
+    tagline: r.tagline || existing?.tagline || undefined,
+    primaryGenre: r.primary_genre || r.primaryGenre || existing?.primaryGenre || allGenres[0] || 'Drama',
+    secondaryGenres: (sec && sec.length > 0) ? sec : (existing?.secondaryGenres || (allGenres.length > 1 ? allGenres.slice(1) : [])),
     genres: allGenres.length > 0 ? allGenres : (existing?.genres || ['Drama']),
     themes: themes.length > 0 ? themes : (existing?.themes || []),
     moods: moods.length > 0 ? moods : (existing?.moods || []),
@@ -2204,7 +2316,9 @@ export function convertEnrichedRecordToDiscoveryTitle(r: any, existing?: Discove
     rating: existing?.rating || 7.5,
     imdbRating: existing?.imdbRating || 7.5,
     isNetflixIndiaVerified: true,
-    countries: existing?.countries || ['India'],
+    countries: (r.countries && Array.isArray(r.countries) && r.countries.length > 0)
+      ? r.countries
+      : (existing?.countries && existing.countries.length > 0 ? existing.countries : ['India']),
     posterPath: existing?.posterPath || r.posterPath || r.poster_path,
     backdropPath: existing?.backdropPath || r.backdropPath || r.backdrop_path,
     parameters_100: params100,
@@ -3328,6 +3442,11 @@ export function mergeDiscoveryTitleIntoLibraryItem(
     director: discoveryTitle.director || libraryItem.director,
     creator: discoveryTitle.creator || libraryItem.creator,
     tagline: discoveryTitle.tagline || libraryItem.tagline || generateFallbackTagline(discoveryTitle.synopsis || libraryItem.synopsis, discoveryTitle.title || libraryItem.externalTitle || libraryItem.originalTitle),
+    audienceVibe: discoveryTitle.audienceVibe || libraryItem.audienceVibe,
+    storyPace: discoveryTitle.storyPace || libraryItem.storyPace,
+    primaryGenre: discoveryTitle.primaryGenre || libraryItem.primaryGenre,
+    secondaryGenres: (discoveryTitle.secondaryGenres && discoveryTitle.secondaryGenres.length > 0) ? discoveryTitle.secondaryGenres : libraryItem.secondaryGenres,
+    moods: (discoveryTitle.moods && discoveryTitle.moods.length > 0) ? discoveryTitle.moods : libraryItem.moods,
     themes: (discoveryTitle.themes && discoveryTitle.themes.length > 0)
       ? discoveryTitle.themes
       : (libraryItem.themes && libraryItem.themes.length > 0
@@ -3339,17 +3458,18 @@ export function mergeDiscoveryTitleIntoLibraryItem(
 }
 
 /**
- * Checks if a DiscoveryTitle has already been fully enriched by TMDB.
- * A title is considered enriched if it has a TMDB ID, synopsis, cast members, and a valid metadataUpdatedAt timestamp.
+ * Checks if a DiscoveryTitle has already been enriched.
+ * Considered enriched if it has narrative dimensions (audienceVibe, storyPace, moods, themes)
+ * OR full TMDB metadata.
  */
 export function isDiscoveryTitleEnriched(title: DiscoveryTitle): boolean {
   return Boolean(
-    title.tmdbId &&
-    title.synopsis &&
-    title.synopsis.trim().length > 0 &&
-    Array.isArray(title.cast) &&
-    title.cast.length > 0 &&
-    title.metadataUpdatedAt
+    title.audienceVibe ||
+    title.storyPace ||
+    (title.themes && title.themes.length > 0) ||
+    (title.moods && title.moods.length > 0) ||
+    (title.tmdbId && title.synopsis && title.synopsis.trim().length > 0) ||
+    (title.metadataUpdatedAt && title.synopsis)
   );
 }
 
@@ -3796,26 +3916,49 @@ export async function syncUnfetchedNetflixIds(options: {
   quotaExceeded: boolean;
   wasCancelled: boolean;
 }> {
-  const key = options.watchmodeApiKey || DEFAULT_WATCHMODE_KEY;
+  const key = getEffectiveWatchmodeKey(options.watchmodeApiKey);
   const { catalog, libraryItems = [], onProgress, onBatchUpdated, shouldCancel } = options;
 
-  // Build lookup map of library items that already possess a valid numeric Netflix ID
-  const libraryNetflixIdMap = new Map<string, string>();
-  for (const lib of libraryItems) {
-    const rawId = lib.videoId || (lib as any).netflixId;
+  // Build comprehensive lookup index of ALL existing items that already have a verified numeric Netflix ID
+  const knownIdMap = new Map<string, string>();
+
+  function registerKnownId(rawId: string | undefined, imdbId?: string, tmdbId?: number | string, mediaType?: string, title?: string, year?: number) {
     if (rawId && /^\d+$/.test(rawId.trim())) {
       const cleanId = rawId.trim();
-      const imdbId = (lib as any).imdbId;
-      const tmdbId = (lib as any).tmdbId || (typeof lib.externalId === 'number' ? lib.externalId : undefined);
-      const title = lib.originalTitle || lib.normalizedTitle;
-      if (imdbId) libraryNetflixIdMap.set(`imdb_${String(imdbId).toLowerCase()}`, cleanId);
-      if (tmdbId) libraryNetflixIdMap.set(`tmdb_${lib.mediaType}_${tmdbId}`, cleanId);
-      if (title) libraryNetflixIdMap.set(`title_${normalizeTitle(title)}_${lib.releaseYear || ''}`, cleanId);
+      if (imdbId) knownIdMap.set(`imdb_${String(imdbId).toLowerCase().trim()}`, cleanId);
+      if (tmdbId) knownIdMap.set(`tmdb_${mediaType || 'movie'}_${tmdbId}`, cleanId);
+      if (title) {
+        const norm = normalizeTitle(title);
+        if (norm) {
+          if (year) knownIdMap.set(`title_${norm}_${year}`, cleanId);
+          knownIdMap.set(`title_${norm}_0`, cleanId);
+        }
+      }
     }
   }
 
-  // 1. Filter ONLY titles where netflixId is missing or non-numeric
-  const unfetchedTitles = catalog.filter((t) => !t.netflixId || !/^\d+$/.test(t.netflixId.trim()));
+  // Register from catalog
+  for (const t of catalog) {
+    registerKnownId(t.netflixId || t.videoId, t.imdbId, t.tmdbId, t.mediaType, t.title, t.releaseYear);
+  }
+  // Register from library
+  for (const lib of libraryItems) {
+    registerKnownId(lib.videoId || (lib as any).netflixId, lib.imdbId, lib.externalId, lib.mediaType, lib.originalTitle || lib.externalTitle, lib.releaseYear);
+  }
+  // Register from bundled seeds
+  for (const st of SEED_NETFLIX_INDIA_TITLES) {
+    registerKnownId(st.netflixId, st.imdbId, st.tmdbId, st.mediaType, st.title, st.releaseYear);
+  }
+
+  // 1. STRICT FILTER: Ignore EVERYTHING that already has an ID attached.
+  // Only bring titles that do NOT have any valid numeric Netflix ID attached.
+  const unfetchedTitles = catalog.filter((t) => {
+    const nid = t.netflixId?.trim();
+    const vid = t.videoId?.trim();
+    const hasNid = Boolean(nid && /^\d+$/.test(nid));
+    const hasVid = Boolean(vid && /^\d+$/.test(vid));
+    return !hasNid && !hasVid;
+  });
   const totalUnfetched = unfetchedTitles.length;
 
   if (totalUnfetched === 0) {
@@ -3844,7 +3987,7 @@ export async function syncUnfetchedNetflixIds(options: {
     idsFound: 0,
     currentTitle: unfetchedTitles[0]?.title || '',
     percent: 0,
-    message: `Starting targeted Netflix ID mapping for ${totalUnfetched} unfetched titles...`,
+    message: `Starting targeted Netflix ID mapping for ${totalUnfetched} non-ID titles (ignoring all titles with IDs)...`,
   });
 
   const updatedCatalogMap = new Map<string, DiscoveryTitle>(catalog.map((t) => [t.id, { ...t }]));
@@ -3853,6 +3996,7 @@ export async function syncUnfetchedNetflixIds(options: {
   let quotaExceeded = false;
   let wasCancelled = false;
   const batchToPersist: DiscoveryTitle[] = [];
+  const libItemsToUpdate: LibraryItem[] = [];
 
   for (let i = 0; i < unfetchedTitles.length; i++) {
     if (shouldCancel?.()) {
@@ -3873,20 +4017,27 @@ export async function syncUnfetchedNetflixIds(options: {
       message: `Fetching Netflix ID (${i + 1}/${totalUnfetched}): "${target.title}"...`,
     });
 
-    // Step A: Check if existing library items have the Netflix ID (0 credits)
+    // Step A: Check if existing known index has the Netflix ID (0 credits)
     let foundId: string | null = null;
-    if (target.imdbId && libraryNetflixIdMap.has(`imdb_${target.imdbId.toLowerCase()}`)) {
-      foundId = libraryNetflixIdMap.get(`imdb_${target.imdbId.toLowerCase()}`) || null;
-    } else if (target.tmdbId && libraryNetflixIdMap.has(`tmdb_${target.mediaType}_${target.tmdbId}`)) {
-      foundId = libraryNetflixIdMap.get(`tmdb_${target.mediaType}_${target.tmdbId}`) || null;
-    } else if (target.title && libraryNetflixIdMap.has(`title_${normalizeTitle(target.title)}_${target.releaseYear || ''}`)) {
-      foundId = libraryNetflixIdMap.get(`title_${normalizeTitle(target.title)}_${target.releaseYear || ''}`) || null;
+    if (target.imdbId && knownIdMap.has(`imdb_${target.imdbId.toLowerCase().trim()}`)) {
+      foundId = knownIdMap.get(`imdb_${target.imdbId.toLowerCase().trim()}`) || null;
+    } else if (target.tmdbId && knownIdMap.has(`tmdb_${target.mediaType}_${target.tmdbId}`)) {
+      foundId = knownIdMap.get(`tmdb_${target.mediaType}_${target.tmdbId}`) || null;
+    } else if (target.title) {
+      const norm = normalizeTitle(target.title);
+      if (norm) {
+        if (target.releaseYear && knownIdMap.has(`title_${norm}_${target.releaseYear}`)) {
+          foundId = knownIdMap.get(`title_${norm}_${target.releaseYear}`) || null;
+        } else if (knownIdMap.has(`title_${norm}_0`)) {
+          foundId = knownIdMap.get(`title_${norm}_0`) || null;
+        }
+      }
     }
 
-    // Step B: Query Watchmode with local cache checking
+    // Step B: Query Watchmode with allowNetwork = true
     if (!foundId && key) {
       try {
-        const res = await resolveNetflixIdForTitle(target, key);
+        const res = await resolveNetflixIdForTitle(target, key, true);
         if (res && /^\d+$/.test(res.trim())) {
           foundId = res.trim();
         }
@@ -3897,30 +4048,61 @@ export async function syncUnfetchedNetflixIds(options: {
 
     if (foundId) {
       target.netflixId = foundId;
+      target.videoId = foundId;
+      target.isNetflixIndiaVerified = true;
+      target.netflixIndiaAvailable = true;
+      target.availabilityState = 'available';
+      target.availabilitySource = 'Watchmode (Netflix India)';
+      registerKnownId(foundId, target.imdbId, target.tmdbId, target.mediaType, target.title, target.releaseYear);
       updatedCatalogMap.set(target.id, target);
       batchToPersist.push(target);
       idsFound++;
+
+      // Also update any matching user library item
+      if (libraryItems.length > 0) {
+        const libMatch = libraryItems.find(
+          (l) =>
+            (target.imdbId && l.imdbId && l.imdbId === target.imdbId) ||
+            (target.tmdbId && l.externalId && l.externalId === target.tmdbId) ||
+            (l.originalTitle && target.title && normalizeTitle(l.originalTitle) === normalizeTitle(target.title))
+        );
+        if (libMatch && (!libMatch.videoId || !/^\d+$/.test(libMatch.videoId.trim()))) {
+          libMatch.videoId = foundId;
+          libItemsToUpdate.push(libMatch);
+        }
+      }
     }
 
     processed++;
 
     // Periodically persist batches to IndexedDB & notify UI
-    if (batchToPersist.length >= 5 || i === unfetchedTitles.length - 1) {
+    if (batchToPersist.length >= 4 || i === unfetchedTitles.length - 1) {
       if (batchToPersist.length > 0) {
         await saveDiscoveryTitles([...batchToPersist]);
         onBatchUpdated?.(Array.from(updatedCatalogMap.values()));
         batchToPersist.length = 0;
       }
+      if (libItemsToUpdate.length > 0) {
+        try {
+          await saveLibraryItems([...libItemsToUpdate]);
+          libItemsToUpdate.length = 0;
+        } catch {}
+      }
     }
 
-    // Small spacing to prevent UI freezing
-    await sleep(50);
+    // Gentle pacing to avoid browser throttling
+    await sleep(60);
   }
 
   // Persist any remaining items
   if (batchToPersist.length > 0) {
     await saveDiscoveryTitles([...batchToPersist]);
     onBatchUpdated?.(Array.from(updatedCatalogMap.values()));
+  }
+  if (libItemsToUpdate.length > 0) {
+    try {
+      await saveLibraryItems([...libItemsToUpdate]);
+    } catch {}
   }
 
   const finalCatalog = Array.from(updatedCatalogMap.values());
@@ -4054,6 +4236,7 @@ export async function syncWithNetflixUnified(
   const monthsToSync = isSyncAll ? 120 : Math.max(1, Math.min(120, months));
 
   // Compute cutoff date from slider months
+  const todayIso = new Date().toISOString().slice(0, 10);
   const cutoffDate = new Date();
   if (!isSyncAll) {
     cutoffDate.setMonth(cutoffDate.getMonth() - monthsToSync);
@@ -4084,7 +4267,7 @@ export async function syncWithNetflixUnified(
     phase: 'tmdb_discover',
     message: isSyncAll
       ? 'Discovering complete Netflix India catalog from TMDB...'
-      : `Discovering Netflix India movies & series from TMDB (released since ${cutoffIso})...`,
+      : `Discovering Netflix India movies & series from TMDB (released ${cutoffIso} to ${todayIso})...`,
     percentage: 8,
     totalToProcess: 0,
     processedCount: 0,
@@ -4096,10 +4279,10 @@ export async function syncWithNetflixUnified(
 
   try {
     const tmdbUrls: Array<{ url: string; type: 'movie' | 'tv' }> = [];
-    const moviePages = isSyncAll ? 30 : (monthsToSync > 12 ? 8 : 4);
-    const tvPages = isSyncAll ? 30 : (monthsToSync > 12 ? 8 : 4);
-    const releaseParam = isSyncAll ? '' : `&primary_release_date.gte=${cutoffIso}`;
-    const firstAirParam = isSyncAll ? '' : `&first_air_date.gte=${cutoffIso}`;
+    const moviePages = isSyncAll ? 30 : (monthsToSync > 12 ? 8 : (monthsToSync <= 1 ? 2 : 4));
+    const tvPages = isSyncAll ? 30 : (monthsToSync > 12 ? 8 : (monthsToSync <= 1 ? 2 : 4));
+    const releaseParam = isSyncAll ? '' : `&primary_release_date.gte=${cutoffIso}&primary_release_date.lte=${todayIso}`;
+    const firstAirParam = isSyncAll ? '' : `&first_air_date.gte=${cutoffIso}&first_air_date.lte=${todayIso}`;
 
     // Movie discovery endpoints (popular, recent, top-rated)
     for (let p = 1; p <= moviePages; p++) {
@@ -4229,25 +4412,27 @@ export async function syncWithNetflixUnified(
           await sleep(100);
         }
       } else {
-        const wmPagesToScan = monthsToSync > 24 ? 4 : 2;
+        const wmPagesToScan = monthsToSync > 24 ? 4 : (monthsToSync <= 1 ? 1 : 2);
+        const wmPageLimit = monthsToSync <= 1 ? 100 : 250;
         for (let p = 1; p <= wmPagesToScan; p++) {
           if (shouldCancel && shouldCancel()) break;
-          const pageData = await fetchWatchmodePage(p, 250, wmKey);
+          const pageData = await fetchWatchmodePage(p, wmPageLimit, wmKey);
           if (!Array.isArray(pageData?.titles) || pageData.titles.length === 0) break;
 
           let passedCutoffCount = 0;
           for (const raw of pageData.titles) {
-            // Filter by year if available
-            if (!raw.year || raw.year >= cutoffYear) {
-              const norm = normalizeWatchmodeToDiscovery(raw);
-              norm.netflixIndiaAvailable = true;
-              norm.isNetflixIndiaVerified = true;
-              norm.availabilityState = 'available';
-              norm.availabilitySource = 'Watchmode (Netflix India)';
-              if (isNetflixIndiaAvailable(norm)) {
-                discoveredRawTitles.push(norm);
-                passedCutoffCount++;
-              }
+            // Strict filter: when not syncAll, must have a valid year >= cutoffYear
+            if (!raw.year || raw.year < cutoffYear) {
+              continue;
+            }
+            const norm = normalizeWatchmodeToDiscovery(raw);
+            norm.netflixIndiaAvailable = true;
+            norm.isNetflixIndiaVerified = true;
+            norm.availabilityState = 'available';
+            norm.availabilitySource = 'Watchmode (Netflix India)';
+            if (isNetflixIndiaAvailable(norm)) {
+              discoveredRawTitles.push(norm);
+              passedCutoffCount++;
             }
           }
 
@@ -4265,6 +4450,11 @@ export async function syncWithNetflixUnified(
   if (libraryItems && libraryItems.length > 0) {
     for (const lib of libraryItems) {
       if (lib.originalTitle || lib.externalTitle) {
+        if (!isSyncAll) {
+          if (lib.releaseDate && lib.releaseDate < cutoffIso) continue;
+          if (!lib.releaseDate && lib.releaseYear && lib.releaseYear < cutoffYear) continue;
+          if (!lib.releaseDate && !lib.releaseYear) continue;
+        }
         const candidate: DiscoveryTitle = {
           id: `lib_${lib.id}`,
           title: lib.externalTitle || lib.originalTitle,
@@ -4430,6 +4620,11 @@ export async function syncWithNetflixUnified(
 
   // Check discovered candidates against local DB
   for (const candidate of candidatesMap.values()) {
+    if (!isSyncAll) {
+      if (candidate.releaseDate && candidate.releaseDate < cutoffIso) continue;
+      if (!candidate.releaseDate && candidate.releaseYear && candidate.releaseYear < cutoffYear) continue;
+      if (!candidate.releaseDate && !candidate.releaseYear) continue;
+    }
     const dbMatch = findDbMatch(candidate);
     if (dbMatch) {
       // Merge candidate IDs into existing DB match if DB was missing them
@@ -4469,9 +4664,14 @@ export async function syncWithNetflixUnified(
     }
   }
 
-  // Also scan all existing DB titles for incomplete cards or missing thumbnails
+  // Also scan existing DB titles for incomplete cards or missing thumbnails (restricted to sync window)
   if (enrichIncompleteCards) {
     for (const dbItem of dbTitlesMap.values()) {
+      if (!isSyncAll) {
+        if (dbItem.releaseDate && dbItem.releaseDate < cutoffIso) continue;
+        if (!dbItem.releaseDate && dbItem.releaseYear && dbItem.releaseYear < cutoffYear) continue;
+        if (!dbItem.releaseDate && !dbItem.releaseYear) continue;
+      }
       if (!queuedIds.has(dbItem.id) && isDiscoveryCardIncomplete(dbItem)) {
         queuedIds.add(dbItem.id);
         titlesToEnrich.push({ item: dbItem, isNew: false });
@@ -4516,10 +4716,10 @@ export async function syncWithNetflixUnified(
       // 1. Comprehensive TMDB metadata enrichment (genres, themes, taglines, ratings, cast, director, creator, trailer, episodes)
       let enriched = await enrichDiscoveryTitleWithTMDBDetails(item, tmdbKey);
 
-      // 2. Resolve verified direct Netflix ID if missing or non-numeric
+      // 2. Resolve verified direct Netflix ID if missing or non-numeric (network query permitted)
       if (!enriched.netflixId || !/^\d+$/.test(enriched.netflixId.trim())) {
         try {
-          const resolvedNetflixId = await resolveNetflixIdForTitle(enriched, wmKey);
+          const resolvedNetflixId = await resolveNetflixIdForTitle(enriched, wmKey, true);
           if (resolvedNetflixId) {
             enriched.netflixId = resolvedNetflixId;
           }

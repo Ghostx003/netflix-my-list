@@ -1,8 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Film, Tv, Search, RefreshCw, AlertCircle, ArrowUpDown, Sliders, Globe, Calendar, X, Sparkles, Languages, Ban, Check, Star } from 'lucide-react';
-import { AppSettings, LibraryItem } from '../types';
+import { AppSettings, LibraryItem, DiscoveryTitle } from '../types';
 import { MovieCard } from './MovieCard';
 import { TvSeriesCard } from './TvSeriesCard';
+import { TagExploreModal } from './TagExploreModal';
+import { getAllDiscoveryTitles } from '../services/db';
 import { itemHasLanguage, normalizeCountryName, calculateSearchRelevance } from '../services/normalizer';
 import { MovieSearchEngine } from '../services/searchEngine';
 import { calculateSeriesRuntime } from '../services/analytics';
@@ -93,6 +95,50 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
   onSyncWithDiscovery,
 }) => {
   const [isSyncingDiscovery, setIsSyncingDiscovery] = useState(false);
+  const [tagExploreModal, setTagExploreModal] = useState<{ tag: string; type: 'genre' | 'theme' | 'vibe' | 'mood' | 'pace' } | null>(null);
+  const [discoveryCatalog, setDiscoveryCatalog] = useState<DiscoveryTitle[]>([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    getAllDiscoveryTitles().then((titles) => {
+      if (isMounted && titles && titles.length > 0) {
+        setDiscoveryCatalog(titles);
+      }
+    }).catch((err) => {
+      console.warn('Failed to load discovery titles for MoviesSeriesView', err);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const exploreCatalog = useMemo(() => {
+    if (discoveryCatalog.length > 0) return discoveryCatalog;
+    return items.map((i) => ({
+      id: String(i.id),
+      title: i.externalTitle || i.originalTitle,
+      originalTitle: i.originalTitle,
+      mediaType: i.mediaType,
+      releaseYear: i.releaseYear,
+      rating: i.rating,
+      imdbRating: i.imdbRating,
+      rottenTomatoesRating: i.rottenTomatoesRating,
+      posterPath: i.posterPath,
+      synopsis: i.synopsis,
+      tagline: i.tagline,
+      genres: i.genres,
+      primaryGenre: i.primaryGenre,
+      secondaryGenres: i.secondaryGenres,
+      audienceVibe: i.audienceVibe,
+      storyPace: i.storyPace,
+      moods: i.moods,
+      themes: i.themes,
+      videoId: i.videoId,
+      imdbId: i.imdbId,
+      tmdbId: typeof i.externalId === 'number' ? i.externalId : (i.externalId ? parseInt(String(i.externalId), 10) || undefined : undefined),
+    } as any as DiscoveryTitle));
+  }, [discoveryCatalog, items]);
+
   // Load initial filters from URL search params or localStorage
   const initialFilters = useMemo(() => parseInitialFilters(), []);
 
@@ -1258,6 +1304,7 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
                 onMarkWatched={handleQuickMarkWatched}
                 onAddToWatching={handleQuickAddToWatching}
                 onDrop={handleQuickDrop}
+                onTagClick={(tag, type) => setTagExploreModal({ tag, type })}
               />
             ) : (
               <TvSeriesCard
@@ -1273,6 +1320,7 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
                 onMarkWatched={handleQuickMarkWatched}
                 onAddToWatching={handleQuickAddToWatching}
                 onDrop={handleQuickDrop}
+                onTagClick={(tag, type) => setTagExploreModal({ tag, type })}
               />
             )
           )}
@@ -1976,6 +2024,30 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Tag Explore Modal for Moods, Vibes, Pace, Genres, Themes */}
+      {tagExploreModal && (
+        <TagExploreModal
+          isOpen={true}
+          onClose={() => setTagExploreModal(null)}
+          tag={tagExploreModal.tag}
+          tagType={tagExploreModal.type}
+          catalog={exploreCatalog}
+          onSelectTitle={(selectedTitle) => {
+            const foundItem = items.find(
+              (it) =>
+                (selectedTitle.imdbId && it.imdbId === selectedTitle.imdbId) ||
+                (selectedTitle.tmdbId && it.externalId === selectedTitle.tmdbId) ||
+                it.originalTitle.toLowerCase() === selectedTitle.title.toLowerCase() ||
+                (it.externalTitle && it.externalTitle.toLowerCase() === selectedTitle.title.toLowerCase())
+            );
+            if (foundItem) {
+              onSelectItem(foundItem);
+            }
+            setTagExploreModal(null);
+          }}
+        />
       )}
     </div>
   );

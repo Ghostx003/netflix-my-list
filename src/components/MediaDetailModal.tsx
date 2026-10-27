@@ -112,8 +112,8 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   const [selectedCastMember, setSelectedCastMember] = useState<string | null>(null);
   const [isLanguagesExpanded, setIsLanguagesExpanded] = useState(false);
   const [watchingAddedMap, setWatchingAddedMap] = useState<Record<string, boolean>>({});
-  // Theme & Genre Tag Explore Modal state
-  const [tagExploreModal, setTagExploreModal] = useState<{ tag: string; type: 'genre' | 'theme' } | null>(null);
+  // Theme, Genre, Vibe & Mood Tag Explore Modal state
+  const [tagExploreModal, setTagExploreModal] = useState<{ tag: string; type: 'genre' | 'theme' | 'vibe' | 'mood' | 'pace' } | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -828,7 +828,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
               </h2>
 
               {item.tagline && (
-                <p className="text-xs sm:text-sm font-semibold text-zinc-300 italic mt-0.5">
+                <p className="text-sm sm:text-base font-medium text-amber-200/90 italic mt-1.5 bg-amber-500/10 px-3.5 py-1.5 rounded-xl border border-amber-500/20 max-w-2xl">
                   "{item.tagline}"
                 </p>
               )}
@@ -913,9 +913,43 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                 </div>
               )}
 
-              {/* Genres, Themes & Countries (Clickable to explore similar titles) */}
-              {((item.genres && item.genres.length > 0) || (item.themes && item.themes.length > 0) || (item.countries && item.countries.length > 0)) && (
-                <div className="flex flex-wrap gap-1.5 mt-4 items-center">
+              {/* Narrative Dimensions: Audience Vibe, Story Pace, Primary Genre */}
+              {(item.audienceVibe || item.storyPace || item.primaryGenre) && (
+                <div className="flex flex-wrap items-center gap-2 mt-3.5">
+                  {item.audienceVibe && (
+                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-purple-950/80 to-indigo-950/80 border border-purple-500/40 text-purple-200 text-xs font-semibold shadow-sm">
+                      <span>🎭</span>
+                      <span>Vibe: <strong className="text-white">{item.audienceVibe}</strong></span>
+                    </div>
+                  )}
+
+                  {item.storyPace && (
+                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-950/60 border border-amber-500/40 text-amber-200 text-xs font-semibold shadow-sm">
+                      <span>⚡</span>
+                      <span className="capitalize">{item.storyPace} Pace</span>
+                    </div>
+                  )}
+
+                  {item.primaryGenre && (
+                    <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-950/70 border border-red-500/40 text-red-200 text-xs font-bold shadow-sm">
+                      <span>🎯</span>
+                      <span>{item.primaryGenre}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Genres, Moods, Themes & Countries (Clickable to explore similar titles) */}
+              {((item.genres && item.genres.length > 0) || (item.themes && item.themes.length > 0) || (item.moods && item.moods.length > 0) || (item.countries && item.countries.length > 0)) && (
+                <div className="flex flex-wrap gap-1.5 mt-3 items-center">
+                  {item.moods?.map((m) => (
+                    <span
+                      key={`mood-${m}`}
+                      className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-indigo-950/70 text-indigo-300 border border-indigo-500/30 shadow-sm"
+                    >
+                      💭 {m}
+                    </span>
+                  ))}
                   {item.themes?.map((t) => (
                     <button
                       key={`theme-${t}`}

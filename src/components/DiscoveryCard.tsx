@@ -6,6 +6,7 @@ import { getNetflixUrl, getPriorityLanguageBadge, openNetflixInNewTab } from '..
 import { resolveNetflixIdForTitle } from '../services/discoveryService';
 import { saveDiscoveryTitles } from '../services/db';
 import { CachedImage } from './CachedImage';
+import { CardMetadataPills, CardPosterOverlay } from './CardMetadataPills';
 
 interface DiscoveryCardProps {
   item: DiscoveryTitle;
@@ -18,7 +19,7 @@ interface DiscoveryCardProps {
   onMarkWatched?: (item: DiscoveryTitle) => void;
   onIgnoreTitle?: (item: DiscoveryTitle) => void;
   onGoToLibrary?: (item: DiscoveryTitle) => void;
-  onTagClick?: (tag: string, type: 'genre' | 'theme', e: React.MouseEvent) => void;
+  onTagClick?: (tag: string, type: 'genre' | 'theme' | 'vibe' | 'mood', e: React.MouseEvent) => void;
 }
 
 export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
@@ -232,13 +233,8 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
           )}
         </div>
 
-        {/* Bottom-Left of Thumbnail: Runtime Capsule */}
-        {displayRuntimeMinutes ? (
-          <div className="absolute bottom-1.5 left-1.5 sm:bottom-2 sm:left-2 z-10 bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-mono font-semibold text-zinc-300 border border-white/10 flex items-center gap-1 shadow-sm">
-            <Clock className="w-2.5 h-2.5 text-zinc-400" />
-            <span>{formatRuntime(displayRuntimeMinutes)}</span>
-          </div>
-        ) : null}
+        {/* Floating Creative Tickers Outside Card (Over Poster Area) */}
+        <CardPosterOverlay item={item} onTagClick={onTagClick as any} />
       </div>
 
       {/* Card Content & Action Footer */}
@@ -280,9 +276,11 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
           )}
 
           {item.tagline && (
-            <p className="text-[10px] sm:text-[11px] text-zinc-300 font-medium italic line-clamp-1 mb-1" title={item.tagline}>
-              "{item.tagline}"
-            </p>
+            <div className="my-1.5 px-2 py-1 rounded bg-amber-500/10 border-l-2 border-amber-500/70">
+              <p className="text-[11px] sm:text-xs text-amber-200/90 font-medium italic line-clamp-2 leading-snug" title={item.tagline}>
+                "{item.tagline}"
+              </p>
+            </div>
           )}
 
           {/* Season & Episode count line for TV Series */}
@@ -308,39 +306,8 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
             </div>
           )}
 
-          {/* Genre & Theme Tags - Clickable to explore similar titles */}
-          {(item.genres && item.genres.length > 0) || (item.themes && item.themes.length > 0) ? (
-            <div className="flex flex-wrap gap-1 mt-1.5 sm:mt-2 items-center">
-              {item.themes && item.themes.map((t) => (
-                <button
-                  key={`theme-${t}`}
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onTagClick?.(t, 'theme', e);
-                  }}
-                  className="text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded bg-purple-950/70 hover:bg-purple-900 text-purple-300 hover:text-purple-100 border border-purple-500/40 hover:border-purple-300 font-semibold cursor-pointer transition-all hover:scale-105"
-                  title={`Click to explore theme: ${t}`}
-                >
-                  ✨ {t}
-                </button>
-              ))}
-              {item.genres && item.genres.map((g) => (
-                <button
-                  key={`genre-${g}`}
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onTagClick?.(g, 'genre', e);
-                  }}
-                  className="text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/50 hover:border-zinc-400 font-medium cursor-pointer transition-all hover:scale-105"
-                  title={`Click to explore genre: ${g}`}
-                >
-                  {g}
-                </button>
-              ))}
-            </div>
-          ) : null}
+          {/* 6 Rich Narrative Metadata Dimensions */}
+          <CardMetadataPills item={item} onTagClick={onTagClick as any} />
         </div>
 
         {/* Action Row: Total Hours / Runtime + Direct Netflix Link + Add to Library + Watch */}

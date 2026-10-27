@@ -14,6 +14,10 @@ import {
   saveDiscoveryTitles,
   getDiscoveryCatalogMeta,
   setDiscoveryCatalogMeta,
+  getNettyConversations,
+  saveNettyConversations,
+  getRemovedDiscoveryTitles,
+  saveRemovedDiscoveryTitles,
 } from './db';
 import { createDuplicateKey } from './normalizer';
 import { convertEnrichedRecordToDiscoveryTitle } from './discoveryService';
@@ -251,6 +255,30 @@ export async function exportBackup(
     console.warn('Could not read SQLite knowledge base for backup:', err);
   }
 
+  // 8. Removed Titles (Qwen chats omitted from backup per user request)
+  try {
+    const removedTitles = await getRemovedDiscoveryTitles();
+    if (removedTitles && removedTitles.length > 0) {
+      chunks.push(encoder.encode(',"removedCatalog":' + JSON.stringify(removedTitles)));
+    }
+  } catch {}
+
+  // 9. UI Preferences
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const uiPreferences: Record<string, string | null> = {
+        ignoredTitles: localStorage.getItem('netflix_discovery_ignored_titles'),
+        activeConvId: localStorage.getItem('active_netty_conv_id'),
+        discoveryFilters: localStorage.getItem('netflix_discovery_filters_v1'),
+        libraryFilters: localStorage.getItem('netflix_watchlist_filters_v1'),
+        surpriseGenres: localStorage.getItem('netflix_surprise_genres'),
+        surpriseThemes: localStorage.getItem('netflix_surprise_themes'),
+        watchmodeApiKey: localStorage.getItem('watchmode_api_key'),
+      };
+      chunks.push(encoder.encode(',"uiPreferences":' + JSON.stringify(uiPreferences)));
+    }
+  } catch {}
+
   chunks.push(encoder.encode('}'));
 
   report('finalizing', 'Generating download package...', 98);
@@ -311,6 +339,9 @@ export function validateBackup(parsed: any): { valid: boolean; error?: string; d
       discoveryCatalog: Array.isArray(parsed.discoveryCatalog) ? parsed.discoveryCatalog : undefined,
       discoveryMeta: parsed.discoveryMeta,
       sqliteKnowledgeBase: Array.isArray(parsed.sqliteKnowledgeBase) ? parsed.sqliteKnowledgeBase : undefined,
+      nettyConversations: Array.isArray(parsed.nettyConversations) ? parsed.nettyConversations : undefined,
+      removedCatalog: Array.isArray(parsed.removedCatalog) ? parsed.removedCatalog : undefined,
+      uiPreferences: parsed.uiPreferences && typeof parsed.uiPreferences === 'object' ? parsed.uiPreferences : undefined,
     },
   };
 }
@@ -329,6 +360,42 @@ export async function importBackupReplace(backup: BackupData): Promise<{ count: 
   }
   if (backup.cachedThumbnails && typeof backup.cachedThumbnails === 'object') {
     await restoreCachedThumbnails(backup.cachedThumbnails);
+  }
+  if (backup.nettyConversations && Array.isArray(backup.nettyConversations)) {
+    await saveNettyConversations(backup.nettyConversations);
+  }
+  if (backup.removedCatalog && Array.isArray(backup.removedCatalog)) {
+    await saveRemovedDiscoveryTitles(backup.removedCatalog);
+  }
+  if (backup.uiPreferences && typeof backup.uiPreferences === 'object') {
+    try {
+      const p = backup.uiPreferences;
+      if (p.ignoredTitles) localStorage.setItem('netflix_discovery_ignored_titles', p.ignoredTitles);
+      if (p.activeConvId) localStorage.setItem('active_netty_conv_id', p.activeConvId);
+      if (p.discoveryFilters) localStorage.setItem('netflix_discovery_filters_v1', p.discoveryFilters);
+      if (p.libraryFilters) localStorage.setItem('netflix_watchlist_filters_v1', p.libraryFilters);
+      if (p.surpriseGenres) localStorage.setItem('netflix_surprise_genres', p.surpriseGenres);
+      if (p.surpriseThemes) localStorage.setItem('netflix_surprise_themes', p.surpriseThemes);
+      if (p.watchmodeApiKey) localStorage.setItem('watchmode_api_key', p.watchmodeApiKey);
+    } catch {}
+  }
+  if (backup.nettyConversations && Array.isArray(backup.nettyConversations)) {
+    await saveNettyConversations(backup.nettyConversations);
+  }
+  if (backup.removedCatalog && Array.isArray(backup.removedCatalog)) {
+    await saveRemovedDiscoveryTitles(backup.removedCatalog);
+  }
+  if (backup.uiPreferences && typeof backup.uiPreferences === 'object') {
+    try {
+      const p = backup.uiPreferences;
+      if (p.ignoredTitles) localStorage.setItem('netflix_discovery_ignored_titles', p.ignoredTitles);
+      if (p.activeConvId) localStorage.setItem('active_netty_conv_id', p.activeConvId);
+      if (p.discoveryFilters) localStorage.setItem('netflix_discovery_filters_v1', p.discoveryFilters);
+      if (p.libraryFilters) localStorage.setItem('netflix_watchlist_filters_v1', p.libraryFilters);
+      if (p.surpriseGenres) localStorage.setItem('netflix_surprise_genres', p.surpriseGenres);
+      if (p.surpriseThemes) localStorage.setItem('netflix_surprise_themes', p.surpriseThemes);
+      if (p.watchmodeApiKey) localStorage.setItem('watchmode_api_key', p.watchmodeApiKey);
+    } catch {}
   }
 
   let restoredDiscoveryCount = backup.discoveryCatalog?.length || 0;
@@ -435,6 +502,24 @@ export async function importBackupMerge(backup: BackupData): Promise<{
   }
   if (backup.cachedThumbnails && typeof backup.cachedThumbnails === 'object') {
     await restoreCachedThumbnails(backup.cachedThumbnails);
+  }
+  if (backup.nettyConversations && Array.isArray(backup.nettyConversations)) {
+    await saveNettyConversations(backup.nettyConversations);
+  }
+  if (backup.removedCatalog && Array.isArray(backup.removedCatalog)) {
+    await saveRemovedDiscoveryTitles(backup.removedCatalog);
+  }
+  if (backup.uiPreferences && typeof backup.uiPreferences === 'object') {
+    try {
+      const p = backup.uiPreferences;
+      if (p.ignoredTitles) localStorage.setItem('netflix_discovery_ignored_titles', p.ignoredTitles);
+      if (p.activeConvId) localStorage.setItem('active_netty_conv_id', p.activeConvId);
+      if (p.discoveryFilters) localStorage.setItem('netflix_discovery_filters_v1', p.discoveryFilters);
+      if (p.libraryFilters) localStorage.setItem('netflix_watchlist_filters_v1', p.libraryFilters);
+      if (p.surpriseGenres) localStorage.setItem('netflix_surprise_genres', p.surpriseGenres);
+      if (p.surpriseThemes) localStorage.setItem('netflix_surprise_themes', p.surpriseThemes);
+      if (p.watchmodeApiKey) localStorage.setItem('watchmode_api_key', p.watchmodeApiKey);
+    } catch {}
   }
 
   let restoredDiscoveryCount = backup.discoveryCatalog?.length || 0;

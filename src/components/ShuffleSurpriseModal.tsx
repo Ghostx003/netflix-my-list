@@ -26,6 +26,7 @@ import { formatRuntime } from '../services/analytics';
 import { getNetflixUrl, openNetflixInNewTab } from '../services/normalizer';
 import { CANONICAL_THEMES } from '../services/themeMapper';
 import { CachedImage } from './CachedImage';
+import { CardMetadataPills } from './CardMetadataPills';
 import { DiscoveryCard } from './DiscoveryCard';
 
 interface ShuffleSurpriseModalProps {
@@ -804,25 +805,8 @@ export const ShuffleSurpriseModal: React.FC<ShuffleSurpriseModalProps> = ({
                       </p>
                     )}
 
-                    {/* Genres & Themes */}
-                    <div className="flex flex-wrap gap-1.5 mt-2.5">
-                      {roulettePick.item.genres?.slice(0, 3).map((g) => (
-                        <span
-                          key={g}
-                          className="text-[10px] px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700"
-                        >
-                          {g}
-                        </span>
-                      ))}
-                      {roulettePick.item.themes?.slice(0, 2).map((t) => (
-                        <span
-                          key={t}
-                          className="text-[10px] px-2 py-0.5 rounded bg-purple-950/80 text-purple-300 border border-purple-500/40"
-                        >
-                          ✨ {t}
-                        </span>
-                      ))}
-                    </div>
+                    {/* 6 Rich Narrative Metadata Dimensions */}
+                    <CardMetadataPills item={roulettePick.item} />
                   </div>
 
                   {/* Roulette Action Buttons */}

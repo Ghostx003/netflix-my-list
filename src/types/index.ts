@@ -112,6 +112,11 @@ export interface LibraryItem {
   creator?: string;
   tagline?: string;
   themes?: string[];
+  moods?: string[];
+  primaryGenre?: string;
+  secondaryGenres?: string[];
+  audienceVibe?: string;
+  storyPace?: 'slow-burn' | 'moderate' | 'fast-paced' | 'relentless' | string;
   netflixAddedDate?: string;
   isNetflixIndiaVerified?: boolean;
   imdbId?: string;
@@ -150,6 +155,7 @@ export interface TrailerInfo {
 
 export interface DiscoveryTitle {
   id: string; // Unified internal ID
+  videoId?: string;
   watchmodeId?: number;
   tmdbId?: number;
   imdbId?: string;
@@ -213,6 +219,8 @@ export interface DiscoveryTitle {
   watchmodeRelevance?: number;
   watchmodeCriticScore?: number;
   // Local Qwen SQLite Knowledge Base Fields
+  primaryGenre?: string;
+  secondaryGenres?: string[];
   storyPace?: 'slow-burn' | 'moderate' | 'fast-paced' | 'relentless' | string;
   endingType?: 'happy' | 'bittersweet' | 'tragic' | 'ambiguous' | 'twist/shocking' | 'open' | string;
   timePeriod?: string;
@@ -280,6 +288,9 @@ export interface BackupData {
   discoveryCatalog?: DiscoveryTitle[]; // Enriched Netflix India Discovery catalogue
   discoveryMeta?: any; // Discovery last sync and catalog metadata
   sqliteKnowledgeBase?: any[]; // Full SQLite enriched titles database table records (100 parameters + narrative intelligence)
+  nettyConversations?: any[];
+  removedCatalog?: DiscoveryTitle[];
+  uiPreferences?: Record<string, any>;
 }
 
 export interface AnalyticsStats {

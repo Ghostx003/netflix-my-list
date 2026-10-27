@@ -151,7 +151,7 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
   // Creator modal state
   const [selectedCreator, setSelectedCreator] = useState<string | null>(null);
   // Theme & Genre Tag Explore Modal state
-  const [selectedTagModal, setSelectedTagModal] = useState<{ tag: string; type: 'genre' | 'theme' } | null>(null);
+  const [selectedTagModal, setSelectedTagModal] = useState<{ tag: string; type: 'genre' | 'theme' | 'vibe' | 'mood' | 'pace' } | null>(null);
   // Year Explore Modal state
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   // Track wrong trailer & review keys for skipping
@@ -930,27 +930,57 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                     <span>{originCountry}</span>
                   </div>
                 )}
+
+                {/* 8. Audience Vibe */}
+                {currentTitle.audienceVibe && (
+                  <div className="px-3 py-1 rounded-full bg-gradient-to-r from-purple-950/80 to-indigo-950/80 border border-purple-500/40 text-purple-200 font-semibold flex items-center gap-1.5 shadow-sm">
+                    <span>🎭</span>
+                    <span>Vibe: <strong className="text-white">{currentTitle.audienceVibe}</strong></span>
+                  </div>
+                )}
+
+                {/* 9. Story Pace */}
+                {currentTitle.storyPace && (
+                  <div className="px-3 py-1 rounded-full bg-amber-950/60 border border-amber-500/40 text-amber-200 font-semibold flex items-center gap-1.5 shadow-sm">
+                    <span>⚡</span>
+                    <span className="capitalize">{currentTitle.storyPace} Pace</span>
+                  </div>
+                )}
+
+                {/* 10. Primary Genre */}
+                {currentTitle.primaryGenre && (
+                  <div className="px-2.5 py-1 rounded-full bg-red-950/70 border border-red-500/40 text-red-200 font-bold flex items-center gap-1 shadow-sm">
+                    <span>🎯</span>
+                    <span>{currentTitle.primaryGenre}</span>
+                  </div>
+                )}
               </div>
 
-              {/* Genres Pills (Clickable to explore similar titles) */}
-              {currentTitle.genres && currentTitle.genres.length > 0 && (
-                <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                  {currentTitle.genres.map((genre) => (
-                    <button
-                      key={genre}
-                      type="button"
-                      onClick={() => {
-                        pauseTrailer();
-                        setSelectedTagModal({ tag: genre, type: 'genre' });
-                      }}
-                      className="px-2.5 py-0.5 rounded-full bg-zinc-800/90 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/60 hover:border-zinc-500 text-xs font-medium cursor-pointer transition-all hover:scale-105 shadow-sm"
-                      title={`Click to explore all titles with genre "${genre}"`}
-                    >
-                      {genre}
-                    </button>
-                  ))}
-                </div>
-              )}
+              {/* Moods & Genres Pills */}
+              <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                {currentTitle.moods?.map((mood) => (
+                  <span
+                    key={`mood-${mood}`}
+                    className="px-2.5 py-0.5 rounded-full bg-indigo-950/70 text-indigo-300 border border-indigo-500/30 text-xs font-medium shadow-sm"
+                  >
+                    💭 {mood}
+                  </span>
+                ))}
+                {currentTitle.genres && currentTitle.genres.map((genre) => (
+                  <button
+                    key={genre}
+                    type="button"
+                    onClick={() => {
+                      pauseTrailer();
+                      setSelectedTagModal({ tag: genre, type: 'genre' });
+                    }}
+                    className="px-2.5 py-0.5 rounded-full bg-zinc-800/90 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/60 hover:border-zinc-500 text-xs font-medium cursor-pointer transition-all hover:scale-105 shadow-sm"
+                    title={`Click to explore all titles with genre "${genre}"`}
+                  >
+                    {genre}
+                  </button>
+                ))}
+              </div>
 
               {/* Synopsis */}
               <div className="space-y-1.5 pt-1">

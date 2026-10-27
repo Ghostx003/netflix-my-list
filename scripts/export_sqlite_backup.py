@@ -10,6 +10,7 @@ import os
 import sys
 import json
 import sqlite3
+import zipfile
 from datetime import datetime
 
 # Ensure scripts module is accessible
@@ -154,9 +155,35 @@ def export_sqlite_to_backup(output_path: str = None) -> str:
         "sqliteKnowledgeBase": sqlite_records,
     }
 
-    print(f"[3/3] Writing backup JSON package to '{output_path}'...")
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(backup_payload, f, ensure_ascii=False)
+    if output_path.endswith(".zip"):
+        print(f"[3/3] Packaging complete ZIP backup archive to '{output_path}'...")
+        with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
+            # 1. app_state.json
+            z.writestr("app_state.json", json.dumps(backup_payload, ensure_ascii=False, indent=2))
+            # 2. discovery_catalog.json
+            z.writestr("discovery_catalog.json", json.dumps(discovery_catalog, ensure_ascii=False, indent=2))
+            # 3. Raw SQLite DB
+            if os.path.exists(db_path):
+                z.write(db_path, "netflix_knowledge_base.sqlite")
+            # 4. Enriched KB JSON
+            enrich_json = "scripts/enrichment/netflix_enriched_kb.json"
+            if os.path.exists(enrich_json):
+                z.write(enrich_json, "netflix_enriched_movies_database.json")
+            # 5. Embeddings & catalogue metadata
+            for asset in ["embeddings.bin", "catalogue_metadata.json", "netflix-my-list.json", "netflix_database_export.csv", "netflix_knowledge_base.xlsx", "netflix_india_all_titles.json"]:
+                pub_asset = os.path.join("public", asset)
+                if os.path.exists(pub_asset):
+                    z.write(pub_asset, asset)
+                elif os.path.exists(asset):
+                    z.write(asset, asset)
+                elif os.path.exists(os.path.join("scripts", "enrichment", asset)):
+                    z.write(os.path.join("scripts", "enrichment", asset), asset)
+                elif os.path.exists(os.path.join("data", asset)):
+                    z.write(os.path.join("data", asset), asset)
+    else:
+        print(f"[3/3] Writing backup JSON package to '{output_path}'...")
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(backup_payload, f, ensure_ascii=False)
 
     size_mb = os.path.getsize(output_path) / (1024 * 1024)
     print(f"\n{'='*70}")

@@ -1,10 +1,8 @@
 import { DiscoveryTitle, EpisodeInfo, TrailerInfo } from '../types';
 import { extractThemesFromKeywords } from './themeMapper';
 import { normalizeCountriesList, normalizeTitle } from './normalizer';
-import { DEFAULT_PUBLIC_TMDB_KEY, selectBestTrailer, fetchOMDBMetadata } from './tmdb';
+import { DEFAULT_PUBLIC_TMDB_KEY, selectBestTrailer, fetchOMDBMetadata, TMDB_BASE_URL } from './tmdb';
 import { getCachedMetadata, setCachedMetadata } from './db';
-
-const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const DEFAULT_TMDB_KEY =
   (typeof import.meta !== 'undefined' && (import.meta.env?.TMDB_API_KEY || import.meta.env?.VITE_TMDB_API_KEY)) ||
   DEFAULT_PUBLIC_TMDB_KEY ||

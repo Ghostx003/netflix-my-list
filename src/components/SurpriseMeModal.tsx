@@ -16,6 +16,7 @@ import {
 import confetti from 'canvas-confetti';
 import { LibraryItem, DiscoveryTitle } from '../types';
 import { getNetflixUrl, openNetflixInNewTab } from '../services/normalizer';
+import { CardMetadataPills } from './CardMetadataPills';
 
 interface SurpriseMeModalProps {
   isOpen: boolean;
@@ -351,6 +352,9 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
                 <p className="text-xs text-zinc-400 line-clamp-2">
                   {result.synopsis || 'No synopsis available.'}
                 </p>
+
+                {/* 6 Rich Narrative Metadata Dimensions */}
+                <CardMetadataPills item={result} className="mt-1" />
 
                 {/* Card Action Row with Add to Library and Watched Buttons */}
                 <div className="flex items-center gap-2 pt-1 flex-wrap">

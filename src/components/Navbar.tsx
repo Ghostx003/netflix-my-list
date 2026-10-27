@@ -1,5 +1,5 @@
 import React from 'react';
-import { Film, Tv, BarChart3, UploadCloud, Settings as SettingsIcon, RefreshCw, CheckSquare, Info, Compass, Play, Sparkles, Search, Database, Download, Archive } from 'lucide-react';
+import { Film, Tv, BarChart3, UploadCloud, Settings as SettingsIcon, RefreshCw, CheckSquare, Info, Compass, Play, Sparkles, Search, Database, Download, Archive, FlaskConical, Wrench } from 'lucide-react';
 import { AppSettings, LibraryItem } from '../types';
 import { openNetflixInNewTab } from '../services/normalizer';
 
@@ -10,6 +10,7 @@ interface NavbarProps {
   settings: AppSettings;
   onOpenSettings: () => void;
   onOpenBackup: () => void;
+  onOpenMaintenance?: () => void;
   onRescan: () => void;
   isRescanning: boolean;
   onOpenGlobalSearch?: () => void;
@@ -22,6 +23,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   settings,
   onOpenSettings,
   onOpenBackup,
+  onOpenMaintenance,
   onRescan,
   isRescanning,
   onOpenGlobalSearch,
@@ -223,6 +225,17 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="hidden sm:inline">Backup</span>
             </button>
 
+            {onOpenMaintenance && (
+              <button
+                onClick={onOpenMaintenance}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-500/60 hover:border-purple-400 transition-all text-xs font-bold whitespace-nowrap shadow-md shadow-purple-950/60 cursor-pointer"
+                title="Maintenance & Testing Mode (Duplicates, Catalog Scanner, Qwen AI, Sandbox, Git Push)"
+              >
+                <FlaskConical className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
+                <span>Maintenance</span>
+              </button>
+            )}
+
             <button
               onClick={onOpenSettings}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-gray-200 border border-white/10 transition-colors text-xs font-semibold whitespace-nowrap"
@@ -237,6 +250,16 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Row 2: Scrollable nav pills on non-xl screens */}
         <div className="xl:hidden border-t border-white/5 overflow-x-auto scrollbar-none">
           <nav className="flex items-center gap-1 px-3 py-1.5 min-w-max">
+            {onOpenMaintenance && (
+              <button
+                onClick={onOpenMaintenance}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-purple-600/25 text-purple-300 border border-purple-500/50 hover:bg-purple-600/40 transition-all whitespace-nowrap cursor-pointer shadow-sm"
+                title="Maintenance & Testing Mode"
+              >
+                <FlaskConical className="w-3.5 h-3.5 text-purple-400" />
+                <span>Maintenance</span>
+              </button>
+            )}
             <button
               onClick={onOpenBackup}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-600/30 transition-all whitespace-nowrap cursor-pointer shadow-sm"
@@ -484,6 +507,17 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="absolute -bottom-1 w-4 h-0.5 bg-[#E50914] rounded-full" />
           )}
         </button>
+
+        {isAndroid && onOpenMaintenance && (
+          <button
+            onClick={onOpenMaintenance}
+            className="flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all relative text-purple-400 hover:text-white"
+            title="Maintenance & Testing"
+          >
+            <FlaskConical className="w-5 h-5 mb-0.5 stroke-2" />
+            <span className="text-[10px] tracking-tight">Maintenance</span>
+          </button>
+        )}
 
         {isAndroid && (
           <button

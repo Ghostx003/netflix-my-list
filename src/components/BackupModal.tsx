@@ -46,7 +46,9 @@ export const BackupModal: React.FC<BackupModalProps> = ({
         setExportProgress(p);
       });
       const sizeMB = (res.sizeBytes / (1024 * 1024)).toFixed(1);
-      setExportSuccess(`Complete backup generated (${res.filename}, ${sizeMB} MB)! Check your browser Downloads.`);
+      const sum = res.summary;
+      const qwenMsg = sum.discoveryCount > 0 ? ` + ${sum.discoveryCount} Qwen Knowledge Base titles (100 parameters)` : '';
+      setExportSuccess(`Complete backup generated (${res.filename}, ${sizeMB} MB)! Contains ${sum.itemsCount} watchlist items${qwenMsg}, API cache & embeddings.`);
     } catch (err: any) {
       console.error('Backup ZIP export error:', err);
       setErrorMessage(`Failed to export backup: ${err?.message || 'Unknown error'}`);
@@ -77,8 +79,15 @@ export const BackupModal: React.FC<BackupModalProps> = ({
         setRestoreProgress(p);
       });
 
-      const discMsg = res.discoveryCount > 0 ? ` and ${res.discoveryCount} SQLite Knowledge Base titles` : '';
-      setRestoreSuccess(`Successfully restored ${res.itemCount} watchlist items${discMsg} to your app and IndexedDB!`);
+      const parts = [
+        `${res.itemCount} personal watchlist items`,
+        res.discoveryCount > 0 ? `${res.discoveryCount} Qwen Knowledge Base titles & 100 parameters` : null,
+        res.metadataCacheCount ? `${res.metadataCacheCount} API cache entries` : null,
+        res.thumbnailsCount ? `${res.thumbnailsCount} cached offline posters` : null,
+        res.conversationsCount ? `${res.conversationsCount} Netty AI conversations` : null,
+      ].filter(Boolean);
+
+      setRestoreSuccess(`Successfully restored ${parts.join(', ')} to your app and IndexedDB!`);
       setSelectedFile(null);
       await onRefreshLibrary();
     } catch (err: any) {
@@ -152,15 +161,27 @@ export const BackupModal: React.FC<BackupModalProps> = ({
               <ul className="text-xs text-zinc-300 space-y-1.5 pl-2 pt-1 border-t border-white/5">
                 <li className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  <span>Personal watchlist ({items.length} titles), watch progress, ratings, and settings</span>
+                  <span>Personal watchlist ({items.length} titles), watch progress, ratings, custom tags, drop reasons & settings</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  <span>Raw SQLite Database (<code className="text-emerald-300">netflix_knowledge_base.sqlite</code>) with 100 parameters</span>
+                  <span>Full Qwen Knowledge Base: All 4,806 titles & 100 continuous parameters (<code className="text-emerald-300">netflix_knowledge_base.sqlite</code>)</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  <span>Enriched movie plots & pacing (<code className="text-emerald-300">netflix_enriched_movies_database.json</code>)</span>
+                  <span>Enriched movie plots, narrative pacing & audience vibe (<code className="text-emerald-300">netflix_enriched_movies_database.json</code>)</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span>Precomputed Float32 vector embeddings (<code className="text-emerald-300">embeddings.bin</code>) & catalogue metadata</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span>Full CSV (<code className="text-emerald-300">netflix_database_export.csv</code>, 17 MB) & Excel Mirror (<code className="text-emerald-300">netflix_knowledge_base.xlsx</code>, 9.4 MB)</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span>Complete TMDB / Watchmode cache (22,946+ records), offline poster thumbnails & Qwen specs (private AI chats excluded)</span>
                 </li>
               </ul>
             </div>

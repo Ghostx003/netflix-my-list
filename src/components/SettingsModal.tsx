@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Key, ShieldCheck, Dumbbell, Clock, Sliders, Check, Archive, Download, Upload, AlertTriangle, RefreshCw } from 'lucide-react';
+import { X, Key, ShieldCheck, Dumbbell, Clock, Sliders, Check, Archive, Download, Upload, AlertTriangle, RefreshCw, FlaskConical, ArrowRight } from 'lucide-react';
 import { AppSettings, LibraryItem } from '../types';
 import { exportCompleteZipBackup, restoreCompleteZipBackup, ZipExportProgress } from '../services/zipBackup';
 
@@ -11,6 +11,7 @@ interface SettingsModalProps {
   items?: LibraryItem[];
   onRefreshLibrary?: () => Promise<void>;
   initialTab?: 'settings' | 'backup';
+  onOpenTesting?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -21,6 +22,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   items = [],
   onRefreshLibrary,
   initialTab = 'settings',
+  onOpenTesting,
 }) => {
   if (!isOpen) return null;
 
@@ -61,7 +63,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         setExportProgress(p);
       });
       const sizeMB = (res.sizeBytes / (1024 * 1024)).toFixed(1);
-      setExportSuccess(`Complete backup generated (${res.filename}, ${sizeMB} MB)! Check your browser Downloads.`);
+      const sum = res.summary;
+      const qwenMsg = sum.discoveryCount > 0 ? ` + ${sum.discoveryCount} Qwen Knowledge Base titles (100 parameters)` : '';
+      setExportSuccess(`Complete backup generated (${res.filename}, ${sizeMB} MB)! Contains ${sum.itemsCount} watchlist items${qwenMsg}, API cache & embeddings.`);
     } catch (err: any) {
       console.error('Settings backup error:', err);
       setBackupErrorMessage(`Failed to export backup: ${err?.message || 'Unknown error'}`);
@@ -92,8 +96,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         setRestoreProgress(p);
       });
 
-      const discMsg = res.discoveryCount > 0 ? ` and ${res.discoveryCount} SQLite Knowledge Base titles` : '';
-      setRestoreSuccess(`Restored ${res.itemCount} watchlist items${discMsg} into your app and IndexedDB!`);
+      const parts = [
+        `${res.itemCount} personal watchlist items`,
+        res.discoveryCount > 0 ? `${res.discoveryCount} Qwen Knowledge Base titles & 100 parameters` : null,
+        res.metadataCacheCount ? `${res.metadataCacheCount} API cache entries` : null,
+        res.thumbnailsCount ? `${res.thumbnailsCount} cached offline posters` : null,
+        res.conversationsCount ? `${res.conversationsCount} Netty AI conversations` : null,
+      ].filter(Boolean);
+
+      setRestoreSuccess(`Restored ${parts.join(', ')} into your app and IndexedDB!`);
       setSelectedFile(null);
       if (onRefreshLibrary) {
         await onRefreshLibrary();
@@ -162,12 +173,59 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <Archive className="w-3.5 h-3.5" />
             <span>Complete Backup (.zip)</span>
           </button>
+
+          {onOpenTesting && (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenTesting();
+              }}
+              className="pb-2.5 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-1.5 border-transparent text-purple-400 hover:text-purple-300 hover:border-purple-400 ml-auto"
+            >
+              <FlaskConical className="w-3.5 h-3.5 text-purple-400" />
+              <span>Testing Mode</span>
+              <span className="text-[9px] px-1 py-0.2 rounded bg-purple-500/20 text-purple-300 font-mono">NEW</span>
+            </button>
+          )}
         </div>
 
         {/* TAB 1: PREFERENCES */}
         {activeTab === 'settings' && (
           <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
             <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 scrollbar-thin">
+              {/* Prominent Testing Mode Entry Button */}
+              {onOpenTesting && (
+                <div className="p-3.5 rounded-xl bg-gradient-to-r from-purple-950/60 via-zinc-900 to-indigo-950/60 border border-purple-500/30 flex items-center justify-between gap-3 shadow-lg shadow-purple-950/20">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-lg bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                      <FlaskConical className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+                        <span>Testing & Maintenance Mode</span>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-mono font-semibold">DEV</span>
+                      </h4>
+                      <p className="text-[10px] text-zinc-400">
+                        Duplicates cleaner, Catalog scanner, Qwen 28B tester & TMDB/Watchmode sandbox
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenTesting();
+                    }}
+                    className="px-3 py-1.5 text-xs font-bold rounded-lg bg-purple-600 hover:bg-purple-500 text-white transition-all shadow-md shadow-purple-950/50 flex items-center gap-1.5 shrink-0 cursor-pointer"
+                  >
+                    <span>Enter Testing Mode</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
               {/* Episode Capping Toggle */}
               <div className="bg-black/30 p-4 rounded-xl border border-white/5 space-y-3">
                 <div className="flex items-center justify-between">
@@ -389,10 +447,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
 
-              <ul className="text-xs text-zinc-400 space-y-1 pl-2 border-t border-white/5 pt-2">
-                <li>• Watchlist items ({items.length} titles), watch progress, drop reasons & settings</li>
-                <li>• Raw SQLite Database (<code className="text-emerald-400">netflix_knowledge_base.sqlite</code>, 24.7 MB)</li>
-                <li>• Enriched Movie & Plot Dataset (<code className="text-emerald-400">netflix_enriched_movies_database.json</code>, 32.1 MB)</li>
+              <ul className="text-xs text-zinc-400 space-y-1.5 pl-2 border-t border-white/5 pt-2">
+                <li>• Watchlist items ({items.length} titles), watch progress, custom tags, drop reasons & settings</li>
+                <li>• Full Qwen Knowledge Base: All 4,806 titles & 100 continuous parameters (<code className="text-emerald-400">netflix_knowledge_base.sqlite</code>, 24.7 MB)</li>
+                <li>• Enriched Movie & Plot Dataset (<code className="text-emerald-400">netflix_enriched_movies_database.json</code>, 36.1 MB)</li>
+                <li>• Precomputed Float32 vector embeddings (<code className="text-emerald-400">embeddings.bin</code>) & catalogue metadata</li>
+                <li>• Complete TMDB / OMDB metadata cache, offline poster thumbnails & Netty AI chat history</li>
               </ul>
 
               <button

@@ -4,7 +4,26 @@ import { getCachedMetadata, setCachedMetadata } from './db';
 import { SAMPLE_METADATA_MAP } from './tmdbSampleData';
 import { extractThemesFromKeywords, generateFallbackTagline } from './themeMapper';
 
-const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
+export const TMDB_BASE_URL = typeof window !== 'undefined' ? '/api/tmdb/3' : 'https://api.themoviedb.org/3';
+
+export async function fetchTmdbUrl(url: string): Promise<Response> {
+  try {
+    const res = await fetch(url);
+    if (res.ok) return res;
+    if (url.startsWith('/api/tmdb/3')) {
+      const directUrl = url.replace('/api/tmdb/3', 'https://api.themoviedb.org/3');
+      const directRes = await fetch(directUrl);
+      if (directRes.ok) return directRes;
+    }
+    return res;
+  } catch (err) {
+    if (url.startsWith('/api/tmdb/3')) {
+      const directUrl = url.replace('/api/tmdb/3', 'https://api.themoviedb.org/3');
+      return await fetch(directUrl);
+    }
+    throw err;
+  }
+}
 export const DEFAULT_PUBLIC_TMDB_KEY =
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_TMDB_API_KEY) ||
   'ec3ae1f9fde58cd94e4297c4cb3b77de';
@@ -275,7 +294,7 @@ export async function searchTMDB(
 
   try {
     const url = TMDB_BASE_URL + '/search/multi?api_key=' + effectiveKey + '&query=' + encodeURIComponent(query) + '&include_adult=false';
-    const res = await fetch(url);
+    const res = await fetchTmdbUrl(url);
     if (!res.ok) throw new Error('TMDB HTTP error ' + res.status);
     const data = await res.json();
 
@@ -364,7 +383,7 @@ export async function fetchFullDetails(
   try {
     // Request multi-language videos (en, hi, es, de, null), keywords, credits, external_ids & translations
     const detailsUrl = TMDB_BASE_URL + '/' + mediaType + '/' + id + '?api_key=' + effectiveKey + '&append_to_response=videos,translations,keywords,credits,external_ids&include_video_language=en,hi,es,de,null';
-    const res = await fetch(detailsUrl);
+    const res = await fetchTmdbUrl(detailsUrl);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
 
@@ -374,7 +393,7 @@ export async function fetchFullDetails(
     if (!trailer && mediaType === 'tv') {
       try {
         const s1Url = TMDB_BASE_URL + '/tv/' + id + '/season/1/videos?api_key=' + effectiveKey;
-        const s1Res = await fetch(s1Url);
+        const s1Res = await fetchTmdbUrl(s1Url);
         if (s1Res.ok) {
           const s1Data = await s1Res.json();
           trailer = selectBestTrailer(s1Data.results);
@@ -460,7 +479,7 @@ export async function fetchFullDetails(
       for (const season of (data.seasons || [])) {
         if (season.season_number === 0) continue;
         try {
-          const sRes = await fetch(TMDB_BASE_URL + '/tv/' + id + '/season/' + season.season_number + '?api_key=' + effectiveKey);
+          const sRes = await fetchTmdbUrl(TMDB_BASE_URL + '/tv/' + id + '/season/' + season.season_number + '?api_key=' + effectiveKey);
           if (sRes.ok) {
             const sData = await sRes.json();
             for (const ep of sData.episodes || []) {

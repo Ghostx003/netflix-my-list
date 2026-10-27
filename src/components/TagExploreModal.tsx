@@ -23,12 +23,13 @@ import { DiscoveryTitle } from '../types';
 import { formatRuntime } from '../services/analytics';
 import { getNetflixUrl, openNetflixInNewTab } from '../services/normalizer';
 import { CachedImage } from './CachedImage';
+import { CardMetadataPills, CardPosterOverlay, resolveCardMetadata } from './CardMetadataPills';
 
 interface TagExploreModalProps {
   isOpen: boolean;
   onClose: () => void;
   tag: string;
-  tagType?: 'genre' | 'theme';
+  tagType?: 'genre' | 'theme' | 'vibe' | 'mood' | 'pace';
   catalog: DiscoveryTitle[];
   onSelectTitle: (title: DiscoveryTitle) => void;
   onAddToLibrary?: (item: DiscoveryTitle) => void;
@@ -50,7 +51,7 @@ export const TagExploreModal: React.FC<TagExploreModalProps> = ({
   // Active primary tag (supports switching within modal)
   const [activeTag, setActiveTag] = useState(initialTag);
   const [activeTagType, setActiveTagType] = useState(initialTagType);
-  const [tagHistory, setTagHistory] = useState<Array<{ tag: string; type: 'genre' | 'theme' }>>([]);
+  const [tagHistory, setTagHistory] = useState<Array<{ tag: string; type: 'genre' | 'theme' | 'vibe' | 'mood' | 'pace' }>>([]);
 
   // Type Filter: 'all' | 'movie' | 'tv'
   const [mediaTypeFilter, setMediaTypeFilter] = useState<'all' | 'movie' | 'tv'>('all');
@@ -71,7 +72,7 @@ export const TagExploreModal: React.FC<TagExploreModalProps> = ({
     setTagHistory([]);
   }, [initialTag, initialTagType]);
 
-  const handleSwitchTag = (newTag: string, newType: 'genre' | 'theme') => {
+  const handleSwitchTag = (newTag: string, newType: 'genre' | 'theme' | 'vibe' | 'mood' | 'pace') => {
     setTagHistory((prev) => [...prev, { tag: activeTag, type: activeTagType }]);
     setActiveTag(newTag);
     setActiveTagType(newType);
@@ -103,26 +104,88 @@ export const TagExploreModal: React.FC<TagExploreModalProps> = ({
     setExcludedCategories([]);
   };
 
-  // 1. Raw pool of titles matching the primary tag
+  // 1. Raw pool of titles matching the primary tag across all dimensions
   const matchingPool = useMemo(() => {
-    const targetNorm = activeTag.toLowerCase().trim();
-    if (!targetNorm) return [];
+    const rawTarget = activeTag.toLowerCase().trim();
+    if (!rawTarget) return [];
+
+    const targetWords = rawTarget
+      .replace(/[&/\\+]/g, ' ')
+      .split(/\s+/)
+      .map((w) => w.trim())
+      .filter((w) => w.length > 2);
 
     return catalog.filter((title) => {
-      // Check genres
-      const hasGenre = (title.genres || []).some(
-        (g) => g.toLowerCase().trim() === targetNorm
-      );
-      // Check themes
-      const hasTheme = (title.themes || []).some(
-        (t) => t.toLowerCase().trim() === targetNorm
-      );
-      // Check keywords
-      const hasKeyword = (title.tmdbKeywords || []).some(
-        (k) => k.toLowerCase().trim() === targetNorm
-      );
+      const meta = resolveCardMetadata(title);
 
-      return hasGenre || hasTheme || hasKeyword;
+      // Check Audience Vibe
+      const vibe = (title.audienceVibe || meta.audienceVibe || '').toLowerCase().trim();
+      const hasVibe =
+        vibe === rawTarget ||
+        (vibe && (vibe.includes(rawTarget) || rawTarget.includes(vibe))) ||
+        targetWords.some((w) => vibe.includes(w));
+
+      // Check Story Pace
+      const pace = (title.storyPace || meta.storyPace || '').toLowerCase().trim();
+      const hasPace =
+        pace === rawTarget ||
+        (pace && (pace.includes(rawTarget) || rawTarget.includes(pace))) ||
+        targetWords.some((w) => pace.includes(w));
+
+      // Check Moods
+      const allMoods = Array.from(new Set([...(title.moods || []), ...(meta.moods || [])]));
+      const hasMood = allMoods.some((m) => {
+        const mNorm = m.toLowerCase().trim();
+        return (
+          mNorm === rawTarget ||
+          mNorm.includes(rawTarget) ||
+          rawTarget.includes(mNorm) ||
+          targetWords.some((w) => mNorm.includes(w))
+        );
+      });
+
+      // Check Themes
+      const allThemes = Array.from(new Set([...(title.themes || []), ...(meta.themes || [])]));
+      const hasTheme = allThemes.some((t) => {
+        const tNorm = t.toLowerCase().trim();
+        return (
+          tNorm === rawTarget ||
+          tNorm.includes(rawTarget) ||
+          rawTarget.includes(tNorm) ||
+          targetWords.some((w) => tNorm.includes(w))
+        );
+      });
+
+      // Check Genres (primary, secondary, and standard genres)
+      const allGenres = Array.from(
+        new Set([
+          title.primaryGenre || meta.primaryGenre || '',
+          ...(title.secondaryGenres || meta.secondaryGenres || []),
+          ...(title.genres || []),
+        ].filter(Boolean))
+      );
+      const hasGenre = allGenres.some((g) => {
+        const gNorm = g.toLowerCase().trim();
+        return (
+          gNorm === rawTarget ||
+          gNorm.includes(rawTarget) ||
+          rawTarget.includes(gNorm) ||
+          targetWords.some((w) => gNorm.includes(w))
+        );
+      });
+
+      // Check TMDB Keywords
+      const hasKeyword = (title.tmdbKeywords || []).some((k) => {
+        const kNorm = k.toLowerCase().trim();
+        return (
+          kNorm === rawTarget ||
+          kNorm.includes(rawTarget) ||
+          rawTarget.includes(kNorm) ||
+          targetWords.some((w) => kNorm.includes(w))
+        );
+      });
+
+      return hasVibe || hasMood || hasTheme || hasGenre || hasPace || hasKeyword;
     });
   }, [catalog, activeTag]);
 
@@ -505,11 +568,14 @@ export const TagExploreModal: React.FC<TagExploreModalProps> = ({
 
                       {/* Runtime Overlay Bottom-Left */}
                       {displayRuntimeMinutes ? (
-                        <div className="absolute bottom-1.5 left-1.5 z-10 bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold text-zinc-300 border border-white/10 flex items-center gap-1">
+                        <div className="absolute bottom-8 left-1.5 z-10 bg-black/80 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold text-zinc-300 border border-white/10 flex items-center gap-1">
                           <Clock className="w-2.5 h-2.5 text-zinc-400" />
                           <span>{formatRuntime(displayRuntimeMinutes)}</span>
                         </div>
                       ) : null}
+
+                      {/* Floating Creative Tickers Outside Card (Over Poster Area) */}
+                      <CardPosterOverlay item={item} onTagClick={(tag, type) => handleSwitchTag(tag, type)} />
                     </div>
 
                     {/* Card Content */}
@@ -523,9 +589,11 @@ export const TagExploreModal: React.FC<TagExploreModalProps> = ({
                         </h4>
 
                         {item.tagline && (
-                          <p className="text-[10px] text-zinc-400 italic line-clamp-1 mt-0.5">
-                            "{item.tagline}"
-                          </p>
+                          <div className="my-1.5 px-2 py-1 rounded bg-amber-500/10 border-l-2 border-amber-500/70">
+                            <p className="text-[10px] sm:text-[11px] text-amber-200/90 font-medium italic line-clamp-2 leading-snug" title={item.tagline}>
+                              "{item.tagline}"
+                            </p>
+                          </div>
                         )}
 
                         {originCountry && (
@@ -534,35 +602,8 @@ export const TagExploreModal: React.FC<TagExploreModalProps> = ({
                           </p>
                         )}
 
-                        {/* Co-occurring tags pills on card */}
-                        <div className="flex flex-wrap gap-1 mt-1.5">
-                          {item.genres?.slice(0, 2).map((g) => (
-                            <span
-                              key={g}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleSwitchTag(g, 'genre');
-                              }}
-                              className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700/50 cursor-pointer"
-                              title={`Explore ${g}`}
-                            >
-                              {g}
-                            </span>
-                          ))}
-                          {item.themes?.slice(0, 1).map((t) => (
-                            <span
-                              key={t}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleSwitchTag(t, 'theme');
-                              }}
-                              className="text-[9px] px-1.5 py-0.5 rounded bg-purple-950/70 hover:bg-purple-900 text-purple-300 border border-purple-500/40 font-semibold cursor-pointer"
-                              title={`Explore theme ${t}`}
-                            >
-                              ✨ {t}
-                            </span>
-                          ))}
-                        </div>
+                        {/* 6 Rich Narrative Metadata Dimensions */}
+                        <CardMetadataPills item={item} onTagClick={(tag, type) => handleSwitchTag(tag, type)} />
                       </div>
 
                       {/* Card Footer: Watch on Netflix */}
