@@ -33,7 +33,7 @@ import {
 } from '../services/db';
 import { normalizeTitle } from '../services/normalizer';
 import { groqService } from '../services/groqService';
-import { DEFAULT_PUBLIC_TMDB_KEY } from '../services/tmdb';
+import { DEFAULT_PUBLIC_TMDB_KEY, fetchTmdbUrl } from '../services/tmdb';
 import { DEFAULT_WATCHMODE_KEY } from '../services/discoveryService';
 
 interface TestingModalProps {
@@ -463,22 +463,28 @@ export const TestingModal: React.FC<TestingModalProps> = ({
       }
 
       let res: Response;
-      try {
+      if (playgroundApi === 'tmdb') {
+        res = await fetchTmdbUrl(url);
+      } else {
         res = await fetch(url);
-      } catch (fErr) {
-        if (url.startsWith('/api/tmdb/3')) {
-          url = url.replace('/api/tmdb/3', 'https://api.themoviedb.org/3');
-          res = await fetch(url);
-        } else {
-          throw fErr;
-        }
       }
       const elapsed = Math.round(performance.now() - startTime);
-      const data = await res.json();
+
+      let data: any;
+      const text = await res.text();
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = {
+          raw: text.slice(0, 1500),
+          error: res.ok ? 'Response was not valid JSON' : `HTTP error: ${res.status} ${res.statusText}`,
+          contentType: res.headers.get('content-type') || 'unknown',
+        };
+      }
 
       setApiMetrics({
         status: res.status,
-        statusText: res.statusText,
+        statusText: res.statusText || (res.ok ? 'OK' : 'Error'),
         latencyMs: elapsed,
         url,
       });

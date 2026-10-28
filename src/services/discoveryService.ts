@@ -1,5 +1,5 @@
 import { DiscoveryTitle, EpisodeInfo, TrailerInfo, LibraryItem } from '../types';
-import { DEFAULT_PUBLIC_TMDB_KEY, fetchOMDBMetadata, selectBestTrailer, TMDB_BASE_URL } from './tmdb';
+import { DEFAULT_PUBLIC_TMDB_KEY, fetchOMDBMetadata, selectBestTrailer, TMDB_BASE_URL, fetchTmdbUrl } from './tmdb';
 import { getCachedMetadata, setCachedMetadata, saveDiscoveryTitles, replaceDiscoveryCatalog, saveRemovedDiscoveryTitles, getAllDiscoveryTitles, getDiscoveryCatalogMeta, setDiscoveryCatalogMeta, saveLibraryItems } from './db';
 import { normalizeCountriesList, normalizeTitle, createDuplicateKey, NETFLIX_HINDI_DUBBED_TITLES, isNetflixIndiaAvailable } from './normalizer';
 import { extractThemesFromKeywords, generateFallbackTagline } from './themeMapper';
@@ -2354,7 +2354,7 @@ export async function enrichTitleWithTMDB(
     if (!findData) {
       try {
         const findUrl = `${TMDB_BASE_URL}/find/${encodeURIComponent(titleItem.imdbId)}?api_key=${key}&external_source=imdb_id`;
-        const res = await fetch(findUrl);
+        const res = await fetchTmdbUrl(findUrl);
         if (res.ok) {
           findData = await res.json();
           await setCachedMetadata(findCacheKey, findData);
@@ -2382,7 +2382,7 @@ export async function enrichTitleWithTMDB(
     if (!searchData) {
       try {
         const searchUrl = `${TMDB_BASE_URL}/search/multi?api_key=${key}&query=${encodeURIComponent(titleItem.title)}&include_adult=false`;
-        const res = await fetch(searchUrl);
+        const res = await fetchTmdbUrl(searchUrl);
         if (res.ok) {
           searchData = await res.json();
           await setCachedMetadata(searchCacheKey, searchData);
@@ -2438,26 +2438,26 @@ export async function enrichTitleWithTMDB(
   if (!detail) {
     try {
       let detailUrl = `${TMDB_BASE_URL}/${endpointType}/${tmdbId}?api_key=${key}&append_to_response=credits,videos,external_ids,watch/providers,keywords`;
-      let res = await fetch(detailUrl);
+      let res = await fetchTmdbUrl(detailUrl);
       if (res.ok) {
         detail = await res.json();
       } else if (res.status === 404) {
         // ID might belong to alternative media type or might be invalid/Watchmode ID
         const altEndpoint = isMovie ? 'tv' : 'movie';
         const altUrl = `${TMDB_BASE_URL}/${altEndpoint}/${tmdbId}?api_key=${key}&append_to_response=credits,videos,external_ids,watch/providers,keywords`;
-        const altRes = await fetch(altUrl);
+        const altRes = await fetchTmdbUrl(altUrl);
         if (altRes.ok) {
           detail = await altRes.json();
         } else if (titleItem.title) {
           // Fallback: search by title across TMDB
           const sUrl = `${TMDB_BASE_URL}/search/${endpointType}?api_key=${key}&query=${encodeURIComponent(titleItem.title)}`;
-          const sRes = await fetch(sUrl);
+          const sRes = await fetchTmdbUrl(sUrl);
           if (sRes.ok) {
             const sData = await sRes.json();
             if (sData.results && sData.results.length > 0) {
               const matchedId = sData.results[0].id;
               const fUrl = `${TMDB_BASE_URL}/${endpointType}/${matchedId}?api_key=${key}&append_to_response=credits,videos,external_ids,watch/providers,keywords`;
-              const fRes = await fetch(fUrl);
+              const fRes = await fetchTmdbUrl(fUrl);
               if (fRes.ok) {
                 detail = await fRes.json();
                 tmdbId = matchedId;
@@ -3097,7 +3097,7 @@ export async function fetchNetflixIndiaDiscovery(
         // General top popular movies on Netflix India
         const movieUrl = `${TMDB_BASE_URL}/discover/movie?api_key=${apiKey}&watch_region=IN&with_watch_providers=8&sort_by=popularity.desc&page=${pageNum}`;
         fetchPromises.push(
-          fetch(movieUrl)
+          fetchTmdbUrl(movieUrl)
             .then((r) => (r.ok ? r.json() : { results: [], total_results: 0, total_pages: 0 }))
             .then((d) => {
               if (d.total_results) reportedTotalResults = Math.max(reportedTotalResults, d.total_results);
@@ -3116,7 +3116,7 @@ export async function fetchNetflixIndiaDiscovery(
         if (p === startPage) {
           const thrillerMovieUrl = `${TMDB_BASE_URL}/discover/movie?api_key=${apiKey}&watch_region=IN&with_watch_providers=8&with_genres=53&sort_by=popularity.desc&page=1`;
           fetchPromises.push(
-            fetch(thrillerMovieUrl)
+            fetchTmdbUrl(thrillerMovieUrl)
               .then((r) => (r.ok ? r.json() : { results: [] }))
               .then((d) => {
                 return (d.results || []).map((m: any) => {
@@ -3136,7 +3136,7 @@ export async function fetchNetflixIndiaDiscovery(
         // General top TV shows on Netflix India
         const tvUrl = `${TMDB_BASE_URL}/discover/tv?api_key=${apiKey}&watch_region=IN&with_watch_providers=8&sort_by=popularity.desc&page=${pageNum}`;
         fetchPromises.push(
-          fetch(tvUrl)
+          fetchTmdbUrl(tvUrl)
             .then((r) => (r.ok ? r.json() : { results: [], total_results: 0, total_pages: 0 }))
             .then((d) => {
               if (d.total_results) reportedTotalResults = Math.max(reportedTotalResults, d.total_results);
@@ -3155,7 +3155,7 @@ export async function fetchNetflixIndiaDiscovery(
         if (p === startPage) {
           const suspenseTvUrl = `${TMDB_BASE_URL}/discover/tv?api_key=${apiKey}&watch_region=IN&with_watch_providers=8&with_genres=80|9648&sort_by=popularity.desc&page=1`;
           fetchPromises.push(
-            fetch(suspenseTvUrl)
+            fetchTmdbUrl(suspenseTvUrl)
               .then((r) => (r.ok ? r.json() : { results: [] }))
               .then((d) => {
                 return (d.results || []).map((t: any) => {
@@ -4328,7 +4328,7 @@ export async function syncWithNetflixUnified(
       const chunkResponses = await Promise.all(
         chunk.map(async (u) => {
           try {
-            const res = await fetch(u.url);
+            const res = await fetchTmdbUrl(u.url);
             if (!res.ok) return [];
             const data = await res.json();
             if (!Array.isArray(data?.results)) return [];

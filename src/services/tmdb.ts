@@ -7,21 +7,44 @@ import { extractThemesFromKeywords, generateFallbackTagline } from './themeMappe
 export const TMDB_BASE_URL = typeof window !== 'undefined' ? '/api/tmdb/3' : 'https://api.themoviedb.org/3';
 
 export async function fetchTmdbUrl(url: string): Promise<Response> {
+  const isProxy = url.startsWith('/api/tmdb');
+  const directUrl = isProxy
+    ? url.replace(/^\/api\/tmdb(\/3)?/, 'https://api.themoviedb.org/3')
+    : url;
+  const proxyUrl = !isProxy
+    ? url.replace(/^https:\/\/api\.themoviedb\.org\/3/, '/api/tmdb/3')
+    : url;
+
+  // 1. Attempt primary URL
   try {
     const res = await fetch(url);
-    if (res.ok) return res;
-    if (url.startsWith('/api/tmdb/3')) {
-      const directUrl = url.replace('/api/tmdb/3', 'https://api.themoviedb.org/3');
-      const directRes = await fetch(directUrl);
-      if (directRes.ok) return directRes;
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.includes('json')) {
+      return res;
+    }
+
+    // If primary returned non-JSON, 404, or HTML error page, attempt alternate URL
+    const altUrl = isProxy ? directUrl : proxyUrl;
+    if (altUrl !== url) {
+      try {
+        const altRes = await fetch(altUrl);
+        const altContentType = altRes.headers.get('content-type') || '';
+        if (altRes.ok && altContentType.includes('json')) {
+          return altRes;
+        }
+      } catch {}
     }
     return res;
-  } catch (err) {
-    if (url.startsWith('/api/tmdb/3')) {
-      const directUrl = url.replace('/api/tmdb/3', 'https://api.themoviedb.org/3');
-      return await fetch(directUrl);
+  } catch (primaryErr) {
+    // 2. If primary threw network/CORS error, attempt alternate URL
+    const altUrl = isProxy ? directUrl : proxyUrl;
+    if (altUrl !== url) {
+      try {
+        const altRes = await fetch(altUrl);
+        return altRes;
+      } catch {}
     }
-    throw err;
+    throw primaryErr;
   }
 }
 export const DEFAULT_PUBLIC_TMDB_KEY =

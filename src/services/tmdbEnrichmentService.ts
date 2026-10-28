@@ -1,7 +1,7 @@
 import { DiscoveryTitle, EpisodeInfo, TrailerInfo } from '../types';
 import { extractThemesFromKeywords } from './themeMapper';
 import { normalizeCountriesList, normalizeTitle } from './normalizer';
-import { DEFAULT_PUBLIC_TMDB_KEY, selectBestTrailer, fetchOMDBMetadata, TMDB_BASE_URL } from './tmdb';
+import { DEFAULT_PUBLIC_TMDB_KEY, selectBestTrailer, fetchOMDBMetadata, TMDB_BASE_URL, fetchTmdbUrl } from './tmdb';
 import { getCachedMetadata, setCachedMetadata } from './db';
 const DEFAULT_TMDB_KEY =
   (typeof import.meta !== 'undefined' && (import.meta.env?.TMDB_API_KEY || import.meta.env?.VITE_TMDB_API_KEY)) ||
@@ -51,7 +51,7 @@ export async function enrichDiscoveryTitleWithTMDBDetails(
     if (!findData) {
       try {
         const findUrl = `${TMDB_BASE_URL}/find/${encodeURIComponent(item.imdbId)}?api_key=${key}&external_source=imdb_id`;
-        const res = await fetch(findUrl);
+        const res = await fetchTmdbUrl(findUrl);
         if (res.ok) {
           findData = await res.json();
           await setCachedMetadata(findCacheKey, findData);
@@ -79,7 +79,7 @@ export async function enrichDiscoveryTitleWithTMDBDetails(
             : `&first_air_date_year=${item.releaseYear}`
           : '';
         const searchUrl = `${TMDB_BASE_URL}/search/${endpointType}?api_key=${key}&query=${encodeURIComponent(item.title)}${yearParam}`;
-        const res = await fetch(searchUrl);
+        const res = await fetchTmdbUrl(searchUrl);
         if (res.ok) {
           searchData = await res.json();
           await setCachedMetadata(searchCacheKey, searchData);
@@ -111,14 +111,14 @@ export async function enrichDiscoveryTitleWithTMDBDetails(
   if (!detail) {
     try {
       const detailUrl = `${TMDB_BASE_URL}/${endpointType}/${tmdbId}?api_key=${key}&append_to_response=keywords,recommendations,similar,credits,videos,external_ids,watch/providers`;
-      let res = await fetch(detailUrl);
+      let res = await fetchTmdbUrl(detailUrl);
       if (res.ok) {
         detail = await res.json();
       } else if (res.status === 404) {
         // Fallback: Check alternative media type
         const altEndpoint = isMovie ? 'tv' : 'movie';
         const altUrl = `${TMDB_BASE_URL}/${altEndpoint}/${tmdbId}?api_key=${key}&append_to_response=keywords,recommendations,similar,credits,videos,external_ids,watch/providers`;
-        const altRes = await fetch(altUrl);
+        const altRes = await fetchTmdbUrl(altUrl);
         if (altRes.ok) {
           detail = await altRes.json();
         }
@@ -269,7 +269,7 @@ export async function enrichDiscoveryTitleWithTMDBDetails(
           if (!seasonData) {
             try {
               const seasonUrl = `${TMDB_BASE_URL}/tv/${tmdbId}/season/${seasonNum}?api_key=${key}`;
-              const sRes = await fetch(seasonUrl);
+              const sRes = await fetchTmdbUrl(seasonUrl);
               if (sRes.ok) {
                 seasonData = await sRes.json();
                 await setCachedMetadata(seasonCacheKey, seasonData);

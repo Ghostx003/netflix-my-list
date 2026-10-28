@@ -4,6 +4,10 @@
   "trailingSlash": false,
   "rewrites": [
     {
+      "source": "/api/tmdb/:path*",
+      "destination": "/api/tmdb?_path=:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
