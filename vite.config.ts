@@ -46,6 +46,8 @@ export default defineConfig({
           const url = req.url?.split('?')[0]
           const staticFiles: Record<string, string> = {
             '/netflix_enriched_kb.json': 'application/json',
+            '/netflix_enriched_movies_database.json': 'application/json',
+            '/qwen_enriched_knowledge_base.json': 'application/json',
             '/netflix_knowledge_base.sqlite': 'application/x-sqlite3',
             '/netflix_database_export.csv': 'text/csv; charset=utf-8',
             '/netflix_knowledge_base.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -56,7 +58,11 @@ export default defineConfig({
           }
 
           if (url && staticFiles[url]) {
-            const filePath = path.join(__dirname, 'public', url.slice(1))
+            let relativeName = url.slice(1)
+            if (url === '/netflix_enriched_movies_database.json' || url === '/qwen_enriched_knowledge_base.json') {
+              relativeName = 'netflix_enriched_kb.json'
+            }
+            const filePath = path.join(__dirname, 'public', relativeName)
             if (fs.existsSync(filePath)) {
               const stat = fs.statSync(filePath)
               res.writeHead(200, {
