@@ -131,10 +131,6 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
               <span>{langBadge.badge}</span>
             </div>
           )}
-
-          {resolvedMetadata.storyPace && (
-            <StoryPaceBadge pace={resolvedMetadata.storyPace} onTagClick={onTagClick} />
-          )}
         </div>
 
         {/* Floating Creative Tickers Outside Card (Over Poster Area) */}
@@ -239,6 +235,10 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
                   <UserX className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                   <span>Drop</span>
                 </button>
+              )}
+
+              {resolvedMetadata.storyPace && (
+                <StoryPaceBadge pace={resolvedMetadata.storyPace} onTagClick={onTagClick} />
               )}
             </div>
 

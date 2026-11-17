@@ -566,9 +566,6 @@ export const TagExploreModal: React.FC<TagExploreModalProps> = ({
                             {item.releaseYear}
                           </span>
                         )}
-                        {resolvedMetadata.storyPace && (
-                          <StoryPaceBadge pace={resolvedMetadata.storyPace} onTagClick={(tag, type) => handleSwitchTag(tag, type)} />
-                        )}
                       </div>
 
                       {/* Runtime Overlay Bottom-Left */}
@@ -613,6 +610,9 @@ export const TagExploreModal: React.FC<TagExploreModalProps> = ({
 
                       {/* Card Footer: Watch on Netflix */}
                       <div className="pt-2 border-t border-zinc-800 flex items-center justify-between gap-1">
+                        {resolvedMetadata.storyPace && (
+                          <StoryPaceBadge pace={resolvedMetadata.storyPace} onTagClick={(tag, type) => handleSwitchTag(tag, type)} />
+                        )}
                         <a
                           href={netflixUrl}
                           target="_blank"

@@ -225,10 +225,6 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
             </div>
           )}
 
-          {resolvedMetadata.storyPace && (
-            <StoryPaceBadge pace={resolvedMetadata.storyPace} onTagClick={onTagClick as any} />
-          )}
-
           {(item.availabilityState === 'no_longer_available' || item.netflixIndiaAvailable === false || item.isNetflixIndiaVerified === false) && (
             <div className="bg-rose-950/90 text-rose-300 border border-rose-500/60 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-black shadow-md tracking-wider pointer-events-auto">
               NOT ON NETFLIX
@@ -400,6 +396,10 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
               <Tv className="w-3 h-3" />
               <span>{isWatching ? '✓ Watching' : 'Watching'}</span>
             </button>
+
+            {resolvedMetadata.storyPace && (
+              <StoryPaceBadge pace={resolvedMetadata.storyPace} onTagClick={onTagClick as any} />
+            )}
           </div>
         </div>
       </div>
