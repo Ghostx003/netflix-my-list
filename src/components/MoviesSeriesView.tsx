@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Film, Tv, Search, RefreshCw, AlertCircle, ArrowUpDown, Sliders, Globe, Calendar, X, Sparkles, Languages, Ban, Check, Star } from 'lucide-react';
+import { Film, Tv, Search, RefreshCw, AlertCircle, ArrowUpDown, Sliders, Globe, Calendar, X, Sparkles, Languages, Ban, Check, Star, ChevronDown, ChevronUp, Layers, Tag } from 'lucide-react';
 import { AppSettings, LibraryItem, DiscoveryTitle } from '../types';
 import { MovieCard } from './MovieCard';
 import { TvSeriesCard } from './TvSeriesCard';
@@ -9,6 +9,16 @@ import { itemHasLanguage, normalizeCountryName, calculateSearchRelevance } from 
 import { MovieSearchEngine } from '../services/searchEngine';
 import { calculateSeriesRuntime } from '../services/analytics';
 import { CANONICAL_THEMES } from '../services/themeMapper';
+import {
+  BROAD_THEMES,
+  BROAD_GENRES,
+  groupThemesByBroad,
+  groupGenresByBroad,
+  doesTitleMatchSelectedThemes,
+  doesTitleHaveExcludedThemes,
+  doesTitleMatchSelectedGenres,
+  doesTitleHaveExcludedGenres,
+} from '../services/taxonomyService';
 import {
   parseInitialFilters,
   syncFiltersToUrlAndStorage,
@@ -195,6 +205,8 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
   const [genreSearchQuery, setGenreSearchQuery] = useState('');
   const [genreMatchMode, setGenreMatchMode] = useState<'any' | 'all'>(initialFilters.genreMatchMode);
   const [showGenreModal, setShowGenreModal] = useState(false);
+  const [genreViewMode, setGenreViewMode] = useState<'broad' | 'detailed'>('broad');
+  const [expandedBroadGenres, setExpandedBroadGenres] = useState<Set<string>>(new Set());
 
   // Multi-theme filter (include & exclude)
   const [selectedThemes, setSelectedThemes] = useState<string[]>(initialFilters.selectedThemes || []);
@@ -202,6 +214,26 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
   const [themeModalTab, setThemeModalTab] = useState<'include' | 'exclude'>('include');
   const [themeSearchQuery, setThemeSearchQuery] = useState('');
   const [showThemeModal, setShowThemeModal] = useState(false);
+  const [themeViewMode, setThemeViewMode] = useState<'broad' | 'detailed'>('broad');
+  const [expandedBroadThemes, setExpandedBroadThemes] = useState<Set<string>>(new Set());
+
+  const toggleBroadGenreExpand = (id: string) => {
+    setExpandedBroadGenres((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleBroadThemeExpand = (id: string) => {
+    setExpandedBroadThemes((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   // Multi-country filter (include & exclude)
   const [selectedCountries, setSelectedCountries] = useState<string[]>(initialFilters.selectedCountries);
@@ -306,6 +338,15 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
     items.forEach((item) => (item.themes || []).forEach((t) => set.add(t)));
     return Array.from(set).sort();
   }, [items]);
+
+  // Grouped themes and genres for high-level broad classification
+  const groupedThemes = useMemo(() => {
+    return groupThemesByBroad(availableThemes);
+  }, [availableThemes]);
+
+  const groupedGenres = useMemo(() => {
+    return groupGenresByBroad(allGenres);
+  }, [allGenres]);
 
   // Dynamic available countries from library (canonicalized & merged)
   const allCountries = useMemo(() => {
@@ -609,33 +650,30 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
 
     // 8. Multi-genre filter (Includes)
     if (selectedGenres.length > 0) {
-      result = result.filter((x) => {
-        const genres = x.genres || [];
-        if (genreMatchMode === 'all') {
-          return selectedGenres.every((g) => genres.includes(g));
-        } else {
-          return selectedGenres.some((g) => genres.includes(g));
-        }
-      });
+      result = result.filter((x) =>
+        doesTitleMatchSelectedGenres(x.genres || [], selectedGenres, genreMatchMode)
+      );
     }
 
     // 8b. Multi-genre filter (Excludes)
     if (excludedGenres.length > 0) {
-      result = result.filter((x) => !(x.genres || []).some((g) => excludedGenres.includes(g)));
+      result = result.filter((x) =>
+        !doesTitleHaveExcludedGenres(x.genres || [], excludedGenres)
+      );
     }
 
     // 9. Themes filter (Includes)
     if (selectedThemes.length > 0) {
-      if (genreMatchMode === 'all') {
-        result = result.filter((x) => selectedThemes.every((t) => (x.themes || []).includes(t)));
-      } else {
-        result = result.filter((x) => selectedThemes.some((t) => (x.themes || []).includes(t)));
-      }
+      result = result.filter((x) =>
+        doesTitleMatchSelectedThemes(x.themes || [], selectedThemes, genreMatchMode)
+      );
     }
 
     // 9b. Themes filter (Excludes)
     if (excludedThemes.length > 0) {
-      result = result.filter((x) => !(x.themes || []).some((t) => excludedThemes.includes(t)));
+      result = result.filter((x) =>
+        !doesTitleHaveExcludedThemes(x.themes || [], excludedThemes)
+      );
     }
 
     // 10. Year range
@@ -1344,27 +1382,27 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
       {/* Categories Multi-select Modal with Include & Exclude Tabs */}
       {showGenreModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="relative w-full max-w-lg bg-[#1c1c1e] border border-white/15 rounded-2xl p-6 shadow-2xl">
-            <div className="flex items-center justify-between mb-3">
+          <div className="relative w-full max-w-2xl max-h-[85vh] flex flex-col bg-[#1c1c1e] border border-white/15 rounded-2xl p-5 sm:p-6 shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between mb-3 shrink-0">
               <div>
                 <h3 className="text-lg font-bold text-white flex items-center gap-2">
                   <Sliders className="w-5 h-5 text-[#E50914]" />
-                  <span>Category Filter & Exclusion</span>
+                  <span>Category & Genre Filter</span>
                 </h3>
                 <p className="text-[11px] sm:text-xs text-gray-400">
-                  Include or exclude specific genres & categories from your view.
+                  Browse by 17 curated broad genres or explore all {allGenres.length} granular tags.
                 </p>
               </div>
               <button
                 onClick={() => setShowGenreModal(false)}
-                className="p-1.5 rounded-full text-gray-400 hover:text-white"
+                className="p-1.5 rounded-full text-gray-400 hover:text-white hover:bg-white/10"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Mode Switcher Tabs: Include vs Exclude */}
-            <div className="grid grid-cols-2 gap-2 p-1 bg-black/50 rounded-xl border border-white/10 mb-3">
+            <div className="grid grid-cols-2 gap-2 p-1 bg-black/50 rounded-xl border border-white/10 mb-2.5 shrink-0">
               <button
                 type="button"
                 onClick={() => setGenreModalTab('include')}
@@ -1401,40 +1439,74 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
               </button>
             </div>
 
-            {genreModalTab === 'include' && (
-              <div className="flex items-center gap-4 p-2.5 bg-black/40 rounded-xl border border-white/5 mb-4 text-xs">
-                <span className="text-gray-400">Match rule:</span>
-                <label className="flex items-center gap-1.5 cursor-pointer text-white">
-                  <input
-                    type="radio"
-                    name="genreMatchMode"
-                    checked={genreMatchMode === 'any'}
-                    onChange={() => setGenreMatchMode('any')}
-                    className="text-red-600"
-                  />
-                  <span>Match ANY selected</span>
-                </label>
-                <label className="flex items-center gap-1.5 cursor-pointer text-white">
-                  <input
-                    type="radio"
-                    name="genreMatchMode"
-                    checked={genreMatchMode === 'all'}
-                    onChange={() => setGenreMatchMode('all')}
-                    className="text-red-600"
-                  />
-                  <span>Match ALL selected</span>
-                </label>
+            {/* View Mode Switcher: Broad vs Detailed */}
+            <div className="flex items-center justify-between mb-2.5 px-0.5 shrink-0">
+              <div className="flex items-center gap-1 p-1 bg-black/40 rounded-xl border border-white/5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setGenreViewMode('broad')}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    genreViewMode === 'broad'
+                      ? 'bg-white/15 text-white shadow-sm'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5 text-red-400" />
+                  <span>Broad Genres ({groupedGenres.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGenreViewMode('detailed')}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    genreViewMode === 'detailed'
+                      ? 'bg-white/15 text-white shadow-sm'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <Tag className="w-3.5 h-3.5 text-zinc-400" />
+                  <span>All Detailed Tags ({allGenres.length})</span>
+                </button>
               </div>
-            )}
+
+              {genreModalTab === 'include' && (
+                <div className="flex items-center gap-2 text-[11px] text-zinc-400">
+                  <span>Match:</span>
+                  <label className="flex items-center gap-1 cursor-pointer text-white">
+                    <input
+                      type="radio"
+                      name="genreMatchModeLib"
+                      checked={genreMatchMode === 'any'}
+                      onChange={() => setGenreMatchMode('any')}
+                      className="text-red-600"
+                    />
+                    <span>ANY</span>
+                  </label>
+                  <label className="flex items-center gap-1 cursor-pointer text-white">
+                    <input
+                      type="radio"
+                      name="genreMatchModeLib"
+                      checked={genreMatchMode === 'all'}
+                      onChange={() => setGenreMatchMode('all')}
+                      className="text-red-600"
+                    />
+                    <span>ALL</span>
+                  </label>
+                </div>
+              )}
+            </div>
 
             {/* Category Search Input */}
-            <div className="relative mb-3">
+            <div className="relative mb-3 shrink-0">
               <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-zinc-400" />
               <input
                 type="text"
                 value={genreSearchQuery}
                 onChange={(e) => setGenreSearchQuery(e.target.value)}
-                placeholder="Search categories / tags (e.g. Thriller, Crime, Anime)..."
+                placeholder={
+                  genreViewMode === 'broad'
+                    ? 'Search broad categories or specific sub-genres...'
+                    : 'Search detailed categories (e.g. Anime, Thriller, Martial Arts)...'
+                }
                 className="w-full bg-black/40 border border-white/10 rounded-xl pl-9 pr-8 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-red-500/60"
               />
               {genreSearchQuery && (
@@ -1447,48 +1519,254 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
               )}
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-64 overflow-y-auto p-1">
-              {allGenres
-                .filter((g) => g.toLowerCase().includes(genreSearchQuery.toLowerCase().trim()))
-                .map((g) => {
-                  const isChecked =
-                    genreModalTab === 'include'
-                      ? selectedGenres.includes(g)
-                      : excludedGenres.includes(g);
-                  return (
-                    <label
-                      key={g}
-                      className={`flex items-center gap-2 py-1.5 px-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
-                        isChecked
-                          ? genreModalTab === 'include'
-                            ? 'bg-red-600/20 border-red-500/40 text-white font-semibold'
-                            : 'bg-red-600/30 border-red-500/60 text-red-200 font-semibold'
-                          : 'bg-black/30 border-white/5 text-gray-400 hover:text-white'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => {
-                          if (genreModalTab === 'include') {
-                            setSelectedGenres((prev) =>
-                              isChecked ? prev.filter((x) => x !== g) : [...prev, g]
-                            );
-                          } else {
-                            setExcludedGenres((prev) =>
-                              isChecked ? prev.filter((x) => x !== g) : [...prev, g]
-                            );
-                          }
-                        }}
-                        className="rounded bg-neutral-800 border-white/20 text-red-600"
-                      />
-                      <span>{g}</span>
-                    </label>
-                  );
-                })}
+            {/* Modal Body: Scrollable */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 py-1">
+              {genreViewMode === 'broad' ? (
+                // Broad Grouped View
+                (() => {
+                  const query = genreSearchQuery.toLowerCase().trim();
+                  const filteredGroups = groupedGenres.filter((grp) => {
+                    if (!query) return true;
+                    if (grp.broad.name.toLowerCase().includes(query)) return true;
+                    return grp.subGenres.some((sg) => sg.toLowerCase().includes(query));
+                  });
+
+                  if (filteredGroups.length === 0) {
+                    return (
+                      <div className="py-8 text-center text-xs text-zinc-400">
+                        No categories found matching "{genreSearchQuery}".
+                      </div>
+                    );
+                  }
+
+                  return filteredGroups.map((grp) => {
+                    const isBroadSelected = (
+                      genreModalTab === 'include' ? selectedGenres : excludedGenres
+                    ).includes(grp.broad.name);
+
+                    const selectedSubs = grp.subGenres.filter((sg) =>
+                      (genreModalTab === 'include' ? selectedGenres : excludedGenres).includes(sg)
+                    );
+
+                    const isExpanded = expandedBroadGenres.has(grp.broad.id) || !!query;
+
+                    const visibleSubs = query
+                      ? grp.subGenres.filter((sg) => sg.toLowerCase().includes(query))
+                      : grp.subGenres;
+
+                    return (
+                      <div
+                        key={grp.broad.id}
+                        className={`rounded-xl border transition-all ${
+                          isBroadSelected
+                            ? genreModalTab === 'include'
+                              ? 'bg-red-950/20 border-red-500/40 shadow-sm'
+                              : 'bg-red-950/40 border-red-500/60 shadow-sm'
+                            : selectedSubs.length > 0
+                            ? 'bg-zinc-900/60 border-red-500/30'
+                            : 'bg-black/30 border-white/5 hover:border-white/10'
+                        }`}
+                      >
+                        {/* Header Row */}
+                        <div className="flex items-center justify-between p-2.5">
+                          <label className="flex items-center gap-2.5 cursor-pointer flex-1 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isBroadSelected}
+                              onChange={() => {
+                                if (genreModalTab === 'include') {
+                                  setSelectedGenres((prev) =>
+                                    isBroadSelected
+                                      ? prev.filter((x) => x !== grp.broad.name)
+                                      : [...prev, grp.broad.name]
+                                  );
+                                } else {
+                                  setExcludedGenres((prev) =>
+                                    isBroadSelected
+                                      ? prev.filter((x) => x !== grp.broad.name)
+                                      : [...prev, grp.broad.name]
+                                  );
+                                }
+                              }}
+                              className="rounded bg-neutral-800 border-white/20 text-red-600 shrink-0"
+                            />
+                            <span className="text-base leading-none">{grp.broad.icon}</span>
+                            <span className="text-xs font-semibold text-white truncate">
+                              {grp.broad.name}
+                            </span>
+                            <span className="text-[10px] text-zinc-400 bg-white/5 px-1.5 py-0.5 rounded-full border border-white/5 shrink-0">
+                              {grp.subGenres.length} tags
+                            </span>
+                            {isBroadSelected ? (
+                              <span className="text-[10px] font-bold text-red-300 bg-red-600/30 border border-red-500/40 px-1.5 py-0.2 rounded shrink-0">
+                                All Included
+                              </span>
+                            ) : selectedSubs.length > 0 ? (
+                              <span className="text-[10px] font-medium text-amber-300 bg-amber-500/20 border border-amber-500/30 px-1.5 py-0.2 rounded shrink-0">
+                                {selectedSubs.length} sub-tags
+                              </span>
+                            ) : null}
+                          </label>
+
+                          <button
+                            type="button"
+                            onClick={() => toggleBroadGenreExpand(grp.broad.id)}
+                            className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors ml-2 shrink-0 flex items-center gap-1 text-[11px]"
+                            title="Expand sub-genres"
+                          >
+                            <span className="text-[10px] hidden sm:inline text-zinc-400">
+                              {isExpanded ? 'Hide' : 'Expand'}
+                            </span>
+                            {isExpanded ? (
+                              <ChevronUp className="w-3.5 h-3.5" />
+                            ) : (
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </div>
+
+                        {/* Expandable Sub-genres Drawer */}
+                        {isExpanded && (
+                          <div className="p-2.5 pt-0 border-t border-white/5 mt-1">
+                            <div className="flex items-center justify-between text-[11px] text-zinc-400 mb-2 pt-1.5">
+                              <span>Specific sub-categories in {grp.broad.name}:</span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (genreModalTab === 'include') {
+                                      setSelectedGenres((prev) =>
+                                        Array.from(new Set([...prev, ...grp.subGenres]))
+                                      );
+                                    } else {
+                                      setExcludedGenres((prev) =>
+                                        Array.from(new Set([...prev, ...grp.subGenres]))
+                                      );
+                                    }
+                                  }}
+                                  className="text-[10px] text-red-300 hover:underline"
+                                >
+                                  Select All
+                                </button>
+                                <span>•</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (genreModalTab === 'include') {
+                                      setSelectedGenres((prev) =>
+                                        prev.filter(
+                                          (x) => x !== grp.broad.name && !grp.subGenres.includes(x)
+                                        )
+                                      );
+                                    } else {
+                                      setExcludedGenres((prev) =>
+                                        prev.filter(
+                                          (x) => x !== grp.broad.name && !grp.subGenres.includes(x)
+                                        )
+                                      );
+                                    }
+                                  }}
+                                  className="text-[10px] text-zinc-400 hover:text-white"
+                                >
+                                  Clear
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto p-0.5">
+                              {visibleSubs.map((sg) => {
+                                const isSubChecked = (
+                                  genreModalTab === 'include' ? selectedGenres : excludedGenres
+                                ).includes(sg);
+
+                                return (
+                                  <button
+                                    key={sg}
+                                    type="button"
+                                    onClick={() => {
+                                      if (genreModalTab === 'include') {
+                                        setSelectedGenres((prev) =>
+                                          isSubChecked
+                                            ? prev.filter((x) => x !== sg)
+                                            : [...prev, sg]
+                                        );
+                                      } else {
+                                        setExcludedGenres((prev) =>
+                                          isSubChecked
+                                            ? prev.filter((x) => x !== sg)
+                                            : [...prev, sg]
+                                        );
+                                      }
+                                    }}
+                                    className={`px-2 py-1 rounded-lg text-xs font-medium border transition-all flex items-center gap-1.5 ${
+                                      isSubChecked
+                                        ? genreModalTab === 'include'
+                                          ? 'bg-red-600 text-white border-red-500 shadow-sm'
+                                          : 'bg-red-700 text-white border-red-600 shadow-sm'
+                                        : isBroadSelected
+                                        ? 'bg-red-950/30 text-red-200 border-red-500/20 hover:border-red-500/40'
+                                        : 'bg-black/40 text-zinc-300 border-white/10 hover:border-white/20 hover:text-white'
+                                    }`}
+                                  >
+                                    <span>{sg}</span>
+                                    {isSubChecked && <Check className="w-3 h-3 shrink-0" />}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  });
+                })()
+              ) : (
+                // Detailed Raw Tags View
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {allGenres
+                    .filter((g) => g.toLowerCase().includes(genreSearchQuery.toLowerCase().trim()))
+                    .map((g) => {
+                      const isChecked =
+                        genreModalTab === 'include'
+                          ? selectedGenres.includes(g)
+                          : excludedGenres.includes(g);
+                      return (
+                        <label
+                          key={g}
+                          className={`flex items-center gap-2 py-1.5 px-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                            isChecked
+                              ? genreModalTab === 'include'
+                                ? 'bg-red-600/20 border-red-500/40 text-white font-semibold'
+                                : 'bg-red-600/30 border-red-500/60 text-red-200 font-semibold'
+                              : 'bg-black/30 border-white/5 text-gray-400 hover:text-white'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {
+                              if (genreModalTab === 'include') {
+                                setSelectedGenres((prev) =>
+                                  isChecked ? prev.filter((x) => x !== g) : [...prev, g]
+                                );
+                              } else {
+                                setExcludedGenres((prev) =>
+                                  isChecked ? prev.filter((x) => x !== g) : [...prev, g]
+                                );
+                              }
+                            }}
+                            className="rounded bg-neutral-800 border-white/20 text-red-600"
+                          />
+                          <span className="truncate">{g}</span>
+                        </label>
+                      );
+                    })}
+                </div>
+              )}
             </div>
 
-            <div className="flex items-center justify-between mt-5 pt-3 border-t border-white/10">
+            {/* Footer with Reset and Done */}
+            <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/10 shrink-0">
               <button
                 onClick={() => {
                   if (genreModalTab === 'include') {
@@ -1503,7 +1781,7 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
               </button>
               <button
                 onClick={() => setShowGenreModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-700 text-white"
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-[#E50914] hover:bg-red-700 text-white shadow-md active:scale-95 transition-all"
               >
                 Done
               </button>
@@ -1515,15 +1793,15 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
       {/* Themes Multi-select Modal with Include & Exclude */}
       {showThemeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="relative w-full max-w-lg bg-[#1c1c1e] border border-white/15 rounded-2xl p-5 sm:p-6 shadow-2xl">
-            <div className="flex items-center justify-between mb-3">
+          <div className="relative w-full max-w-2xl max-h-[85vh] flex flex-col bg-[#1c1c1e] border border-white/15 rounded-2xl p-5 sm:p-6 shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between mb-3 shrink-0">
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-1.5">
                   <Sparkles className="w-4 h-4 text-purple-400" />
                   <span>Cinematic Themes</span>
                 </h3>
                 <p className="text-xs text-zinc-400">
-                  Select narrative concepts and moods to include or exclude.
+                  24 Curated Broad Categories + {availableThemes.length.toLocaleString()} Detailed Micro-Themes
                 </p>
               </div>
               <button
@@ -1535,7 +1813,7 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
             </div>
 
             {/* Include / Exclude Tabs */}
-            <div className="grid grid-cols-2 gap-2 bg-black/40 p-1 rounded-xl mb-4 border border-white/5">
+            <div className="grid grid-cols-2 gap-2 bg-black/40 p-1 rounded-xl mb-2.5 border border-white/5 shrink-0">
               <button
                 type="button"
                 onClick={() => setThemeModalTab('include')}
@@ -1572,14 +1850,74 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
               </button>
             </div>
 
+            {/* View Mode Switcher: Broad Themes (24) vs All Detailed Themes */}
+            <div className="flex items-center justify-between mb-2.5 px-0.5 shrink-0">
+              <div className="flex items-center gap-1 p-1 bg-black/40 rounded-xl border border-white/5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setThemeViewMode('broad')}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    themeViewMode === 'broad'
+                      ? 'bg-white/15 text-white shadow-sm'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5 text-purple-400" />
+                  <span>Broad Themes ({groupedThemes.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setThemeViewMode('detailed')}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    themeViewMode === 'detailed'
+                      ? 'bg-white/15 text-white shadow-sm'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <Tag className="w-3.5 h-3.5 text-zinc-400" />
+                  <span>All Detailed Themes ({availableThemes.length.toLocaleString()})</span>
+                </button>
+              </div>
+
+              {themeModalTab === 'include' && (
+                <div className="flex items-center gap-2 text-[11px] text-zinc-400">
+                  <span>Match:</span>
+                  <label className="flex items-center gap-1 cursor-pointer text-white">
+                    <input
+                      type="radio"
+                      name="themeMatchModeLib"
+                      checked={genreMatchMode === 'any'}
+                      onChange={() => setGenreMatchMode('any')}
+                      className="text-purple-600"
+                    />
+                    <span>ANY</span>
+                  </label>
+                  <label className="flex items-center gap-1 cursor-pointer text-white">
+                    <input
+                      type="radio"
+                      name="themeMatchModeLib"
+                      checked={genreMatchMode === 'all'}
+                      onChange={() => setGenreMatchMode('all')}
+                      className="text-purple-600"
+                    />
+                    <span>ALL</span>
+                  </label>
+                </div>
+              )}
+            </div>
+
             {/* Theme Search Input */}
-            <div className="relative mb-3">
+            <div className="relative mb-3 shrink-0">
               <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-zinc-400" />
               <input
                 type="text"
                 value={themeSearchQuery}
                 onChange={(e) => setThemeSearchQuery(e.target.value)}
-                placeholder="Search themes (e.g. Heist, Serial Killer, Mind-Bending)..."
+                placeholder={
+                  themeViewMode === 'broad'
+                    ? 'Search categories or specific concepts (e.g. Heist, Serial Killer, Mind-Bending, Politics)...'
+                    : 'Search detailed themes (e.g. Canadian Politics, Cancer, Capitalism)...'
+                }
                 className="w-full bg-black/40 border border-white/10 rounded-xl pl-9 pr-8 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500/60"
               />
               {themeSearchQuery && (
@@ -1592,48 +1930,259 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
               )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto p-1">
-              {availableThemes
-                .filter((t) => t.toLowerCase().includes(themeSearchQuery.toLowerCase().trim()))
-                .map((t) => {
-                  const isChecked =
-                    themeModalTab === 'include'
-                      ? selectedThemes.includes(t)
-                      : excludedThemes.includes(t);
-                  return (
-                    <label
-                      key={t}
-                      className={`flex items-center gap-2 py-1.5 px-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
-                        isChecked
-                          ? themeModalTab === 'include'
-                            ? 'bg-purple-600/20 border-purple-500/40 text-purple-200 font-semibold'
-                            : 'bg-red-600/30 border-red-500/60 text-red-200 font-semibold'
-                          : 'bg-black/30 border-white/5 text-gray-400 hover:text-white'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => {
-                          if (themeModalTab === 'include') {
-                            setSelectedThemes((prev) =>
-                              isChecked ? prev.filter((x) => x !== t) : [...prev, t]
-                            );
-                          } else {
-                            setExcludedThemes((prev) =>
-                              isChecked ? prev.filter((x) => x !== t) : [...prev, t]
-                            );
-                          }
-                        }}
-                        className="rounded bg-neutral-800 border-white/20 text-purple-600"
-                      />
-                      <span className="truncate">{t}</span>
-                    </label>
-                  );
-                })}
+            {/* Modal Body: Scrollable */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 py-1">
+              {themeViewMode === 'broad' ? (
+                // Broad Grouped View
+                (() => {
+                  const query = themeSearchQuery.toLowerCase().trim();
+                  const filteredGroups = groupedThemes.filter((grp) => {
+                    if (!query) return true;
+                    if (grp.broad.name.toLowerCase().includes(query)) return true;
+                    if (grp.broad.description.toLowerCase().includes(query)) return true;
+                    return grp.subThemes.some((st) => st.toLowerCase().includes(query));
+                  });
+
+                  if (filteredGroups.length === 0) {
+                    return (
+                      <div className="py-8 text-center text-xs text-zinc-400">
+                        No themes found matching "{themeSearchQuery}".
+                      </div>
+                    );
+                  }
+
+                  return filteredGroups.map((grp) => {
+                    const isBroadSelected = (
+                      themeModalTab === 'include' ? selectedThemes : excludedThemes
+                    ).includes(grp.broad.name);
+
+                    const selectedSubs = grp.subThemes.filter((st) =>
+                      (themeModalTab === 'include' ? selectedThemes : excludedThemes).includes(st)
+                    );
+
+                    const isExpanded = expandedBroadThemes.has(grp.broad.id) || !!query;
+
+                    const visibleSubs = query
+                      ? grp.subThemes.filter((st) => st.toLowerCase().includes(query))
+                      : grp.subThemes;
+
+                    return (
+                      <div
+                        key={grp.broad.id}
+                        className={`rounded-xl border transition-all ${
+                          isBroadSelected
+                            ? themeModalTab === 'include'
+                              ? 'bg-purple-950/25 border-purple-500/40 shadow-sm'
+                              : 'bg-red-950/40 border-red-500/60 shadow-sm'
+                            : selectedSubs.length > 0
+                            ? 'bg-zinc-900/60 border-purple-500/30'
+                            : 'bg-black/30 border-white/5 hover:border-white/10'
+                        }`}
+                      >
+                        {/* Header Row */}
+                        <div className="flex items-center justify-between p-2.5">
+                          <label className="flex items-center gap-2.5 cursor-pointer flex-1 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isBroadSelected}
+                              onChange={() => {
+                                if (themeModalTab === 'include') {
+                                  setSelectedThemes((prev) =>
+                                    isBroadSelected
+                                      ? prev.filter((x) => x !== grp.broad.name)
+                                      : [...prev, grp.broad.name]
+                                  );
+                                } else {
+                                  setExcludedThemes((prev) =>
+                                    isBroadSelected
+                                      ? prev.filter((x) => x !== grp.broad.name)
+                                      : [...prev, grp.broad.name]
+                                  );
+                                }
+                              }}
+                              className="rounded bg-neutral-800 border-white/20 text-purple-600 shrink-0"
+                            />
+                            <span className="text-base leading-none">{grp.broad.icon}</span>
+                            <span className="text-xs font-semibold text-white truncate">
+                              {grp.broad.name}
+                            </span>
+                            <span className="text-[10px] text-zinc-400 bg-white/5 px-1.5 py-0.5 rounded-full border border-white/5 shrink-0">
+                              {grp.subThemes.length} concepts
+                            </span>
+                            {isBroadSelected ? (
+                              <span className="text-[10px] font-bold text-purple-300 bg-purple-600/30 border border-purple-500/40 px-1.5 py-0.2 rounded shrink-0">
+                                All Included
+                              </span>
+                            ) : selectedSubs.length > 0 ? (
+                              <span className="text-[10px] font-medium text-amber-300 bg-amber-500/20 border border-amber-500/30 px-1.5 py-0.2 rounded shrink-0">
+                                {selectedSubs.length} sub-themes
+                              </span>
+                            ) : null}
+                          </label>
+
+                          <button
+                            type="button"
+                            onClick={() => toggleBroadThemeExpand(grp.broad.id)}
+                            className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors ml-2 shrink-0 flex items-center gap-1 text-[11px]"
+                            title="Expand sub-themes"
+                          >
+                            <span className="text-[10px] hidden sm:inline text-zinc-400">
+                              {isExpanded ? 'Hide' : 'Expand'}
+                            </span>
+                            {isExpanded ? (
+                              <ChevronUp className="w-3.5 h-3.5" />
+                            ) : (
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </div>
+
+                        {/* Expandable Sub-themes Drawer */}
+                        {isExpanded && (
+                          <div className="p-2.5 pt-0 border-t border-white/5 mt-1">
+                            <p className="text-[11px] text-zinc-400 italic mb-2 pt-1.5">
+                              {grp.broad.description}
+                            </p>
+
+                            <div className="flex items-center justify-between text-[11px] text-zinc-400 mb-2">
+                              <span>Specific micro-themes ({visibleSubs.length}):</span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (themeModalTab === 'include') {
+                                      setSelectedThemes((prev) =>
+                                        Array.from(new Set([...prev, ...grp.subThemes]))
+                                      );
+                                    } else {
+                                      setExcludedThemes((prev) =>
+                                        Array.from(new Set([...prev, ...grp.subThemes]))
+                                      );
+                                    }
+                                  }}
+                                  className="text-[10px] text-purple-300 hover:underline"
+                                >
+                                  Select All
+                                </button>
+                                <span>•</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (themeModalTab === 'include') {
+                                      setSelectedThemes((prev) =>
+                                        prev.filter(
+                                          (x) => x !== grp.broad.name && !grp.subThemes.includes(x)
+                                        )
+                                      );
+                                    } else {
+                                      setExcludedThemes((prev) =>
+                                        prev.filter(
+                                          (x) => x !== grp.broad.name && !grp.subThemes.includes(x)
+                                        )
+                                      );
+                                    }
+                                  }}
+                                  className="text-[10px] text-zinc-400 hover:text-white"
+                                >
+                                  Clear
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto p-0.5">
+                              {visibleSubs.map((st) => {
+                                const isSubChecked = (
+                                  themeModalTab === 'include' ? selectedThemes : excludedThemes
+                                ).includes(st);
+
+                                return (
+                                  <button
+                                    key={st}
+                                    type="button"
+                                    onClick={() => {
+                                      if (themeModalTab === 'include') {
+                                        setSelectedThemes((prev) =>
+                                          isSubChecked
+                                            ? prev.filter((x) => x !== st)
+                                            : [...prev, st]
+                                        );
+                                      } else {
+                                        setExcludedThemes((prev) =>
+                                          isSubChecked
+                                            ? prev.filter((x) => x !== st)
+                                            : [...prev, st]
+                                        );
+                                      }
+                                    }}
+                                    className={`px-2 py-1 rounded-lg text-xs font-medium border transition-all flex items-center gap-1.5 ${
+                                      isSubChecked
+                                        ? themeModalTab === 'include'
+                                          ? 'bg-purple-600 text-white border-purple-500 shadow-sm'
+                                          : 'bg-red-700 text-white border-red-600 shadow-sm'
+                                        : isBroadSelected
+                                        ? 'bg-purple-950/30 text-purple-200 border-purple-500/20 hover:border-purple-500/40'
+                                        : 'bg-black/40 text-zinc-300 border-white/10 hover:border-white/20 hover:text-white'
+                                    }`}
+                                  >
+                                    <span>{st}</span>
+                                    {isSubChecked && <Check className="w-3 h-3 shrink-0" />}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  });
+                })()
+              ) : (
+                // Detailed Raw Themes Grid
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {availableThemes
+                    .filter((t) => t.toLowerCase().includes(themeSearchQuery.toLowerCase().trim()))
+                    .map((t) => {
+                      const isChecked =
+                        themeModalTab === 'include'
+                          ? selectedThemes.includes(t)
+                          : excludedThemes.includes(t);
+                      return (
+                        <label
+                          key={t}
+                          className={`flex items-center gap-2 py-1.5 px-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                            isChecked
+                              ? themeModalTab === 'include'
+                                ? 'bg-purple-600/20 border-purple-500/40 text-purple-200 font-semibold'
+                                : 'bg-red-600/30 border-red-500/60 text-red-200 font-semibold'
+                              : 'bg-black/30 border-white/5 text-gray-400 hover:text-white'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {
+                              if (themeModalTab === 'include') {
+                                setSelectedThemes((prev) =>
+                                  isChecked ? prev.filter((x) => x !== t) : [...prev, t]
+                                );
+                              } else {
+                                setExcludedThemes((prev) =>
+                                  isChecked ? prev.filter((x) => x !== t) : [...prev, t]
+                                );
+                              }
+                            }}
+                            className="rounded bg-neutral-800 border-white/20 text-purple-600"
+                          />
+                          <span className="truncate">{t}</span>
+                        </label>
+                      );
+                    })}
+                </div>
+              )}
             </div>
 
-            <div className="flex items-center justify-between mt-5 pt-3 border-t border-white/10">
+            {/* Footer with Reset and Done */}
+            <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/10 shrink-0">
               <button
                 onClick={() => {
                   if (themeModalTab === 'include') {
@@ -1648,7 +2197,7 @@ export const MoviesSeriesView: React.FC<MoviesSeriesViewProps> = ({
               </button>
               <button
                 onClick={() => setShowThemeModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white"
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-md active:scale-95 transition-all"
               >
                 Done
               </button>
