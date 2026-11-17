@@ -119,11 +119,11 @@ export const StoryPaceBadge: React.FC<{
         e.stopPropagation();
         onTagClick?.(pace, 'pace', e);
       }}
-      className={`px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md bg-amber-950/85 hover:bg-amber-900 text-amber-300 hover:text-white border border-amber-500/50 shadow-sm text-[9px] sm:text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 transition-all active:scale-95 cursor-pointer pointer-events-auto shrink-0 ${className}`}
+      className={`px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md bg-amber-950/85 hover:bg-amber-900 text-amber-300 hover:text-white border border-amber-500/50 shadow-sm text-[9px] sm:text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 transition-all active:scale-95 cursor-pointer pointer-events-auto shrink-0 whitespace-nowrap ${className}`}
       title={`Story Pace: ${pace} - Click to explore titles with similar pace`}
     >
       <span className="text-amber-400">⚡</span>
-      <span>{pace}</span>
+      <span className="whitespace-nowrap">{pace}</span>
     </button>
   );
 };

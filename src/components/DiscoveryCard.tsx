@@ -333,7 +333,7 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
           </div>
 
           {/* Add to Library, Start Watching & Mark Watched Buttons */}
-          <div className="flex items-center gap-1.5 pt-1 border-t border-zinc-800/40">
+          <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-zinc-800/40">
             {isInLibrary ? (
               <button
                 type="button"
@@ -341,11 +341,11 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
                   e.stopPropagation();
                   onGoToLibrary?.(item);
                 }}
-                className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 hover:border-emerald-500/60 text-emerald-300 text-[10px] sm:text-[11px] font-bold transition-all active:scale-95 cursor-pointer"
+                className="px-2 py-1 rounded-md bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 hover:border-emerald-500/60 text-emerald-300 text-[9px] sm:text-[10px] font-bold transition-all active:scale-95 cursor-pointer shrink-0 whitespace-nowrap flex items-center justify-center gap-1"
                 title="View in Movies & Series Library"
               >
-                <Check className="w-3 h-3 text-emerald-400" />
-                <span>In Library</span>
+                <Check className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-emerald-400" />
+                <span className="whitespace-nowrap">In Library</span>
               </button>
             ) : (
               <button
@@ -353,11 +353,11 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
                   e.stopPropagation();
                   onAddToLibrary(item);
                 }}
-                className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg bg-white/10 hover:bg-[#E50914] text-white text-[10px] sm:text-[11px] font-bold transition-colors active:scale-95"
+                className="px-2 py-1 rounded-md bg-white/10 hover:bg-[#E50914] text-white text-[9px] sm:text-[10px] font-bold transition-colors active:scale-95 shrink-0 whitespace-nowrap flex items-center justify-center gap-1"
                 title="Add to Watchlist Library"
               >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add</span>
+                <Plus className="w-3 h-3" />
+                <span className="whitespace-nowrap">Add</span>
               </button>
             )}
 
@@ -368,15 +368,15 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
                   e.stopPropagation();
                   onMarkWatched(item);
                 }}
-                className={`px-2 sm:px-2.5 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold flex items-center gap-1 transition-all border active:scale-95 ${
+                className={`px-1.5 sm:px-2 py-1 rounded-md text-[9px] sm:text-[10px] font-bold flex items-center gap-1 transition-all border active:scale-95 shrink-0 whitespace-nowrap ${
                   isWatched
                     ? 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-600/30'
                     : 'bg-zinc-800/90 hover:bg-emerald-600 hover:text-white text-zinc-300 border-zinc-700/60'
                 }`}
                 title={isWatched ? 'Completed / Watched' : 'Mark as Watched'}
               >
-                <Check className="w-3 h-3" />
-                <span className="hidden xs:inline sm:inline">Watched</span>
+                <Check className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                <span className="whitespace-nowrap">Watched</span>
               </button>
             )}
 
@@ -386,15 +386,15 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
                 e.stopPropagation();
                 onStartWatching(item);
               }}
-              className={`px-2 sm:px-2.5 py-1.5 rounded-lg text-[10px] sm:text-[11px] font-bold flex items-center gap-1 transition-all border active:scale-95 cursor-pointer ${
+              className={`px-1.5 sm:px-2 py-1 rounded-md text-[9px] sm:text-[10px] font-bold flex items-center gap-1 transition-all border active:scale-95 cursor-pointer shrink-0 whitespace-nowrap ${
                 isWatching
                   ? 'bg-amber-500 text-black border-amber-400 shadow-md shadow-amber-500/30 font-extrabold'
                   : 'bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black border-amber-500/30'
               }`}
               title={isWatching ? 'Currently on Watching List' : 'Add to Watching List'}
             >
-              <Tv className="w-3 h-3" />
-              <span>{isWatching ? '✓ Watching' : 'Watching'}</span>
+              <Tv className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+              <span className="whitespace-nowrap">{isWatching ? 'Watching' : 'Watching'}</span>
             </button>
 
             {resolvedMetadata.storyPace && (

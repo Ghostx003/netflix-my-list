@@ -195,7 +195,7 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
               {onMarkWatched && (
                 <button
                   onClick={(e) => onMarkWatched(item, e)}
-                  className={`px-1.5 py-0.5 sm:py-1 rounded-md text-[9px] sm:text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95 shrink-0 ${
+                  className={`px-1.5 py-0.5 sm:py-1 rounded-md text-[9px] sm:text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95 shrink-0 whitespace-nowrap ${
                     isCompleted
                       ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/40'
                       : 'bg-zinc-800 hover:bg-emerald-600 hover:text-white text-zinc-300 border border-zinc-700'
@@ -203,14 +203,14 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
                   title={isCompleted ? 'Completed' : 'Mark as Watched'}
                 >
                   <CheckCircle2 className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                  <span>{isCompleted ? 'Watched' : 'Watched'}</span>
+                  <span className="whitespace-nowrap">{isCompleted ? 'Watched' : 'Watched'}</span>
                 </button>
               )}
 
               {onAddToWatching && (
                 <button
                   onClick={(e) => onAddToWatching(item, e)}
-                  className={`px-1.5 py-0.5 sm:py-1 rounded-md text-[9px] sm:text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95 shrink-0 ${
+                  className={`px-1.5 py-0.5 sm:py-1 rounded-md text-[9px] sm:text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95 shrink-0 whitespace-nowrap ${
                     isWatching
                       ? 'bg-amber-500/30 text-amber-300 border border-amber-500/40'
                       : 'bg-zinc-800 hover:bg-amber-500 hover:text-black text-zinc-300 border border-zinc-700'
@@ -218,14 +218,14 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
                   title={isWatching ? 'Currently Watching' : 'Add to Watching'}
                 >
                   <Tv className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                  <span>{isWatching ? 'Watching' : 'Watching'}</span>
+                  <span className="whitespace-nowrap">{isWatching ? 'Watching' : 'Watching'}</span>
                 </button>
               )}
 
               {onDrop && (
                 <button
                   onClick={(e) => onDrop(item, e)}
-                  className={`px-1.5 py-0.5 sm:py-1 rounded-md text-[9px] sm:text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95 shrink-0 ${
+                  className={`px-1.5 py-0.5 sm:py-1 rounded-md text-[9px] sm:text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95 shrink-0 whitespace-nowrap ${
                     isDropped
                       ? 'bg-red-900/30 text-red-300 border border-red-500/40'
                       : 'bg-zinc-800 hover:bg-red-800 hover:text-white text-zinc-300 border border-zinc-700'
@@ -233,7 +233,7 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
                   title={isDropped ? 'Dropped' : 'Drop Series'}
                 >
                   <UserX className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                  <span>Drop</span>
+                  <span className="whitespace-nowrap">Drop</span>
                 </button>
               )}
 
