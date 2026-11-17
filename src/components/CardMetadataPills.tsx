@@ -191,18 +191,18 @@ interface CardMetadataPillsProps {
 
 /**
  * Creative Rich Narrative Metadata Dimensions:
- * On cards, strictly limits to 5 genres max (clean, uncluttered Netflix design)
- * while keeping all themes & moods for the detail modal when clicked.
+ * On cards, shows all 3 dimensions (GENRES, MOODS, THEMES) capped cleanly at 3 items each
+ * so cards stay sleek, fast and uncluttered, with +more badges to explore all in the modal.
  */
 export const CardMetadataPills: React.FC<CardMetadataPillsProps> = ({
   item,
   onTagClick,
   onMoreClick,
-  maxMoods,
-  maxThemes,
-  maxGenres = 5,
-  showMoods = false,
-  showThemes = false,
+  maxMoods = 3,
+  maxThemes = 3,
+  maxGenres = 3,
+  showMoods = true,
+  showThemes = true,
   className = '',
   showVibeAndPaceInline = false,
 }) => {
@@ -211,14 +211,19 @@ export const CardMetadataPills: React.FC<CardMetadataPillsProps> = ({
   const shouldShowMoods = showMoods || (typeof maxMoods === 'number' && maxMoods > 0);
   const shouldShowThemes = showThemes || (typeof maxThemes === 'number' && maxThemes > 0);
 
+  const effectiveMaxMoods = typeof maxMoods === 'number' ? maxMoods : 3;
   const moodsToDisplay = shouldShowMoods
-    ? (maxMoods ? resolved.moods.slice(0, maxMoods) : resolved.moods)
+    ? (effectiveMaxMoods > 0 ? resolved.moods.slice(0, effectiveMaxMoods) : resolved.moods)
     : [];
-  const themesToDisplay = shouldShowThemes
-    ? (maxThemes ? resolved.themes.slice(0, maxThemes) : resolved.themes)
-    : [];
+  const remainingMoodsCount = resolved.moods.length - moodsToDisplay.length;
 
-  const effectiveMaxGenres = typeof maxGenres === 'number' ? maxGenres : 5;
+  const effectiveMaxThemes = typeof maxThemes === 'number' ? maxThemes : 3;
+  const themesToDisplay = shouldShowThemes
+    ? (effectiveMaxThemes > 0 ? resolved.themes.slice(0, effectiveMaxThemes) : resolved.themes)
+    : [];
+  const remainingThemesCount = resolved.themes.length - themesToDisplay.length;
+
+  const effectiveMaxGenres = typeof maxGenres === 'number' ? maxGenres : 3;
   const genresToDisplay = effectiveMaxGenres > 0
     ? resolved.allGenresCombined.slice(0, effectiveMaxGenres)
     : resolved.allGenresCombined;
@@ -261,11 +266,11 @@ export const CardMetadataPills: React.FC<CardMetadataPillsProps> = ({
         </div>
       )}
 
-      {/* 1. GENRES (Max 5 on cards) */}
+      {/* 1. GENRES (Max 3 on cards) */}
       {genresToDisplay.length > 0 && (
         <div className="flex flex-wrap items-center gap-1">
           <span className="text-[9px] font-black text-rose-400 uppercase tracking-wider shrink-0 flex items-center gap-0.5">
-            🎯 Genres:
+            🎯 GENRES:
           </span>
           {genresToDisplay.map((g, idx) => {
             const isPrimary = g.toLowerCase() === resolved.primaryGenre?.toLowerCase();
@@ -297,19 +302,19 @@ export const CardMetadataPills: React.FC<CardMetadataPillsProps> = ({
                 }
               }}
               className="text-[9px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 border border-white/5 cursor-pointer transition-colors"
-              title={`${remainingGenresCount} more genres. Click card to view all details, moods & themes.`}
+              title={`${remainingGenresCount} more genres. Click card to view all.`}
             >
-              +{remainingGenresCount} more
+              +{remainingGenresCount}
             </span>
           )}
         </div>
       )}
 
-      {/* 2. ALL MOODS (Shown in detail views or when explicitly enabled) */}
+      {/* 2. MOODS (Max 3 on cards) */}
       {moodsToDisplay.length > 0 && (
         <div className="flex flex-wrap items-center gap-1">
           <span className="text-[9px] font-black text-cyan-400 uppercase tracking-wider shrink-0 flex items-center gap-0.5">
-            💭 Moods:
+            💭 MOODS:
           </span>
           {moodsToDisplay.map((m) => (
             <button
@@ -325,14 +330,28 @@ export const CardMetadataPills: React.FC<CardMetadataPillsProps> = ({
               {m}
             </button>
           ))}
+          {remainingMoodsCount > 0 && (
+            <span
+              onClick={(e) => {
+                if (onMoreClick) {
+                  e.stopPropagation();
+                  onMoreClick(e);
+                }
+              }}
+              className="text-[9px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-cyan-950/40 hover:bg-cyan-900/60 text-cyan-400 hover:text-cyan-200 border border-cyan-500/20 cursor-pointer transition-colors"
+              title={`${remainingMoodsCount} more moods. Click card to view all.`}
+            >
+              +{remainingMoodsCount}
+            </span>
+          )}
         </div>
       )}
 
-      {/* 3. ALL THEMES (Shown in detail views or when explicitly enabled) */}
+      {/* 3. THEMES (Max 3 on cards) */}
       {themesToDisplay.length > 0 && (
         <div className="flex flex-wrap items-center gap-1">
           <span className="text-[9px] font-black text-purple-400 uppercase tracking-wider shrink-0 flex items-center gap-0.5">
-            ✨ Themes:
+            ✨ THEMES:
           </span>
           {themesToDisplay.map((t) => (
             <button
@@ -348,6 +367,20 @@ export const CardMetadataPills: React.FC<CardMetadataPillsProps> = ({
               {t}
             </button>
           ))}
+          {remainingThemesCount > 0 && (
+            <span
+              onClick={(e) => {
+                if (onMoreClick) {
+                  e.stopPropagation();
+                  onMoreClick(e);
+                }
+              }}
+              className="text-[9px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-purple-950/40 hover:bg-purple-900/60 text-purple-400 hover:text-purple-200 border border-purple-500/20 cursor-pointer transition-colors"
+              title={`${remainingThemesCount} more themes. Click card to view all.`}
+            >
+              +{remainingThemesCount}
+            </span>
+          )}
         </div>
       )}
     </div>
