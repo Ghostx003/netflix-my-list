@@ -1,6 +1,6 @@
 import { DiscoveryTitle, EpisodeInfo, TrailerInfo, LibraryItem } from '../types';
 import { DEFAULT_PUBLIC_TMDB_KEY, fetchOMDBMetadata, selectBestTrailer, TMDB_BASE_URL, fetchTmdbUrl } from './tmdb';
-import { getCachedMetadata, setCachedMetadata, saveDiscoveryTitles, replaceDiscoveryCatalog, saveRemovedDiscoveryTitles, getAllDiscoveryTitles, getDiscoveryCatalogMeta, setDiscoveryCatalogMeta, saveLibraryItems } from './db';
+import { getCachedMetadata, setCachedMetadata, saveDiscoveryTitles, replaceDiscoveryCatalog, getAllDiscoveryTitles, getDiscoveryCatalogMeta, setDiscoveryCatalogMeta, saveLibraryItems } from './db';
 import { normalizeCountriesList, normalizeTitle, createDuplicateKey, NETFLIX_HINDI_DUBBED_TITLES, isNetflixIndiaAvailable } from './normalizer';
 import { extractThemesFromKeywords, generateFallbackTagline } from './themeMapper';
 import { enrichDiscoveryTitleWithTMDBDetails } from './tmdbEnrichmentService';
@@ -1787,12 +1787,6 @@ export function deduplicateDiscoveryTitles(titles: DiscoveryTitle[]): DiscoveryT
         keyToMasterIndex.set(k, matchIndex);
       }
     }
-  }
-
-  // Track and save any non-Netflix India titles that are removed
-  const nonNetflix = masterList.filter((item) => !isNetflixIndiaAvailable(item));
-  if (nonNetflix.length > 0) {
-    saveRemovedDiscoveryTitles(nonNetflix).catch(() => {});
   }
 
   // Filter against Netflix India availability
@@ -4773,10 +4767,6 @@ export async function syncWithNetflixUnified(
 
   // 6. POST-SYNC DEDUPLICATION PASS & NETFLIX INDIA VERIFICATION
   const allMasterTitles = Array.from(dbTitlesMap.values());
-  const removedTitles = allMasterTitles.filter((item) => !isNetflixIndiaAvailable(item));
-  if (removedTitles.length > 0) {
-    await saveRemovedDiscoveryTitles(removedTitles);
-  }
 
   const allFinalTitles = deduplicateDiscoveryTitles(allMasterTitles).filter(
     (item) => isNetflixIndiaAvailable(item)
