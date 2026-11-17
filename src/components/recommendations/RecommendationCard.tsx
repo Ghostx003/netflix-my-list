@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Play, Plus, Check, Star, Info, Sparkles } from 'lucide-react';
 import { DiscoveryTitle, RecommendationCandidate } from '../../types';
 import { CachedImage } from '../CachedImage';
-import { CardMetadataPills } from '../CardMetadataPills';
 import { getNetflixUrl, openNetflixInNewTab } from '../../services/normalizer';
 
 interface RecommendationCardProps {
@@ -29,7 +28,7 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
       className="relative flex-none w-[170px] sm:w-[210px] md:w-[240px] aspect-[2/3] rounded-lg overflow-hidden cursor-pointer group select-none transition-all duration-300 ease-out hover:z-30 hover:scale-105 hover:shadow-2xl hover:shadow-black/80"
       onClick={onClick}
     >
-      {/* Poster Image */}
+      {/* Poster Image - Clean and fully visible */}
       <div className="w-full h-full bg-zinc-900">
         <CachedImage
           src={item.posterPath || item.backdropPath}
@@ -39,22 +38,22 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
         />
       </div>
 
-      {/* Match Percentage Badge (Always Top-Right) */}
-      <div className="absolute top-2 right-2 z-10">
+      {/* Match Percentage Badge (Revealed on Hover) */}
+      <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
         <span className="px-2 py-0.5 rounded-full bg-black/75 backdrop-blur-md text-emerald-400 font-extrabold text-[10px] sm:text-xs border border-emerald-500/30 shadow-md">
           {candidate.matchPercentage}% Match
         </span>
       </div>
 
-      {/* Media Type Badge (Top-Left) */}
-      <div className="absolute top-2 left-2 z-10">
+      {/* Media Type Badge (Revealed on Hover) */}
+      <div className="absolute top-2 left-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
         <span className="px-1.5 py-0.5 rounded bg-black/60 backdrop-blur-md text-zinc-300 font-mono text-[9px] uppercase border border-white/10">
           {item.mediaType === 'tv' ? 'Series' : 'Movie'}
         </span>
       </div>
 
-      {/* Gradient Overlay for Titles & Info */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent opacity-90 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-3">
+      {/* Gradient Overlay for Titles & Info (Revealed on Hover) */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-3 pointer-events-none group-hover:pointer-events-auto">
         {/* Title */}
         <h3 className="text-xs sm:text-sm font-bold text-white leading-tight line-clamp-1 group-hover:text-red-400 transition-colors">
           {item.title}
@@ -80,19 +79,8 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
           </div>
         )}
 
-        {item.tagline && (
-          <div className="mt-1 px-1.5 py-0.5 rounded bg-amber-500/10 border-l-2 border-amber-500/70">
-            <p className="text-[10px] text-amber-200/90 font-medium italic line-clamp-2 leading-snug" title={item.tagline}>
-              "{item.tagline}"
-            </p>
-          </div>
-        )}
-
-        {/* 6 Rich Narrative Metadata Dimensions */}
-        <CardMetadataPills item={item} className="mt-1" />
-
         {/* Quick Action Icons on Hover */}
-        <div className="mt-2.5 flex items-center justify-between gap-1.5 pt-2 border-t border-white/10 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="mt-2.5 flex items-center justify-between gap-1.5 pt-2 border-t border-white/10">
           <div className="flex items-center gap-1.5">
             <a
               href={netflixUrl}
@@ -130,7 +118,7 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
               e.stopPropagation();
               onClick();
             }}
-            className="w-7 h-7 rounded-full bg-zinc-800/80 border border-white/20 text-zinc-300 flex items-center justify-center hover:text-white hover:bg-zinc-700 active:scale-90 transition-all"
+            className="w-7 h-7 rounded-full bg-zinc-800/80 border border-white/20 text-zinc-300 flex items-center justify-center hover:text-white hover:bg-zinc-700 active:scale-90 transition-all cursor-pointer"
             title="More Information"
           >
             <Info className="w-3.5 h-3.5" />

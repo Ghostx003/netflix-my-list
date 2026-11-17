@@ -23,7 +23,7 @@ import { DiscoveryTitle } from '../types';
 import { formatRuntime } from '../services/analytics';
 import { getNetflixUrl, openNetflixInNewTab } from '../services/normalizer';
 import { CachedImage } from './CachedImage';
-import { CardMetadataPills, CardPosterOverlay, resolveCardMetadata } from './CardMetadataPills';
+import { CardMetadataPills, CardPosterOverlay, StoryPaceBadge, resolveCardMetadata } from './CardMetadataPills';
 
 interface TagExploreModalProps {
   isOpen: boolean;
@@ -517,6 +517,8 @@ export const TagExploreModal: React.FC<TagExploreModalProps> = ({
                     ? item.countries[0]
                     : undefined);
 
+                const resolvedMetadata = resolveCardMetadata(item);
+
                 return (
                   <div
                     key={item.id}
@@ -548,10 +550,10 @@ export const TagExploreModal: React.FC<TagExploreModalProps> = ({
                         )}
                       </div>
 
-                      {/* Media Type & Year Overlay Top-Left */}
-                      <div className="absolute top-1.5 left-1.5 z-10 flex flex-col items-start gap-1">
+                      {/* Media Type, Year & Story Pace Overlay Top-Left */}
+                      <div className="absolute top-1.5 left-1.5 z-10 flex flex-col items-start gap-1 pointer-events-none">
                         <span
-                          className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-wider ${
+                          className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-wider pointer-events-auto ${
                             isMovie
                               ? 'bg-red-600 text-white'
                               : 'bg-purple-600 text-white'
@@ -560,9 +562,12 @@ export const TagExploreModal: React.FC<TagExploreModalProps> = ({
                           {isMovie ? 'Movie' : 'Series'}
                         </span>
                         {item.releaseYear && (
-                          <span className="bg-black/85 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] font-bold text-zinc-200 border border-white/10">
+                          <span className="bg-black/85 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] font-bold text-zinc-200 border border-white/10 pointer-events-auto">
                             {item.releaseYear}
                           </span>
+                        )}
+                        {resolvedMetadata.storyPace && (
+                          <StoryPaceBadge pace={resolvedMetadata.storyPace} onTagClick={(tag, type) => handleSwitchTag(tag, type)} />
                         )}
                       </div>
 

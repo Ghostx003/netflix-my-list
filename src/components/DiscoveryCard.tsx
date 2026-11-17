@@ -6,7 +6,7 @@ import { getNetflixUrl, getPriorityLanguageBadge, openNetflixInNewTab } from '..
 import { resolveNetflixIdForTitle } from '../services/discoveryService';
 import { saveDiscoveryTitles } from '../services/db';
 import { CachedImage } from './CachedImage';
-import { CardMetadataPills, CardPosterOverlay } from './CardMetadataPills';
+import { CardMetadataPills, CardPosterOverlay, StoryPaceBadge, resolveCardMetadata } from './CardMetadataPills';
 
 interface DiscoveryCardProps {
   item: DiscoveryTitle;
@@ -92,6 +92,8 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
     (item.countries && item.countries.length > 0 ? item.countries[0] : undefined) ||
     (item.tmdbProductionCountries && item.tmdbProductionCountries.length > 0 ? item.tmdbProductionCountries[0] : undefined);
 
+  const resolvedMetadata = resolveCardMetadata(item);
+
   return (
     <div
       onClick={onClick}
@@ -99,24 +101,6 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
       onMouseLeave={handleMouseLeave}
       className="group relative bg-[#181818] hover:bg-[#232323] rounded-xl overflow-hidden border border-white/5 hover:border-red-600/40 transition-all duration-300 shadow-lg hover:shadow-2xl hover:-translate-y-1.5 cursor-pointer flex flex-col"
     >
-      {/* 4-Second Hover Ignore Overlay Button */}
-      {showIgnoreButton && onIgnoreTitle && (
-        <div className="absolute top-2 left-2 z-30 animate-fade-in">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onIgnoreTitle(item);
-            }}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-zinc-900/95 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/60 shadow-2xl text-xs font-bold transition-all transform hover:scale-105 active:scale-95 ring-2 ring-red-500/40"
-            title="Ignore & hide this title from Discovery catalog"
-          >
-            <EyeOff className="w-3.5 h-3.5" />
-            <span>Ignore</span>
-          </button>
-        </div>
-      )}
-
       {/* Poster area */}
       <div className="relative aspect-[2/3] w-full overflow-hidden bg-neutral-900">
         <CachedImage
@@ -135,8 +119,8 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
           }
         />
 
-        {/* Hover play icon overlay like Netflix */}
-        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+        {/* Hover play icon & Ignore overlay like Netflix */}
+        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 pointer-events-none z-20">
           <a
             href={netflixUrl}
             target="_blank"
@@ -160,6 +144,21 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
           >
             <Play className="w-5 h-5 fill-white ml-0.5" />
           </a>
+
+          {showIgnoreButton && onIgnoreTitle && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onIgnoreTitle(item);
+              }}
+              className="pointer-events-auto flex items-center gap-1.5 px-3 py-1 rounded-full bg-zinc-900/95 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/60 shadow-2xl text-[11px] font-bold transition-all transform hover:scale-105 active:scale-95 ring-1 ring-red-500/40 animate-fade-in cursor-pointer"
+              title="Ignore & hide this title from Discovery catalog"
+            >
+              <EyeOff className="w-3.5 h-3.5" />
+              <span>Ignore</span>
+            </button>
+          )}
         </div>
 
         {/* Top-Right: Ratings (Rotten Tomatoes, IMDb, TMDB) */}
@@ -198,16 +197,16 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
           )}
         </div>
 
-        {/* Top-Left: Year/Series info & Priority Language Badge */}
-        <div className="absolute top-1.5 sm:top-2 left-1.5 sm:left-2 flex flex-col gap-1 items-start z-10">
+        {/* Top-Left: Year/Series info, Priority Language Badge & Story Pace */}
+        <div className="absolute top-1.5 sm:top-2 left-1.5 sm:left-2 flex flex-col gap-1 items-start z-10 pointer-events-none">
           {isMovie ? (
             item.releaseYear ? (
-              <div className="bg-black/85 backdrop-blur-md px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-bold text-zinc-200 border border-white/10 shadow-sm">
+              <div className="bg-black/85 backdrop-blur-md px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-bold text-zinc-200 border border-white/10 shadow-sm pointer-events-auto">
                 {item.releaseYear}
               </div>
             ) : null
           ) : (
-            <div className="bg-black/85 backdrop-blur-md px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-bold text-zinc-200 border border-white/10 flex items-center gap-1 shadow-sm">
+            <div className="bg-black/85 backdrop-blur-md px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-bold text-zinc-200 border border-white/10 flex items-center gap-1 shadow-sm pointer-events-auto">
               <Layers className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-[#E50914]" />
               <span>
                 {item.totalSeasons ? `${item.totalSeasons}S` : ''}
@@ -219,15 +218,19 @@ export const DiscoveryCard: React.FC<DiscoveryCardProps> = ({
 
           {langBadge && (
             <div
-              className={`px-1.5 sm:px-2 py-0.5 rounded shadow-lg backdrop-blur-md border flex items-center justify-center text-[10px] sm:text-xs font-black ${langBadge.bgClass} ${langBadge.textClass}`}
+              className={`px-1.5 sm:px-2 py-0.5 rounded shadow-lg backdrop-blur-md border flex items-center justify-center text-[10px] sm:text-xs font-black pointer-events-auto ${langBadge.bgClass} ${langBadge.textClass}`}
               title={`Available in ${langBadge.label}`}
             >
               <span>{langBadge.badge}</span>
             </div>
           )}
 
+          {resolvedMetadata.storyPace && (
+            <StoryPaceBadge pace={resolvedMetadata.storyPace} onTagClick={onTagClick as any} />
+          )}
+
           {(item.availabilityState === 'no_longer_available' || item.netflixIndiaAvailable === false || item.isNetflixIndiaVerified === false) && (
-            <div className="bg-rose-950/90 text-rose-300 border border-rose-500/60 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-black shadow-md tracking-wider">
+            <div className="bg-rose-950/90 text-rose-300 border border-rose-500/60 backdrop-blur-md px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-black shadow-md tracking-wider pointer-events-auto">
               NOT ON NETFLIX
             </div>
           )}

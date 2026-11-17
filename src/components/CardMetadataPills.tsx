@@ -103,9 +103,34 @@ export function resolveCardMetadata(item: CardMetadata) {
 }
 
 /**
+ * Standalone Story Pace Badge with amber theme.
+ * Intended to be placed inside the card's top-left flex container to ensure zero overlap.
+ */
+export const StoryPaceBadge: React.FC<{
+  pace?: string;
+  onTagClick?: (tag: string, type: 'genre' | 'theme' | 'vibe' | 'mood' | 'pace', e: React.MouseEvent) => void;
+  className?: string;
+}> = ({ pace, onTagClick, className = '' }) => {
+  if (!pace) return null;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onTagClick?.(pace, 'pace', e);
+      }}
+      className={`px-1.5 sm:px-2 py-0.5 rounded-md backdrop-blur-md bg-amber-950/85 hover:bg-amber-900 text-amber-300 hover:text-white border border-amber-500/50 shadow-md text-[9px] sm:text-[10px] font-black uppercase tracking-wider flex items-center gap-1 transition-all hover:scale-105 cursor-pointer ring-1 ring-amber-500/30 pointer-events-auto ${className}`}
+      title={`Story Pace: ${pace} - Click to explore titles with similar pace`}
+    >
+      <span className="text-amber-400">⚡</span>
+      <span>{pace}</span>
+    </button>
+  );
+};
+
+/**
  * Creative Floating Overlay for OUTSIDE the card (on top of the poster image):
  * - Displays Audience Vibe in a frosted-glass bottom marquee ribbon
- * - Displays Story Pace speed ticker
  * - Displays Primary Genre ruby badge
  */
 export const CardPosterOverlay: React.FC<{
@@ -115,59 +140,38 @@ export const CardPosterOverlay: React.FC<{
   const resolved = resolveCardMetadata(item);
 
   return (
-    <>
-      {/* Top Floating Story Pace Ticker (Outside card / on poster top) */}
-      {resolved.storyPace && (
-        <div className="absolute top-10 left-1.5 sm:left-2 z-10 animate-fade-in pointer-events-auto">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onTagClick?.(resolved.storyPace, 'pace', e);
-            }}
-            className="px-1.5 sm:px-2 py-0.5 rounded-md backdrop-blur-md bg-amber-950/85 hover:bg-amber-900 text-amber-300 hover:text-white border border-amber-500/50 shadow-md text-[9px] sm:text-[10px] font-black uppercase tracking-wider flex items-center gap-1 transition-all hover:scale-105 cursor-pointer ring-1 ring-amber-500/30"
-            title={`Story Pace: ${resolved.storyPace} - Click to explore titles with similar pace`}
-          >
-            <span className="text-amber-400">⚡</span>
-            <span>{resolved.storyPace}</span>
-          </button>
-        </div>
+    <div className="absolute bottom-0 inset-x-0 z-10 px-2 sm:px-2.5 py-1 sm:py-1.5 bg-gradient-to-r from-purple-950/95 via-indigo-950/90 to-purple-950/95 backdrop-blur-md border-t border-purple-500/40 flex items-center justify-between gap-1 shadow-lg pointer-events-auto">
+      {/* Audience Vibe Ticker */}
+      {resolved.audienceVibe && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onTagClick?.(resolved.audienceVibe, 'vibe', e);
+          }}
+          className="flex items-center gap-1 text-[9px] sm:text-[10px] font-black text-purple-200 hover:text-white truncate transition-colors cursor-pointer group/vibe"
+          title={`Audience Vibe: ${resolved.audienceVibe} - Click to explore this vibe`}
+        >
+          <span className="text-purple-300 group-hover/vibe:scale-110 transition-transform">🎭</span>
+          <span className="truncate max-w-[130px] sm:max-w-[150px]">{resolved.audienceVibe}</span>
+        </button>
       )}
 
-      {/* Bottom Floating Ticker Marquee Ribbon (Outside card / poster footer) */}
-      <div className="absolute bottom-0 inset-x-0 z-10 px-2 sm:px-2.5 py-1 sm:py-1.5 bg-gradient-to-r from-purple-950/95 via-indigo-950/90 to-purple-950/95 backdrop-blur-md border-t border-purple-500/40 flex items-center justify-between gap-1 shadow-lg pointer-events-auto">
-        {/* Audience Vibe Ticker */}
-        {resolved.audienceVibe && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onTagClick?.(resolved.audienceVibe, 'vibe', e);
-            }}
-            className="flex items-center gap-1 text-[9px] sm:text-[10px] font-black text-purple-200 hover:text-white truncate transition-colors cursor-pointer group/vibe"
-            title={`Audience Vibe: ${resolved.audienceVibe} - Click to explore this vibe`}
-          >
-            <span className="text-purple-300 group-hover/vibe:scale-110 transition-transform">🎭</span>
-            <span className="truncate max-w-[130px] sm:max-w-[150px]">{resolved.audienceVibe}</span>
-          </button>
-        )}
-
-        {/* Primary Genre Ticker Badge */}
-        {resolved.primaryGenre && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onTagClick?.(resolved.primaryGenre, 'genre', e);
-            }}
-            className="text-[8px] sm:text-[9px] px-1.5 py-0.5 rounded font-black uppercase tracking-wider bg-red-600/40 hover:bg-red-600 text-red-200 hover:text-white border border-red-500/50 shrink-0 transition-all hover:scale-105 cursor-pointer"
-            title={`Primary Genre: ${resolved.primaryGenre} - Click to explore this genre`}
-          >
-            🎯 {resolved.primaryGenre}
-          </button>
-        )}
-      </div>
-    </>
+      {/* Primary Genre Ticker Badge */}
+      {resolved.primaryGenre && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onTagClick?.(resolved.primaryGenre, 'genre', e);
+          }}
+          className="text-[8px] sm:text-[9px] px-1.5 py-0.5 rounded font-black uppercase tracking-wider bg-red-600/40 hover:bg-red-600 text-red-200 hover:text-white border border-red-500/50 shrink-0 transition-all hover:scale-105 cursor-pointer"
+          title={`Primary Genre: ${resolved.primaryGenre} - Click to explore this genre`}
+        >
+          🎯 {resolved.primaryGenre}
+        </button>
+      )}
+    </div>
   );
 };
 

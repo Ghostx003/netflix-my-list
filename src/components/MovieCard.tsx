@@ -5,7 +5,7 @@ import { formatRuntime } from '../services/analytics';
 import { getNetflixUrl, getPriorityLanguageBadge, openNetflixInNewTab } from '../services/normalizer';
 import { resolveNetflixIdForTitle } from '../services/discoveryService';
 import { CachedImage } from './CachedImage';
-import { CardMetadataPills, CardPosterOverlay } from './CardMetadataPills';
+import { CardMetadataPills, CardPosterOverlay, StoryPaceBadge, resolveCardMetadata } from './CardMetadataPills';
 
 interface MovieCardProps {
   item: LibraryItem;
@@ -31,6 +31,7 @@ export const MovieCard: React.FC<MovieCardProps> = ({
   const isCompleted = item.isCompleted || item.viewingStatus === 'completed';
   const isDropped = item.viewingStatus === 'dropped' || !!item.droppedReason;
   const isWatching = item.viewingStatus === 'still_watching';
+  const resolvedMetadata = resolveCardMetadata(item);
 
 
 
@@ -115,21 +116,25 @@ export const MovieCard: React.FC<MovieCardProps> = ({
           ) : null}
         </div>
 
-        {/* Top-left: Release year & Language badge */}
-        <div className="absolute top-1.5 sm:top-2 left-1.5 sm:left-2 flex flex-col gap-1 items-start z-10">
+        {/* Top-left: Release year, Language badge & Story Pace */}
+        <div className="absolute top-1.5 sm:top-2 left-1.5 sm:left-2 flex flex-col gap-1 items-start z-10 pointer-events-none">
           {item.releaseYear ? (
-            <div className="bg-black/80 backdrop-blur-md px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-semibold text-zinc-300 border border-white/10 shadow-sm">
+            <div className="bg-black/80 backdrop-blur-md px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-semibold text-zinc-300 border border-white/10 shadow-sm pointer-events-auto">
               {item.releaseYear}
             </div>
           ) : null}
 
           {langBadge && (
             <div
-              className={`px-1.5 sm:px-2 py-0.5 rounded shadow-lg backdrop-blur-md border flex items-center justify-center text-[10px] sm:text-xs font-bold ${langBadge.bgClass} ${langBadge.textClass}`}
+              className={`px-1.5 sm:px-2 py-0.5 rounded shadow-lg backdrop-blur-md border flex items-center justify-center text-[10px] sm:text-xs font-bold pointer-events-auto ${langBadge.bgClass} ${langBadge.textClass}`}
               title={`Available in ${langBadge.label}`}
             >
               <span>{langBadge.badge}</span>
             </div>
+          )}
+
+          {resolvedMetadata.storyPace && (
+            <StoryPaceBadge pace={resolvedMetadata.storyPace} onTagClick={onTagClick} />
           )}
         </div>
 

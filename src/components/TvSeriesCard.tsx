@@ -5,7 +5,7 @@ import { formatRuntime, calculateSeriesRuntime } from '../services/analytics';
 import { getNetflixUrl, getPriorityLanguageBadge, openNetflixInNewTab } from '../services/normalizer';
 import { resolveNetflixIdForTitle } from '../services/discoveryService';
 import { CachedImage } from './CachedImage';
-import { CardMetadataPills, CardPosterOverlay } from './CardMetadataPills';
+import { CardMetadataPills, CardPosterOverlay, StoryPaceBadge, resolveCardMetadata } from './CardMetadataPills';
 
 interface TvSeriesCardProps {
   item: LibraryItem;
@@ -36,6 +36,7 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
   const isCompleted = item.isCompleted || item.viewingStatus === 'completed';
   const isDropped = item.viewingStatus === 'dropped' || !!item.droppedReason;
   const isWatching = item.viewingStatus === 'still_watching';
+  const resolvedMetadata = resolveCardMetadata(item);
 
 
 
@@ -115,20 +116,24 @@ export const TvSeriesCard: React.FC<TvSeriesCardProps> = ({
           ) : null}
         </div>
 
-        {/* Top-left: Episodes count & Language badge */}
-        <div className="absolute top-1.5 sm:top-2 left-1.5 sm:left-2 flex flex-col gap-1 items-start z-10">
-          <div className="bg-black/80 backdrop-blur-md px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-semibold text-zinc-300 border border-white/10 flex items-center gap-1 shadow-sm">
+        {/* Top-left: Episodes count, Language badge & Story Pace */}
+        <div className="absolute top-1.5 sm:top-2 left-1.5 sm:left-2 flex flex-col gap-1 items-start z-10 pointer-events-none">
+          <div className="bg-black/80 backdrop-blur-md px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-semibold text-zinc-300 border border-white/10 flex items-center gap-1 shadow-sm pointer-events-auto">
             <Layers className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-[#E50914]" />
             <span>{breakdown.totalEpisodes} eps</span>
           </div>
 
           {langBadge && (
             <div
-              className={`px-1.5 sm:px-2 py-0.5 rounded shadow-lg backdrop-blur-md border flex items-center justify-center text-[10px] sm:text-xs font-bold ${langBadge.bgClass} ${langBadge.textClass}`}
+              className={`px-1.5 sm:px-2 py-0.5 rounded shadow-lg backdrop-blur-md border flex items-center justify-center text-[10px] sm:text-xs font-bold pointer-events-auto ${langBadge.bgClass} ${langBadge.textClass}`}
               title={`Available in ${langBadge.label}`}
             >
               <span>{langBadge.badge}</span>
             </div>
+          )}
+
+          {resolvedMetadata.storyPace && (
+            <StoryPaceBadge pace={resolvedMetadata.storyPace} onTagClick={onTagClick} />
           )}
         </div>
 

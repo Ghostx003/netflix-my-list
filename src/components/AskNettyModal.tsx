@@ -137,6 +137,91 @@ const DEFAULT_WELCOME_CONVERSATION: Conversation = {
   updatedAt: new Date().toISOString(),
 };
 
+export type NettyIntentType =
+  | 'status_check'      // "are you online", "are you there", "are you awake", "is this working", "ping"
+  | 'greeting'          // "hi", "hello", "hey", "good morning", "good evening"
+  | 'identity'          // "who are you", "what are you", "what can you do", "help"
+  | 'chitchat'          // "how are you", "thank you", "cool", "tell me a joke", "bye"
+  | 'movie_trivia'      // "who directed inception", "who played iron man", "explain interstellar ending"
+  | 'recommendation';   // "recommend me a thriller", "movies under 2 hours", "action movies"
+
+export interface DetectedIntent {
+  type: NettyIntentType;
+  requiresCatalogSearch: boolean;
+  cleanQuery: string;
+}
+
+export function detectUserIntent(rawQuery: string): DetectedIntent {
+  const query = rawQuery.trim().toLowerCase();
+
+  // If query explicitly asks for movies, recommendations, or genres, it is a recommendation query
+  const hasRecommendationIntent = /\b(?:recommend|suggest|what\s+to\s+watch|what\s+should\s+i\s+watch|give\s+me|find\s+me|show\s+me|looking\s+for|search|any\s+good|best\s+(?:movies?|shows?|series|films?)|titles?|movies?|films?|shows?|series|season|episodes?|watch\s+next|similar\s+to|like\s+[a-z0-9]+)\b/i.test(query);
+
+  const hasSpecificGenreOrMood = /\b(?:thriller|horror|comedy|action|drama|romance|sci-fi|scifi|anime|documentary|mystery|crime|adventure|fantasy|suspense|feel-good|heartwarming|dark|mind-bending|fast-paced|slow-burn|underrated|hidden\s*gems?)\b/i.test(query);
+
+  if (hasRecommendationIntent || hasSpecificGenreOrMood) {
+    // Check if it's purely a trivia question like "who directed inception" or "what year was the matrix released"
+    const isTriviaQuestion = /^(?:who\s+(?:directed|wrote|produced|created|starred\s+in|played)|what\s+year\s+was|when\s+was\s+.+\s+released|explain\s+(?:the\s+)?ending\s+of|did\s+.+\s+win\s+an?\s+oscar)\b/i.test(query) &&
+      !/\b(?:recommend|suggest|give\s+me|find\s+me|show\s+me|list|top\s+\d+|under\s+\d+)\b/i.test(query);
+
+    if (isTriviaQuestion) {
+      return { type: 'movie_trivia', requiresCatalogSearch: false, cleanQuery: query };
+    }
+
+    return { type: 'recommendation', requiresCatalogSearch: true, cleanQuery: query };
+  }
+
+  // 1. Status checks ("are you online", "are you there", "are you alive", "is this working", "ping")
+  const statusPatterns = [
+    /^(?:are\s+you\s+(?:online|there|awake|active|listening|working|alive|up|here|ready|available|operational)|is\s+(?:anyone\s+there|this\s+working|it\s+online|netty\s+online)|can\s+you\s+(?:hear|see)\s+me|ping|test|status(?:\s+check)?)\b/i,
+    /^(?:u\s+(?:online|there|awake|up|working))\b/i,
+  ];
+  if (statusPatterns.some(p => p.test(query))) {
+    return { type: 'status_check', requiresCatalogSearch: false, cleanQuery: query };
+  }
+
+  // 2. Greetings ("hi", "hello", "hey netty", "good morning", etc.)
+  const greetingPatterns = [
+    /^(?:hi|hello|hey|heyy+|howdy|sup|yo|namaste|hola|bonjour|greetings)(?:\s+netty|\s+there|\s+bot)?[\s!.,?]*$/i,
+    /^(?:good\s+(?:morning|afternoon|evening|day))(?:\s+netty)?[\s!.,?]*$/i,
+  ];
+  if (greetingPatterns.some(p => p.test(query))) {
+    return { type: 'greeting', requiresCatalogSearch: false, cleanQuery: query };
+  }
+
+  // 3. Identity & Capabilities ("who are you", "what are you", "what can you do", "help")
+  const identityPatterns = [
+    /^(?:who\s+are\s+you|what\s+are\s+you|who\s+is\s+netty|what\s+is\s+netty|tell\s+me\s+about\s+yourself|introduce\s+yourself|what\s+can\s+you\s+do|how\s+do\s+you\s+work|what\s+are\s+your\s+features|what\s+is\s+this\s+app|help(?:\s+me)?|are\s+you\s+(?:an?\s+)?(?:ai|bot|robot|human|real))\b/i,
+  ];
+  if (identityPatterns.some(p => p.test(query))) {
+    return { type: 'identity', requiresCatalogSearch: false, cleanQuery: query };
+  }
+
+  // 4. Chit-chat & Courtesy ("how are you", "thank you", "thanks", "ok", "cool", "tell me a joke", "bye")
+  const chitchatPatterns = [
+    /^(?:how\s+are\s+you|how(?:\s+is|'s)\s+it\s+going|what(?:\s+is|'s)\s+up|how\s+have\s+you\s+been)[\s!.,?]*$/i,
+    /^(?:thanks?|thank\s+you(?:\s+so\s+much)?|thx|ty|great\s+job|awesome|amazing|cool|nice|ok|okay|got\s+it|understood|perfect|wonderful|lol|haha|lmao)[\s!.,?]*$/i,
+    /^(?:bye|goodbye|see\s+ya|see\s+you(?:\s+later)?|good\s*night|cya|later|take\s+care)[\s!.,?]*$/i,
+    /^(?:tell\s+me\s+a\s+joke|make\s+me\s+laugh|say\s+something\s+(?:funny|interesting)|tell\s+me\s+a\s+fun\s+fact)[\s!.,?]*$/i,
+  ];
+  if (chitchatPatterns.some(p => p.test(query))) {
+    return { type: 'chitchat', requiresCatalogSearch: false, cleanQuery: query };
+  }
+
+  // 5. Film Trivia
+  if (/^(?:who\s+(?:directed|wrote|produced|created|starred\s+in|played)|what\s+year|when\s+was|explain\s+the\s+ending)\b/i.test(query)) {
+    return { type: 'movie_trivia', requiresCatalogSearch: false, cleanQuery: query };
+  }
+
+  // Default fallback: If it's very short and non-movie (like "a", "asdf", "?"), treat as chitchat
+  if (query.length < 4 && !/^\d+$/.test(query)) {
+    return { type: 'chitchat', requiresCatalogSearch: false, cleanQuery: query };
+  }
+
+  // Otherwise, treat as recommendation query
+  return { type: 'recommendation', requiresCatalogSearch: true, cleanQuery: query };
+}
+
 export const AskNettyModal: React.FC<AskNettyProps> = ({ libraryItems, onOpenMovieDetail }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [inputQuery, setInputQuery] = useState('');
@@ -496,28 +581,32 @@ export const AskNettyModal: React.FC<AskNettyProps> = ({ libraryItems, onOpenMov
 
     setIsProcessing(true);
 
-    // Run semantic intelligence search + Groq conversational synthesis
     try {
-      const catalog = allCatalogTitles.length > 0 ? allCatalogTitles : SEED_NETFLIX_INDIA_TITLES;
+      const intent = detectUserIntent(query);
       let scoredResults: ScoredTitleResult[] = [];
-      try {
-        scoredResults = queryCatalogIntelligence(catalog, query);
-      } catch (searchErr) {
-        console.error('Error during catalog intelligence search:', searchErr);
-        const qLower = query.toLowerCase();
-        scoredResults = catalog
-          .filter(t => (t.title && t.title.toLowerCase().includes(qLower)) || (t.synopsis && t.synopsis.toLowerCase().includes(qLower)))
-          .slice(0, 8)
-          .map(item => ({
-            item,
-            score: 0.8,
-            semanticMatchScore: 0.8,
-            themeMatchScore: 0.8,
-            genreMatchScore: 0.8,
-            qualityScore: (item.imdbRating || 7) / 10,
-            explanation: 'Matched search keywords in title/synopsis',
-            badges: [],
-          }));
+
+      // ONLY search catalog intelligence if the user's intent is actually seeking recommendations or film titles!
+      if (intent.requiresCatalogSearch) {
+        const catalog = allCatalogTitles.length > 0 ? allCatalogTitles : SEED_NETFLIX_INDIA_TITLES;
+        try {
+          scoredResults = queryCatalogIntelligence(catalog, query);
+        } catch (searchErr) {
+          console.error('Error during catalog intelligence search:', searchErr);
+          const qLower = query.toLowerCase();
+          scoredResults = catalog
+            .filter(t => (t.title && t.title.toLowerCase().includes(qLower)) || (t.synopsis && t.synopsis.toLowerCase().includes(qLower)))
+            .slice(0, 8)
+            .map(item => ({
+              item,
+              score: 0.8,
+              semanticMatchScore: 0.8,
+              themeMatchScore: 0.8,
+              genreMatchScore: 0.8,
+              qualityScore: (item.imdbRating || 7) / 10,
+              explanation: 'Matched search keywords in title/synopsis',
+              badges: [],
+            }));
+        }
       }
 
       // Build intelligent conversational reply with Groq AI + Catalog grounding
@@ -525,31 +614,82 @@ export const AskNettyModal: React.FC<AskNettyProps> = ({ libraryItems, onOpenMov
 
       if (groqService.isAvailable()) {
         try {
-          // Prepare recent conversation messages (last 6 messages) for multi-turn conversational context
-          const historyForAI = activeConversation.messages.slice(-6).map((m) => ({
-            role: (m.sender === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
-            content: m.text,
-          }));
+          let systemPrompt = '';
+          let historyForAI: Array<{ role: 'user' | 'assistant'; content: string }> = [];
 
-          const candidateListStr = scoredResults.slice(0, 5).map((r, i) => {
-            const top100Params = Object.entries(r.item.parameters_100 || {})
-              .filter(([_, v]) => typeof v === 'number' && v >= 0.60)
-              .sort((a, b) => (b[1] as number) - (a[1] as number))
-              .slice(0, 4)
-              .map(([k, v]) => `${k.replace(/_/g, ' ')} (${Math.round((v as number) * 100)}%)`)
-              .join(', ');
+          if (intent.type === 'status_check') {
+            systemPrompt = `You are Netty, Netflix India's smart, warm, and cinephile AI companion.
+The user is asking if you are online, active, or ready ("${query}").
 
-            const qwenDimensions = [
-              r.item.storyPace ? `Pace: ${r.item.storyPace}` : null,
-              r.item.endingType ? `Ending: ${r.item.endingType}` : null,
-              r.item.settingEnvironment ? `Setting: ${r.item.settingEnvironment}` : null,
-              r.item.timePeriod ? `Period: ${r.item.timePeriod}` : null,
-            ].filter(Boolean).join(' | ');
+Instructions:
+- Confirm warmly, directly, and confidently that you are fully online and ready to help them explore Netflix India!
+- Keep your response very concise (1 to 2 sentences maximum).
+- Do NOT push specific movie titles or generate cards.
+- Do NOT bring up past conversation topics or old search terms.
+- Sound confident, friendly, and smart (e.g. "I'm fully online and ready! 🍿 What kind of movie or series are you in the mood for today?").`;
+            historyForAI = [];
+          } else if (intent.type === 'greeting') {
+            systemPrompt = `You are Netty, Netflix India's smart, warm, and cinephile AI companion.
+The user sent a friendly greeting ("${query}").
 
-            return `${i + 1}. **${r.item.title}** (${r.item.releaseYear || 'N/A'}, ${r.item.mediaType === 'tv' ? 'Series' : 'Movie'}, IMDb: ${r.item.imdbRating || r.item.rating || 'N/A'})\n   Genres: ${(r.item.genres || []).join(', ')}\n   Qwen 28B Narrative Analysis: ${qwenDimensions || 'Catalog title'}\n   Dominant Continuous Vectors: ${top100Params || (r.item.themes || []).join(', ') || 'Drama'}\n   Synopsis: ${(r.item.synopsis || '').slice(0, 160)}...`;
-          }).join('\n\n');
+Instructions:
+- Greet the user back warmly and conversationally in 1-2 friendly sentences.
+- Invite them to tell you what they're in the mood to watch (mood, genre, runtime, or a favorite movie).
+- Keep it natural, warm, and concise. Do NOT list or push specific movie titles yet.`;
+            historyForAI = [];
+          } else if (intent.type === 'identity') {
+            systemPrompt = `You are Netty, Netflix India's AI film and television discovery engine powered by Qwen 28B and an enriched knowledge base of 4,800+ titles.
+The user asked about who you are or what you can do ("${query}").
 
-          const systemPrompt = `You are Netty, Netflix India's ultimate AI film & series curator powered by Qwen 28B.
+Instructions:
+- Explain your capabilities clearly and concisely in 1-2 short paragraphs.
+- You analyze titles across deep narrative parameters (pacing, twist endings, emotional vibe, intensity, runtime) to find exact matches for any mood or taste.
+- Give 2 brief examples of queries they can ask (e.g. "10 thrillers under 2 hours" or "mind-bending sci-fi like Tenet").`;
+            historyForAI = [];
+          } else if (intent.type === 'chitchat') {
+            systemPrompt = `You are Netty, Netflix India's clever, friendly, and witty AI companion.
+The user is having casual conversation or polite chit-chat ("${query}").
+
+Instructions:
+- Respond naturally, cleverly, and warmly in 1-2 sentences.
+- If asked for a joke, tell a clever film-themed joke.
+- Keep it engaging and concise without generating unsolicited movie recommendation lists.`;
+            historyForAI = activeConversation.messages.slice(-4).map((m) => ({
+              role: (m.sender === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
+              content: m.text,
+            }));
+          } else if (intent.type === 'movie_trivia') {
+            systemPrompt = `You are Netty, an encyclopedic film and television buff and Netflix curator.
+The user asked a factual cinema or TV question: "${query}".
+
+Instructions:
+- Answer accurately, insightfully, and conversationally in 1-2 concise paragraphs.
+- Share interesting film context where relevant.`;
+            historyForAI = activeConversation.messages.slice(-4).map((m) => ({
+              role: (m.sender === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
+              content: m.text,
+            }));
+          } else {
+            // recommendation / discovery
+            const candidateListStr = scoredResults.slice(0, 5).map((r, i) => {
+              const top100Params = Object.entries(r.item.parameters_100 || {})
+                .filter(([_, v]) => typeof v === 'number' && v >= 0.60)
+                .sort((a, b) => (b[1] as number) - (a[1] as number))
+                .slice(0, 4)
+                .map(([k, v]) => `${k.replace(/_/g, ' ')} (${Math.round((v as number) * 100)}%)`)
+                .join(', ');
+
+              const qwenDimensions = [
+                r.item.storyPace ? `Pace: ${r.item.storyPace}` : null,
+                r.item.endingType ? `Ending: ${r.item.endingType}` : null,
+                r.item.settingEnvironment ? `Setting: ${r.item.settingEnvironment}` : null,
+                r.item.timePeriod ? `Period: ${r.item.timePeriod}` : null,
+              ].filter(Boolean).join(' | ');
+
+              return `${i + 1}. **${r.item.title}** (${r.item.releaseYear || 'N/A'}, ${r.item.mediaType === 'tv' ? 'Series' : 'Movie'}, IMDb: ${r.item.imdbRating || r.item.rating || 'N/A'})\n   Genres: ${(r.item.genres || []).join(', ')}\n   Qwen 28B Narrative Analysis: ${qwenDimensions || 'Catalog title'}\n   Dominant Continuous Vectors: ${top100Params || (r.item.themes || []).join(', ') || 'Drama'}\n   Synopsis: ${(r.item.synopsis || '').slice(0, 160)}...`;
+            }).join('\n\n');
+
+            systemPrompt = `You are Netty, Netflix India's ultimate AI film & series curator powered by Qwen 28B.
 You are powered by our Local SQLite Knowledge Base containing 4,800+ titles enriched across 100 continuous emotional, thematic, and narrative parameters (pacing, ending types, setting, intensity).
 You are warm, intelligent, enthusiastic, and talk like a passionate cinephile friend.
 
@@ -560,8 +700,13 @@ ${candidateListStr || '(No direct title match in current catalog slice)'}
 
 Instructions:
 - If recommending titles, highlight 2-3 of the top titles above and explain why they match the user's vibe using the local Qwen narrative insights (e.g. story pace, twist ending, psychological intensity, or emotional warmth).
-- If the user asks a conversational question, greets you ("hi", "who are you"), or asks about a movie/show/actor, answer intelligently and conversationally.
-- Keep responses engaging, well-formatted, and helpful (2-4 concise paragraphs max). Use bold text for movie titles.`;
+- Keep responses engaging, well-formatted, and helpful (1-3 concise paragraphs max). Use bold text for movie titles.`;
+
+            historyForAI = activeConversation.messages.slice(-6).map((m) => ({
+              role: (m.sender === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
+              content: m.text,
+            }));
+          }
 
           const aiMessages = [
             { role: 'system' as const, content: systemPrompt },
@@ -569,7 +714,11 @@ Instructions:
             { role: 'user' as const, content: query }
           ];
 
-          const groqReply = await groqService.chatCompletion(aiMessages, 0.4, 600);
+          const groqReply = await groqService.chatCompletion(
+            aiMessages,
+            intent.type === 'status_check' || intent.type === 'greeting' ? 0.3 : 0.4,
+            intent.type === 'status_check' || intent.type === 'greeting' ? 120 : 600
+          );
           if (groqReply) {
             replyText = groqReply;
           }
@@ -578,12 +727,24 @@ Instructions:
         }
       }
 
-      // Fallback response if Groq is unavailable
+      // Smart Fallback response if Groq is unavailable
       if (!replyText) {
-        if (scoredResults.length > 0) {
-          replyText = `Found ${scoredResults.length} title(s) matching your request:`;
+        if (intent.type === 'status_check') {
+          replyText = "I'm fully online and ready! 🍿 What kind of movie or series are you in the mood for today?";
+        } else if (intent.type === 'greeting') {
+          replyText = "Hey there! Ready to discover your next favorite watch on Netflix India? Tell me what genre, mood, or vibe you're looking for!";
+        } else if (intent.type === 'identity') {
+          replyText = "I'm Netty, your Netflix India AI film & series curator! I analyze thousands of titles using story pace, twist endings, emotional vibe, and runtime constraints to find your perfect match. Try asking for '10 thrillers under 2 hours' or 'mind-bending sci-fi'!";
+        } else if (intent.type === 'chitchat') {
+          replyText = "Always happy to chat! Whenever you're ready for movie or series recommendations, just let me know what you'd like to watch!";
+        } else if (intent.type === 'movie_trivia') {
+          replyText = "I love talking film trivia! Let me know which movies or shows you'd like to explore next.";
         } else {
-          replyText = `I couldn't find titles matching all strict constraints. Try asking with different genres, moods, or removing the runtime cap!`;
+          if (scoredResults.length > 0) {
+            replyText = `Found ${scoredResults.length} title(s) matching your request:`;
+          } else {
+            replyText = `I couldn't find titles matching all strict constraints. Try asking with different genres, moods, or removing the runtime cap!`;
+          }
         }
       }
 
@@ -591,7 +752,7 @@ Instructions:
         id: 'n_' + Date.now(),
         sender: 'netty',
         text: replyText,
-        results: scoredResults,
+        results: intent.requiresCatalogSearch && scoredResults.length > 0 ? scoredResults : undefined,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
 
