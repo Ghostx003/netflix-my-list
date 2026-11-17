@@ -966,20 +966,22 @@ export const DiscoveryDetailModal: React.FC<DiscoveryDetailModalProps> = ({
                     💭 {mood}
                   </span>
                 ))}
-                {currentTitle.genres && currentTitle.genres.map((genre) => (
-                  <button
-                    key={genre}
-                    type="button"
-                    onClick={() => {
-                      pauseTrailer();
-                      setSelectedTagModal({ tag: genre, type: 'genre' });
-                    }}
-                    className="px-2.5 py-0.5 rounded-full bg-zinc-800/90 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/60 hover:border-zinc-500 text-xs font-medium cursor-pointer transition-all hover:scale-105 shadow-sm"
-                    title={`Click to explore all titles with genre "${genre}"`}
-                  >
-                    {genre}
-                  </button>
-                ))}
+                {Array.from(new Set([...(currentTitle.genres || []), ...(currentTitle.secondaryGenres || [])]))
+                  .filter((genre) => !currentTitle.primaryGenre || genre.toLowerCase() !== currentTitle.primaryGenre.toLowerCase())
+                  .map((genre) => (
+                    <button
+                      key={genre}
+                      type="button"
+                      onClick={() => {
+                        pauseTrailer();
+                        setSelectedTagModal({ tag: genre, type: 'genre' });
+                      }}
+                      className="px-2.5 py-0.5 rounded-full bg-zinc-800/90 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/60 hover:border-zinc-500 text-xs font-medium cursor-pointer transition-all hover:scale-105 shadow-sm"
+                      title={`Click to explore all titles with genre "${genre}"`}
+                    >
+                      {genre}
+                    </button>
+                  ))}
               </div>
 
               {/* Synopsis */}

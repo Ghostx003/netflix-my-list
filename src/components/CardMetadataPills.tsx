@@ -178,32 +178,51 @@ export const CardPosterOverlay: React.FC<{
 interface CardMetadataPillsProps {
   item: CardMetadata;
   onTagClick?: (tag: string, type: 'genre' | 'theme' | 'vibe' | 'mood' | 'pace', e: React.MouseEvent) => void;
+  onMoreClick?: (e: React.MouseEvent) => void;
   maxMoods?: number;
   maxThemes?: number;
   maxGenres?: number;
   maxSecondaryGenres?: number;
+  showMoods?: boolean;
+  showThemes?: boolean;
   className?: string;
   showVibeAndPaceInline?: boolean;
 }
 
 /**
- * Creative Rich Narrative Metadata Dimensions INSIDE the card body:
- * Mentions ALL moods, ALL themes, ALL genres, plus Audience Vibe and Story Pace.
+ * Creative Rich Narrative Metadata Dimensions:
+ * On cards, strictly limits to 5 genres max (clean, uncluttered Netflix design)
+ * while keeping all themes & moods for the detail modal when clicked.
  */
 export const CardMetadataPills: React.FC<CardMetadataPillsProps> = ({
   item,
   onTagClick,
+  onMoreClick,
   maxMoods,
   maxThemes,
-  maxGenres,
+  maxGenres = 5,
+  showMoods = false,
+  showThemes = false,
   className = '',
   showVibeAndPaceInline = false,
 }) => {
   const resolved = resolveCardMetadata(item);
 
-  const moodsToDisplay = maxMoods ? resolved.moods.slice(0, maxMoods) : resolved.moods;
-  const themesToDisplay = maxThemes ? resolved.themes.slice(0, maxThemes) : resolved.themes;
-  const genresToDisplay = maxGenres ? resolved.allGenresCombined.slice(0, maxGenres) : resolved.allGenresCombined;
+  const shouldShowMoods = showMoods || (typeof maxMoods === 'number' && maxMoods > 0);
+  const shouldShowThemes = showThemes || (typeof maxThemes === 'number' && maxThemes > 0);
+
+  const moodsToDisplay = shouldShowMoods
+    ? (maxMoods ? resolved.moods.slice(0, maxMoods) : resolved.moods)
+    : [];
+  const themesToDisplay = shouldShowThemes
+    ? (maxThemes ? resolved.themes.slice(0, maxThemes) : resolved.themes)
+    : [];
+
+  const effectiveMaxGenres = typeof maxGenres === 'number' ? maxGenres : 5;
+  const genresToDisplay = effectiveMaxGenres > 0
+    ? resolved.allGenresCombined.slice(0, effectiveMaxGenres)
+    : resolved.allGenresCombined;
+  const remainingGenresCount = resolved.allGenresCombined.length - genresToDisplay.length;
 
   return (
     <div className={`flex flex-col gap-1.5 mt-2 ${className}`}>
@@ -242,7 +261,7 @@ export const CardMetadataPills: React.FC<CardMetadataPillsProps> = ({
         </div>
       )}
 
-      {/* 1. ALL GENRES */}
+      {/* 1. GENRES (Max 5 on cards) */}
       {genresToDisplay.length > 0 && (
         <div className="flex flex-wrap items-center gap-1">
           <span className="text-[9px] font-black text-rose-400 uppercase tracking-wider shrink-0 flex items-center gap-0.5">
@@ -269,10 +288,24 @@ export const CardMetadataPills: React.FC<CardMetadataPillsProps> = ({
               </button>
             );
           })}
+          {remainingGenresCount > 0 && (
+            <span
+              onClick={(e) => {
+                if (onMoreClick) {
+                  e.stopPropagation();
+                  onMoreClick(e);
+                }
+              }}
+              className="text-[9px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 border border-white/5 cursor-pointer transition-colors"
+              title={`${remainingGenresCount} more genres. Click card to view all details, moods & themes.`}
+            >
+              +{remainingGenresCount} more
+            </span>
+          )}
         </div>
       )}
 
-      {/* 2. ALL MOODS */}
+      {/* 2. ALL MOODS (Shown in detail views or when explicitly enabled) */}
       {moodsToDisplay.length > 0 && (
         <div className="flex flex-wrap items-center gap-1">
           <span className="text-[9px] font-black text-cyan-400 uppercase tracking-wider shrink-0 flex items-center gap-0.5">
@@ -295,7 +328,7 @@ export const CardMetadataPills: React.FC<CardMetadataPillsProps> = ({
         </div>
       )}
 
-      {/* 3. ALL THEMES */}
+      {/* 3. ALL THEMES (Shown in detail views or when explicitly enabled) */}
       {themesToDisplay.length > 0 && (
         <div className="flex flex-wrap items-center gap-1">
           <span className="text-[9px] font-black text-purple-400 uppercase tracking-wider shrink-0 flex items-center gap-0.5">
